@@ -130,7 +130,7 @@ def resolve(node_id: Optional[str] = None, root: Optional[str] = None) -> Dict[s
         "role": role,
         "source": source,
         "root": work_root,
-        "resolved_at": util.now_rfc3339(),
+        "resolved_at": util.now_display(),
     }
 
     if source != "file":

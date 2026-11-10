@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ark_node import envsync, util  # noqa: E402
 
-VERSION = "2026-11-09T10:00:00+08:00"
+VERSION = "2026-11-09b"
 USER = "ark"
 PASSWORD = "test-pass"
 UNRELATED_VALUE = "keep-me"

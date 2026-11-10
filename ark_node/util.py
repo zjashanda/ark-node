@@ -2,10 +2,13 @@
 
 时间契约（全仓库唯一口径）
 --------------------------
-对外展示一律使用 **北京时间、无时区后缀**：``YYYY-MM-DD HH:MM:SS``。
-机器可读字段使用 RFC3339（``tz`` 或 ``Z``），文件名使用
-``YYYYMMDD-HHMMSS``。三种形态都从同一个 ``now_local()`` 推导，避免节点
-时区不同导致台账对不上。
+对外展示、机器可读字段、日志、回执与文档示例一律使用 **北京时间、无时区
+标记**：``YYYY-MM-DD HH:MM:SS``。禁止 ``T`` 分隔符、``Z`` 后缀、数字时区
+偏移（如 ``+0800``）以及任何等价的带时区表示；外部系统的原始时间串只允许
+放进 ``raw_*`` 字段原样保留。目录名/文件名这类标识符可用紧凑形式
+``YYYYMMDD-HHMMSS``，但它不是时间字段。
+
+所有形态都从同一个 ``now_local()`` 推导，避免节点时区不同导致台账对不上。
 """
 
 from __future__ import annotations
@@ -44,33 +47,31 @@ EXIT_CODES = {
 
 BEIJING = timezone(timedelta(hours=8), name="Asia/Shanghai")
 
-# 北京时间无时区展示格式 / 机器可读 RFC3339 / 文件名格式
+# 对外时间字段唯一格式；DISPLAY_PATTERN 由 tools/time_lint.py 与单测共用，改动即破坏契约
 FMT_DISPLAY = "%Y-%m-%d %H:%M:%S"
-FMT_RFC3339 = "%Y-%m-%dT%H:%M:%S%z"
 FMT_STAMP = "%Y%m%d-%H%M%S"
+DISPLAY_PATTERN = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
 
 # --------------------------------------------------------------------- 时间
 
 
 def now_local() -> datetime:
-    """当前时间（固定按北京时间换算，不依赖节点本地时区）。"""
-    return datetime.now(timezone.utc).astimezone(BEIJING)
+    """当前时间（固定按北京时间取，不依赖节点本地时区设置）。"""
+    return datetime.now(BEIJING)
 
 
 def now_display() -> str:
+    """契约时间字段：北京时间、无时区标记。对外只允许用它。"""
     return now_local().strftime(FMT_DISPLAY)
 
 
-def now_rfc3339() -> str:
-    return now_local().strftime(FMT_RFC3339)
-
-
 def now_stamp() -> str:
+    """目录名/文件名的紧凑标识符，不是时间字段。"""
     return now_local().strftime(FMT_STAMP)
 
 
 def parse_display(text: str) -> datetime:
-    """解析北京时间无时区字符串，返回带 +08:00 的 datetime。"""
+    """解析契约时间字段，得到带北京时间 tzinfo 的 datetime（仅内部计算用，不对外输出）。"""
     naive = datetime.strptime(text.strip(), FMT_DISPLAY)
     return naive.replace(tzinfo=BEIJING)
 
