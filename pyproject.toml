@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ark-node"
+version = "0.1.0"
+description = "Ark 节点统一入口：环境变量同步、节点身份、能力探测、安全取件"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Ark / NoahsArk" }]
+keywords = ["ark", "node", "bootstrap", "capability", "artifact"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Environment :: Console",
+]
+dependencies = []
+
+[project.scripts]
+ark-node = "ark_node.cli:main"
+
+[tool.setuptools]
+packages = ["ark_node"]
+
+[tool.setuptools.package-data]
+ark_node = ["../config/*.json", "../config/*.yaml"]

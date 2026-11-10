@@ -1,0 +1,31 @@
+# 本地运行时产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# 节点本机配置：绝不应被提交
+config/*.local.json
+*.local.json
+.env
+.env.*
+auth
+auth.json
+node.json
+mesh-sources.json
+env-state.json
+
+# 任务目录与缓存
+.ark/
+.ark-node-*
+*.log
+inbox/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

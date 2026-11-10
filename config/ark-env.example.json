@@ -1,0 +1,6 @@
+{
+  "schema": "ark-env-sources.v1",
+  "candidates": [
+    "https://ark-env.example.com:8443"
+  ]
+}

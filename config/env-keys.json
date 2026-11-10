@@ -1,0 +1,15 @@
+{
+  "schema": "ark-env-keys.v1",
+  "keys": [
+    "GITHUB_TOKEN",
+    "ACCESS_KEY_ID",
+    "ACCESS_KEY_SECRET",
+    "LSTTS_TTS_TOKEN",
+    "EMAIL_PASSWORD",
+    "NAS_ACCOUNT",
+    "NAS_PASSWORD",
+    "STORAGE_HOST",
+    "STORAGE_USER",
+    "STORAGE_PASSWORD"
+  ]
+}

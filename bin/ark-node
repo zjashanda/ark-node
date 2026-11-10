@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# ark-node 启动器：不安装也能直接跑。
+# 用法：./bin/ark-node probe --out capability.json
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(dirname "$here")"
+
+PY="${ARK_NODE_PYTHON:-python3}"
+if ! command -v "$PY" >/dev/null 2>&1; then
+  echo "ark-node: 找不到 $PY，请安装 Python 3.8+ 或用 ARK_NODE_PYTHON 指定解释器" >&2
+  exit 2
+fi
+
+export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PY" -m ark_node "$@"
