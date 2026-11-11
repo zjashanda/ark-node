@@ -99,7 +99,7 @@ printf '%s' "$ARK_HTTP_PASS" | ark-node env --pass-stdin --apply
 - `fetch` 内置文件名守卫：`.env`、`*.key`、`*.pem`、`id_rsa`、`auth.json`、`git-credentials` 等一律拒绝，且拒绝 `..` 路径穿越。
 - 所有写盘走原子写 + 600；所有 JSON 输出经 `redact` 过一遍才落地。
 - `tools/secret_scan.py` 可在提交前自查：`python3 tools/secret_scan.py ark_node config docs tests tools`。
-- `tools/time_lint.py` 拦截违反时间契约的写法（`T` 分隔、`Z` 后缀、数字时区偏移、带时区序列化）：`python3 tools/time_lint.py`，0 违规才允许提交。`tests/test_time_contract.py` 保证新输出始终是 `YYYY-MM-DD HH:MM:SS`。
+- `tools/time_lint.py` 拦截违反时间契约的写法（`T` 分隔、`Z` 后缀、数字时区偏移、小数秒/毫秒、带时区序列化）：`python3 tools/time_lint.py`，0 违规才允许提交。`tests/test_time_contract.py` 保证新输出始终是 `YYYY-MM-DD HH:MM:SS`。
 
 ## 与旧工具的兼容
 

@@ -44,6 +44,7 @@ RULES: List[Tuple[str, str]] = [
     ("iso-t-separator", "date-time literal using 'T' as the date/time separator (use a space)"),
     ("iso-z-suffix", "time literal carrying a trailing 'Z' UTC designator (forbidden)"),
     ("utc-offset", "time literal followed by a numeric UTC offset (forbidden)"),
+    ("fractional-seconds", "time literal carrying fractional seconds (contract is second precision)"),
     ("rfc3339-mention", "recommendation to emit an RFC-3339/ISO time string (forbidden)"),  # noqa: time-lint
     ("doc-placeholder", "documentation placeholder that prescribes a 'T' date-time shape"),
     ("stamp-in-field", "non-raw JSON field holding a compact stamp (stamps belong in names only)"),
@@ -52,6 +53,7 @@ RULES: List[Tuple[str, str]] = [
 T_SEPARATOR = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")  # noqa: time-lint
 Z_SUFFIX = re.compile(r"\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")  # noqa: time-lint
 UTC_OFFSET = re.compile(r"\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?[+-]\d{2}:?\d{2}\b")  # noqa: time-lint
+FRACTIONAL_SECONDS = re.compile(r"\d{2}:\d{2}:\d{2}\.\d+\b")  # noqa: time-lint
 TIME_RECOMMENDATION = re.compile(r"(?:RFC3339|rfc3339|isoformat\(|utcnow\(|utcfromtimestamp\()")  # noqa: time-lint
 DOC_PLACEHOLDER = re.compile(r"(?:YYYY|yyyy)-(?:MM|mm)-(?:DD|dd)\[?[Tt]|%Y-%m-%dT")  # noqa: time-lint
 STAMP_FIELD = re.compile(r"""["']([A-Za-z0-9_.\-]+)["']\s*:\s*["'](\d{8}-\d{6})["']""")  # noqa: time-lint
@@ -64,6 +66,7 @@ VALUE_RULES: List[Tuple[str, Any]] = [
     ("iso-t-separator", T_SEPARATOR),
     ("iso-z-suffix", Z_SUFFIX),
     ("utc-offset", UTC_OFFSET),
+    ("fractional-seconds", FRACTIONAL_SECONDS),
 ]
 
 
