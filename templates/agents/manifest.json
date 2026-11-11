@@ -4,13 +4,13 @@
   "version": "1.0.1",
   "channel": "immutable",
   "source_version": "1.0.1",
-  "published_at": "2026-11-11 16:36:38",
+  "published_at": "2026-11-11 16:36:54",
   "template_schema": "ark.agent-template.v1",
   "git": {
     "repo": "zjashanda/ark-node",
-    "commit": "aa4524a7155f1b4967f09d08d020869709bdddd2",
+    "commit": "fa9119b90fd4f02cca7eb696c011ce22606ba269",
     "path": "templates/agents",
-    "dirty": true,
+    "dirty": false,
     "tracked": true
   },
   "oss": {
