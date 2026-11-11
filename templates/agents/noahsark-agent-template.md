@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.0.0
+# NoahsArk 智能体模板 v1.0.1
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -14,7 +14,7 @@
 | 项目 | 值 |
 |---|---|
 | 模板 schema | `ark.agent-template.v1` |
-| 模板版本 | `1.0.0` |
+| 模板版本 | `1.0.1` |
 | 配套机器可读配置 | `agent-profile.v1.json`（同目录） |
 | 配套校验器 | `verify-template.py`（同目录） |
 | 兼容 | `agent-profile.v1`，ark-node ≥ 0.1.0 |
@@ -27,8 +27,9 @@
 2. **填 profile**：复制 `agent-profile.v1.json` 的 `default` 段，按 `fields` 段的约束改成本智能体的实例配置。
 3. **建 Multica Agent**：`instructions` 写长期行为契约（第 2 节），`description` 写一句话定位。两者不是同一个东西。
 4. **配运行时**：runtime / model / `max_concurrent_tasks` 按第 3 节，硬件台架默认 1。
-5. **首次自检**：按第 11 节逐项跑，产出 `ark.agent-onboarding.v1` 回执。
-6. **交回执**：回执落在任务目录 `receipts/` 下，并在 issue 评论里贴关键字段。
+5. **建任务目录**：按第 4 节在固定根下建出 `<tasks-id>` 目录（`plan.md`、`manifest.json` 与五个子目录），并把执行切进去。平台自动给的 workdir 不算任务目录。
+6. **首次自检**：按第 11 节逐项跑，产出 `ark.agent-onboarding.v1` 回执。
+7. **交回执**：回执落在任务目录 `receipts/` 下，并在 issue 评论里贴关键字段。
 
 自检没过不要接任务。半成品智能体比没有智能体更贵——它会产出无法追溯的结论。
 
@@ -84,7 +85,7 @@
 | `runtime` | 节点名（如 `bszT14`、`win005`） | 决定工作目录形态与可用工具 |
 | `model` | 工作区已有模型 | 不要用未在本工作区注册的模型 |
 | `max_concurrent_tasks` | 见下表 | 超配会导致任务互相踩目录 |
-| `task_root` | 见第 4 节 | 必须有写权限 |
+| `task_root` | 见第 4 节，按平台取 `task_root_windows` / `task_root_linux` | 必须存在且可写；平台自动 workdir 不算 |
 
 | 角色 | 默认 `max_concurrent_tasks` | 理由 |
 |---|---|---|
@@ -102,38 +103,40 @@
 
 每个任务一个目录，目录内结构固定。**任务目录是任务的身份证**，路径本身就是证据。
 
-### Windows 节点
+### 唯一目录规则（覆盖任何其他写法）
 
-```
-D:\zhsh\workspace\tasks\<issue-id>\
-```
+| 平台 | 任务根 | 每个任务的目录 |
+|---|---|---|
+| Windows | `D:\zhsh\workspace\tasks` | `D:\zhsh\workspace\tasks\<tasks-id>\` |
+| Linux | `/home/zhsh/workspace/tasks` | `/home/zhsh/workspace/tasks/<tasks-id>/` |
 
-### Linux 节点
+`<tasks-id>` 是**任务标识**，不是时间戳：有 Multica issue 就用 issue 标识，没有 issue 才用唯一任务 ID。
+一个任务一个 `<tasks-id>`，不共享、不复用别人的目录。
 
-```
-/home/bszheng/tasks/<YYYYMMDD-HHMMSS>-<slug>/
-```
+平台自动给的运行时 workdir **不是**任务目录。它不在上表路径内时，先按上表建出真实任务目录，
+把执行切过去再干活；建不出来或不允许建，直接报 `BLOCKED_WORKDIR_POLICY` 并停下，不要就地凑合。
 
-`<YYYYMMDD-HHMMSS>` 是任务开始时的时间戳标识符（第 8 节），`<slug>` 是短横线连接的英文小写短语。
+以下位置**永远不能当任务根**：Windows 的 C 盘（含 `%TEMP%`）、Linux 的 `/tmp`、以及任何个人主目录下的
+临时工作区。它们只能当短时临时区：产物与证据必须及时复制回任务目录，本任务的临时文件用完即清。
 
 ### 目录内固定结构
 
 | 子目录 / 文件 | 放什么 | 谁写 |
 |---|---|---|
-| `plan/` | dispatch plan、任务拆解、审批记录 | coordinator |
-| `assets/` | 输入资产（语料、固件、工具包）及其 manifest | node-executor |
+| `plan.md` | 任务拆解、dispatch plan、审批记录（任务根下的文件） | coordinator |
+| `manifest.json` | 产物清单与 sha256（任务根下的文件） | 执行者 |
+| `assets/` | 输入资产（语料、固件、工具包）及其资产清单 | node-executor |
 | `work/` | 中间产物、解压结果、临时脚本 | 执行者 |
 | `logs/` | 命令输出与运行日志 | 执行者 |
 | `result/` | 结论文件、统计结果 | 执行者 |
 | `receipts/` | run receipt、onboarding receipt | 执行者 / curator |
-| `manifest/` | 产物清单与 sha256 | 执行者 |
 
 规则：
 
-- 目录名里**只允许**用标识符形态的时间戳，不允许带时区、不允许带毫秒。
 - 同一任务重复初始化必须幂等：存在即复用，不新建 `-2`、`-copy`、`-new`。
 - 任务结束后目录不删，归档到存储节点（第 6 节），本地保留索引。
 - 临时文件放 `work/tmp/`，任务结束清理；清理前先列清单。
+- 目录名只由 `<tasks-id>` 决定，不带时区、不带时间戳后缀、不带毫秒。
 
 ---
 
@@ -304,7 +307,7 @@ python scripts/dispatch.py check --plan plan.json
 | 用途 | 格式 | 示例 |
 |---|---|---|
 | 一切时间字段（人读 / 机器读 / 排序） | `YYYY-MM-DD HH:MM:SS` | `2026-11-10 19:04:31` |
-| 目录名 / 文件名（标识符，不是时间字段） | `YYYYMMDD-HHMMSS` | `20261110-190431` |
+| 文件名里的时间戳（标识符，不是时间字段，如日志文件名） | `YYYYMMDD-HHMMSS` | `20261110-190431` |
 
 ### 8.2 禁止事项
 
@@ -436,7 +439,7 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 | 2 | profile 合法 | 必填字段齐全，枚举值在范围内 |
 | 3 | 时间口径 | `time_lint` 干净，时间字段符合第 8 节 |
 | 4 | 凭据就位 | 必需键名存在于环境，**只报键名与缺失项** |
-| 5 | 任务目录 | `task_root` 存在且可写，`init` 幂等 |
+| 5 | 任务目录 | 第 4 节的固定根存在且可写，`<tasks-id>` 目录含 `plan.md`、`manifest.json` 与五个子目录，`init` 幂等 |
 | 6 | 来源可达 | 至少一个 Git 通道可用；SkillHub 状态可读 |
 | 7 | 存储可达 | 存储节点连通；不可达则记录端点与失败原因，不判定「不存在」 |
 
@@ -448,7 +451,7 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
   "workspace": "workspace-name",
   "agent_name": "方舟+角色",
   "profile_version": "agent-profile.v1",
-  "template_version": "1.0.0",
+  "template_version": "1.0.1",
   "template_sha256": "<模板文件摘要>",
   "verified_at": "2026-11-11 10:30:00",
   "runtime": { "agent_id": "...", "runtime_id": "...", "model": "..." },
@@ -485,7 +488,7 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | 声称 started=YES 但没 run | 先拿到运行证据再报 |
 | 后台跑任务然后结束本轮 | 前台等到结果，或交回平台唤醒 |
 | 代码测试绿了就报「验证通过」 | 真机结果只能来自真机执行 |
-| 目录名带毫秒/时区 | 只用 `YYYYMMDD-HHMMSS` |
+| 目录名带毫秒/时区/时间戳后缀 | 目录名只用 `<tasks-id>` |
 
 ---
 
@@ -501,9 +504,13 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | `runtime.runtime_id` | string | 目标节点 |
 | `runtime.model` | string | 工作区已注册模型 |
 | `runtime.max_concurrent_tasks` | int | 见第 3 节，`hardware-bench` 固定 1 |
-| `paths.task_root` | string | 与平台对应的任务根目录 |
-| `paths.task_dir_pattern` | string | 任务目录形态 |
-| `paths.subdirs` | array | 固定七个子目录 |
+| `paths.task_root_windows` | string | `D:\zhsh\workspace\tasks`（常量） |
+| `paths.task_root_linux` | string | `/home/zhsh/workspace/tasks`（常量） |
+| `paths.task_dir_pattern` | string | `<tasks-id>`（常量） |
+| `paths.task_id_source` | string | issue 标识优先，否则唯一任务 ID |
+| `paths.subdirs` | array | 固定五个子目录 |
+| `paths.root_files` | array | 任务根下的 `plan.md`、`manifest.json` |
+| `paths.on_violation` | string | 无法遵守目录规则时报 `BLOCKED_WORKDIR_POLICY` |
 | `sources.git.canonical_repo` | string | 真源仓库 |
 | `sources.git.ssh_alias` | string | SSH 别名（无凭据） |
 | `sources.skillhub.manifest` | string | canonical 清单位置 |

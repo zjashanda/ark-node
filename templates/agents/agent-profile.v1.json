@@ -1,7 +1,7 @@
 {
   "schema": "ark.agent-profile.v1",
-  "profile_version": "1.0.0",
-  "template_version": "1.0.0",
+  "profile_version": "1.0.1",
+  "template_version": "1.0.1",
   "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
   "default": {
     "schema": "ark.agent-profile.v1",
@@ -17,10 +17,12 @@
     },
     "paths": {
       "task_root_windows": "D:\\zhsh\\workspace\\tasks",
-      "task_root_linux": "/home/bszheng/tasks",
-      "task_dir_pattern_windows": "<issue-id>",
-      "task_dir_pattern_linux": "<YYYYMMDD-HHMMSS>-<slug>",
-      "subdirs": ["plan", "assets", "work", "logs", "result", "receipts", "manifest"]
+      "task_root_linux": "/home/zhsh/workspace/tasks",
+      "task_dir_pattern": "<tasks-id>",
+      "task_id_source": "multica-issue-id-first",
+      "subdirs": ["assets", "work", "logs", "result", "receipts"],
+      "root_files": ["plan.md", "manifest.json"],
+      "on_violation": "BLOCKED_WORKDIR_POLICY"
     },
     "sources": {
       "git": {
@@ -78,7 +80,7 @@
       "onboarding": "ark.agent-onboarding.v1"
     },
     "compatibility": {
-      "template_version": "1.0.0",
+      "template_version": "1.0.1",
       "ark_node": ">=0.1.0",
       "skillhub_sync": ">=1.0.0",
       "asset_tools": ">=0.1.0"
@@ -153,18 +155,20 @@
     },
     "runtime.timeout_minutes": { "type": "integer", "required": false, "minimum": 1 },
     "paths.task_root_windows": { "type": "string", "required": true, "const": "D:\\zhsh\\workspace\\tasks" },
-    "paths.task_root_linux": { "type": "string", "required": true, "const": "/home/bszheng/tasks" },
-    "paths.task_dir_pattern_windows": { "type": "string", "required": true },
-    "paths.task_dir_pattern_linux": {
-      "type": "string",
-      "required": true,
-      "pattern": "^<YYYYMMDD-HHMMSS>-<slug>$"
-    },
+    "paths.task_root_linux": { "type": "string", "required": true, "const": "/home/zhsh/workspace/tasks" },
+    "paths.task_dir_pattern": { "type": "string", "required": true, "const": "<tasks-id>" },
+    "paths.task_id_source": { "type": "string", "required": true, "const": "multica-issue-id-first" },
     "paths.subdirs": {
       "type": "array",
       "required": true,
-      "items_const": ["plan", "assets", "work", "logs", "result", "receipts", "manifest"]
+      "items_const": ["assets", "work", "logs", "result", "receipts"]
     },
+    "paths.root_files": {
+      "type": "array",
+      "required": true,
+      "items_const": ["plan.md", "manifest.json"]
+    },
+    "paths.on_violation": { "type": "string", "required": true, "const": "BLOCKED_WORKDIR_POLICY" },
     "sources.git.canonical_repo": { "type": "string", "required": true },
     "sources.git.ssh_alias": { "type": "string", "required": true },
     "sources.git.workflow": { "type": "string", "required": true, "const": "branch-and-pull-request" },

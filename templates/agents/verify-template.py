@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 PROFILE_SCHEMA = "ark.agent-profile.v1"
 REQUIRED_ROLES = ("template", "profile", "verifier")
@@ -84,8 +84,11 @@ PROFILE_REQUIRED = (
     "runtime.max_concurrent_tasks",
     "paths.task_root_windows",
     "paths.task_root_linux",
-    "paths.task_dir_pattern_linux",
+    "paths.task_dir_pattern",
+    "paths.task_id_source",
     "paths.subdirs",
+    "paths.root_files",
+    "paths.on_violation",
     "sources.git.canonical_repo",
     "sources.skillhub.manifest",
     "storage.root",
@@ -99,7 +102,13 @@ PROFILE_REQUIRED = (
 PROFILE_ROLES = ("coordinator", "node-executor", "hardware-bench", "knowledge-curator")
 EXPECTED_LOOP = ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"]
 EXPECTED_SUPERVISION = ["EXECUTION_CHECK", "PROGRESS_5M", "STATE_DRIFT", "RUNNING_NO_EVIDENCE"]
-EXPECTED_SUBDIRS = ["plan", "assets", "work", "logs", "result", "receipts", "manifest"]
+EXPECTED_SUBDIRS = ["assets", "work", "logs", "result", "receipts"]
+EXPECTED_ROOT_FILES = ["plan.md", "manifest.json"]
+EXPECTED_TASK_ROOTS = {
+    "task_root_windows": "D:\\zhsh\\workspace\\tasks",
+    "task_root_linux": "/home/zhsh/workspace/tasks",
+}
+EXPECTED_WORKDIR_VIOLATION = "BLOCKED_WORKDIR_POLICY"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -336,6 +345,24 @@ def check_profile(manifest: Dict[str, Any], base: Path) -> List[Check]:
             "profile-subdirs",
             _dig(default, "paths.subdirs") == EXPECTED_SUBDIRS,
             f"subdirs={_dig(default, 'paths.subdirs')}",
+        )
+    )
+    checks.append(
+        Check(
+            "profile-root-files",
+            _dig(default, "paths.root_files") == EXPECTED_ROOT_FILES,
+            f"root_files={_dig(default, 'paths.root_files')}",
+        )
+    )
+    roots = {key: _dig(default, f"paths.{key}") for key in EXPECTED_TASK_ROOTS}
+    pattern = _dig(default, "paths.task_dir_pattern")
+    violation = _dig(default, "paths.on_violation")
+    roots_ok = roots == EXPECTED_TASK_ROOTS and pattern == "<tasks-id>"
+    checks.append(
+        Check(
+            "profile-workdir-policy",
+            roots_ok and violation == EXPECTED_WORKDIR_VIOLATION,
+            f"roots={roots}, pattern={pattern}, on_violation={violation}",
         )
     )
 

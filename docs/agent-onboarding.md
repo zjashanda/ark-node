@@ -141,4 +141,5 @@ python3 templates/agents/publish-template.py --apply --yes \
 
 | 版本 | 变更 |
 |---|---|
+| 1.0.1 | 任务目录收敛为唯一规则：Windows `D:\zhsh\workspace\tasks\<tasks-id>\`、Linux `/home/zhsh/workspace/tasks/<tasks-id>/`；任务根下改为 `plan.md`、`manifest.json` + 五个子目录；平台自动 workdir 与 `%TEMP%`、`/tmp` 不得作任务根，无法遵守报 `BLOCKED_WORKDIR_POLICY` |
 | 1.0.0 | 首版：四角色、目录规范、canonical + SkillHub 来源、1006 与多来源取件、六步闭环、时间口径、凭据边界、四条监督规则、onboarding 回执 |

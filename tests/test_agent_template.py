@@ -81,30 +81,50 @@ class TemplateContentTests(unittest.TestCase):
 
 
 class TemplatePathTests(unittest.TestCase):
-    """两个平台的目录规范必须与 issue 口径一致。"""
+    """任务目录规则：固定根 + 每任务独立 <tasks-id> 目录。"""
 
     def setUp(self) -> None:
         self.text = read_template()
-        self.profile = load_profile()
+        self.paths = load_profile()["default"]["paths"]
 
-    def test_windows_task_root(self) -> None:
-        self.assertIn("D:\\zhsh\\workspace\\tasks\\<issue-id>\\", self.text)
+    def test_windows_task_root_is_d_drive(self) -> None:
+        self.assertEqual(self.paths["task_root_windows"], "D:\\zhsh\\workspace\\tasks")
+        self.assertIn("D:\\zhsh\\workspace\\tasks\\<tasks-id>\\", self.text)
+
+    def test_linux_task_root_is_absolute_home_zhsh(self) -> None:
+        self.assertEqual(self.paths["task_root_linux"], "/home/zhsh/workspace/tasks")
+        self.assertIn("/home/zhsh/workspace/tasks/<tasks-id>/", self.text)
+        self.assertNotIn("$HOME/zhsh", self.text, "Linux 任务根必须写死绝对路径，不用 $HOME")
+
+    def test_task_dir_is_identified_by_task_id_only(self) -> None:
+        self.assertEqual(self.paths["task_dir_pattern"], "<tasks-id>")
+        self.assertEqual(self.paths["task_id_source"], "multica-issue-id-first")
+        self.assertIn("<tasks-id>", self.text)
+
+    def test_old_task_roots_are_gone(self) -> None:
+        for stale in (
+            "/home/bszheng/tasks",
+            "C:\\NoahsArk\\tasks",
+            "D:\\skillhub",
+            "<YYYYMMDD-HHMMSS>-<slug>",
+        ):
+            self.assertNotIn(stale, self.text, f"模板里残留旧任务根: {stale}")
+
+    def test_temp_dirs_are_not_task_roots(self) -> None:
+        self.assertEqual(self.paths["on_violation"], "BLOCKED_WORKDIR_POLICY")
+        self.assertIn("BLOCKED_WORKDIR_POLICY", self.text)
+        self.assertNotIn("/tmp/<", self.text)
+        self.assertIn("永远不能当任务根", self.text)
+
+    def test_subdirs_and_root_files(self) -> None:
         self.assertEqual(
-            self.profile["default"]["paths"]["task_root_windows"], "D:\\zhsh\\workspace\\tasks"
+            self.paths["subdirs"], ["assets", "work", "logs", "result", "receipts"]
         )
-
-    def test_linux_task_root_and_pattern(self) -> None:
-        self.assertIn("/home/bszheng/tasks/<YYYYMMDD-HHMMSS>-<slug>/", self.text)
-        self.assertEqual(self.profile["default"]["paths"]["task_root_linux"], "/home/bszheng/tasks")
-        self.assertEqual(
-            self.profile["default"]["paths"]["task_dir_pattern_linux"], "<YYYYMMDD-HHMMSS>-<slug>"
-        )
-
-    def test_subdirs_are_the_seven(self) -> None:
-        expected = ["plan", "assets", "work", "logs", "result", "receipts", "manifest"]
-        self.assertEqual(self.profile["default"]["paths"]["subdirs"], expected)
-        for name in expected:
+        self.assertEqual(self.paths["root_files"], ["plan.md", "manifest.json"])
+        for name in self.paths["subdirs"]:
             self.assertIn(f"`{name}/`", self.text)
+        for name in self.paths["root_files"]:
+            self.assertIn(f"`{name}`", self.text)
 
 
 class Template1006Tests(unittest.TestCase):
@@ -232,7 +252,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.0.0")
+        self.assertEqual(self.profile["template_version"], "1.0.1")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -388,7 +408,7 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.0.0")
+        self.assertEqual(manifest["version"], "1.0.1")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
@@ -430,7 +450,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.0.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.0.1/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -453,7 +473,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"v1.0.0", b"v1.0.1", 1))
+        tampered.write_bytes(original.replace(b"1.0.1", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
