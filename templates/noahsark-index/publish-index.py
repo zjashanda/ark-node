@@ -211,7 +211,24 @@ def plan(manifest: dict) -> list:
     return steps
 
 
-def remote_probe(base_url: str):
+def probe_sentinel(oss: dict) -> bool:
+    """用一个已知存在的公开对象确认匿名读通道本身是通的。
+
+    阿里云 OSS 对「对象不存在」在无权列举的桶上返回 403 而不是 404，
+    因此不能把 403 直接当成「读取失败」；先确认匿名读可用，再判断存在性。
+    """
+    from oss_publish import anon_status, normalize_endpoint, object_url
+
+    prefix = oss["prefix"].rstrip("/")
+    url = object_url(
+        oss["bucket"],
+        normalize_endpoint(oss["endpoint"]),
+        "%s/agent-template/latest/manifest.json" % prefix,
+    )
+    return anon_status(url, timeout=30) == 200
+
+
+def remote_probe(base_url: str, oss: dict):
     """匿名读线上 index.json：返回 (version, sha256, status)。"""
     import hashlib
 
@@ -222,11 +239,16 @@ def remote_probe(base_url: str):
         status, body = anon_get(url, timeout=30)
     except Exception as exc:  # noqa: BLE001 - 统一映射为 NETWORK
         raise PublishError("联网读取 %s 失败：%s" % (url, exc), EXIT_NETWORK) from exc
-    if status == 404:
+    if status in (403, 404):
+        if not probe_sentinel(oss):
+            raise PublishError(
+                "无法匿名读取该桶（对照对象也不可读），不是「尚未发布」：HTTP %s" % status,
+                EXIT_FORBIDDEN,
+            )
         return None, None, status
     if status != 200:
         raise PublishError(
-            "线上 index.json 返回 HTTP %s（既非 200 也非 404）" % status, EXIT_NETWORK
+            "线上 index.json 返回 HTTP %s（既非 200、也非 403/404）" % status, EXIT_NETWORK
         )
     try:
         remote = json.loads(body.decode("utf-8"))
@@ -238,7 +260,7 @@ def remote_probe(base_url: str):
 def guard_version(manifest: dict, base_url: str, allow_republish: bool, allow_downgrade: bool) -> dict:
     local_version = manifest["version"]
     local_index_sha = sha256_bytes((BUILD_DIR / "index.json").read_bytes())
-    remote_version, remote_sha, status = remote_probe(base_url)
+    remote_version, remote_sha, status = remote_probe(base_url, manifest["oss"])
     info = {
         "local_version": local_version,
         "remote_version": remote_version,
