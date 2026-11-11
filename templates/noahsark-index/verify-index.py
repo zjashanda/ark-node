@@ -245,23 +245,37 @@ def check_online(index, manifest, out_dir, errors):
             errors.append("%s 线上内容与 manifest 记录不一致" % entry["object"])
 
 
-def check_git(index, errors):
+def check_git(index, errors, skipped=None):
+    """用 GitHub API 确认仓库存在。
+
+    * 未认证调用有每小时限额，命中限额时返回 403 —— 这既不是「仓库不存在」，
+      也不该判失败，因此记为跳过并说明原因。
+    * 环境里有 GITHUB_TOKEN 时自动带上（只读，不打印）。
+    """
     import json as _json
+    import os
     import urllib.error
     import urllib.request
+
+    skipped = skipped if skipped is not None else []
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    headers = {"User-Agent": "ark-index-verify", "Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
 
     repos = sorted({i["path"] for i in index.get("items") or [] if i.get("kind") == "git" and i.get("path")})
     for full in repos:
         url = "https://api.github.com/repos/%s" % full
         try:
-            request = urllib.request.Request(
-                url,
-                headers={"User-Agent": "ark-index-verify", "Accept": "application/vnd.github+json"},
-            )
+            request = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(request, timeout=20) as response:
                 _json.load(response)
         except urllib.error.HTTPError as exc:
-            errors.append("仓库不可达 %s: HTTP %s" % (full, exc.code))
+            remaining = exc.headers.get("X-RateLimit-Remaining") if exc.headers else None
+            if exc.code in (403, 429) and (remaining in (None, "0", 0) or not token):
+                skipped.append("%s 未核对（GitHub API 限额或未授权，HTTP %s）" % (full, exc.code))
+            else:
+                errors.append("仓库不可达 %s: HTTP %s" % (full, exc.code))
         except Exception as exc:  # noqa: BLE001
             errors.append("仓库检查异常 %s: %s" % (full, exc))
 
@@ -277,7 +291,8 @@ def main(argv=None):
 
     out_dir = Path(args.dir)
     errors = []
-    summary = {"ok": False, "checks": {}, "errors": errors}
+    skipped = []
+    summary = {"ok": False, "checks": {}, "errors": errors, "skipped": skipped}
 
     try:
         index = load(out_dir / "index.json")
@@ -302,7 +317,7 @@ def main(argv=None):
 
         if args.check_git:
             before = len(errors)
-            check_git(index, errors)
+            check_git(index, errors, skipped)
             summary["checks"]["git"] = len(errors) == before
     except Fail as exc:
         errors.append(str(exc))
@@ -315,6 +330,8 @@ def main(argv=None):
             print("校验未通过，共 %d 项：" % len(errors))
             for err in errors:
                 print("  - %s" % err)
+            for note in skipped:
+                print("  - %s" % note)
         else:
             print("校验通过：%d 个条目（可用 %d），%d 个角色" % (
                 (index.get("counts") or {}).get("items", 0),
