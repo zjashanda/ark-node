@@ -1,0 +1,54 @@
+{
+  "schema": "ark.agent-template.manifest.v1",
+  "name": "noahsark-agent-template",
+  "version": "1.0.0",
+  "channel": "immutable",
+  "source_version": "1.0.0",
+  "published_at": "2026-11-11 15:38:41",
+  "template_schema": "ark.agent-template.v1",
+  "git": {
+    "repo": "zjashanda/ark-node",
+    "commit": "2d7893e69ddd81753b1be903f1ec4c21fdcd1bf4",
+    "path": "templates/agents",
+    "dirty": false,
+    "tracked": true
+  },
+  "oss": {
+    "bucket": "ark-public",
+    "prefix": "noahsark/agent-template",
+    "visibility": "public-read"
+  },
+  "compatible": {
+    "profile": "agent-profile.v1",
+    "template": "ark.agent-template.v1",
+    "ark_node": ">=0.1.0"
+  },
+  "files": [
+    {
+      "path": "noahsark-agent-template.md",
+      "object": "noahsark/agent-template/v1.0.0/noahsark-agent-template.md",
+      "role": "template",
+      "sha256": "6f10f3f7900b85d8742377fa5f008252c2393a5fa65879744a84138062472229",
+      "bytes": 22928
+    },
+    {
+      "path": "agent-profile.v1.json",
+      "object": "noahsark/agent-template/v1.0.0/agent-profile.v1.json",
+      "role": "profile",
+      "sha256": "3fe177fbd48fa682c212c945dc6d2324f4168a0a7866c00fec6551ad19bbbc40",
+      "bytes": 9429
+    },
+    {
+      "path": "verify-template.py",
+      "object": "noahsark/agent-template/v1.0.0/verify-template.py",
+      "role": "verifier",
+      "sha256": "0a484b70d2335b33f27b4ecd5a004eec43db815dc68fb2413e686a00e14a557a",
+      "bytes": 15416
+    }
+  ],
+  "checks": {
+    "secret_scan": "pass",
+    "time_lint": "pass"
+  },
+  "notes": "对象路径不可变；latest 是稳定别名，内容与 v1.0.0 完全一致。校验下载内容用同目录 verify-template.py。"
+}
