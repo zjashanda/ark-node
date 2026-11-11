@@ -163,8 +163,10 @@ def git_dirty() -> bool:
     """
     text = git(["status", "--porcelain", "--untracked-files=no"]) or ""
     for line in text.splitlines():
-        path = line[3:].strip()
-        if path.endswith("templates/agents/manifest.json"):
+        parts = line.split(maxsplit=1)
+        if len(parts) < 2:
+            continue
+        if parts[1].strip().endswith("templates/agents/manifest.json"):
             continue
         return True
     return False

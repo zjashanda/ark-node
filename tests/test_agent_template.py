@@ -617,6 +617,22 @@ class OssUploadTests(unittest.TestCase):
                 self.mod.upload_all([], "oss-cn-beijing.aliyuncs.com", "b", "world-readable")
         self.assertEqual(ctx.exception.code, 2)
 
+    def _dirty_with(self, porcelain: str) -> bool:
+        import unittest.mock as mock
+
+        with mock.patch.object(self.mod, "git", lambda args: porcelain):
+            return self.mod.git_dirty()
+
+    def test_generated_manifest_does_not_count_as_dirty(self) -> None:
+        self.assertFalse(self._dirty_with("M templates/agents/manifest.json"))
+
+    def test_multiple_entries_still_detect_real_change(self) -> None:
+        porcelain = "M templates/agents/manifest.json\nM templates/agents/publish-template.py"
+        self.assertTrue(self._dirty_with(porcelain))
+
+    def test_clean_tree_is_not_dirty(self) -> None:
+        self.assertFalse(self._dirty_with(""))
+
 
 if __name__ == "__main__":
     unittest.main()
