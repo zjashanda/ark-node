@@ -84,8 +84,10 @@ python3 templates/agents/publish-template.py --apply --yes \
 ```
 
 默认前缀 `noahsark/agent-template`，默认可见性 `public-read`（新工作区要能不认证就能读）。
-`public-read` 是**按对象**写在 `x-oss-acl` 请求头里的，并计入签名，不依赖桶的默认权限；
-桶本身若是私有的也照样能读，判定标准只有一个：不带凭据的 GET 能拿到内容。
+`public-read` 是**按对象**写在 `x-oss-object-acl` 请求头里的，并计入签名，不依赖桶的默认权限。
+头名不能写成 `x-oss-acl`：那是**桶级** ACL 头，OSS 在 PutObject 时会照常返回 200 但**静默忽略**，
+结果对象 ACL 仍是 `default`，匿名 GET 得到 403 `AccessDenied`（`because of bucket acl`）——
+这类失败不会报错，只能靠匿名回读发现。判定标准只有一个：不带凭据的 GET 能拿到内容。
 `latest` 只是别名，内容与对应版本逐字节一致——不一致就是发布事故。
 
 ## 4. 回滚

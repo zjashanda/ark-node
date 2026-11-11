@@ -67,6 +67,7 @@ ARTIFACTS: List[Tuple[str, str]] = [
 
 # 对象存储凭据的变量名（只有名字，值永远不落盘）。
 OSS_ENV_KEYS = ("ACCESS_KEY_ID", "ACCESS_KEY_SECRET")
+OBJECT_ACL_HEADER = "x-oss-object-acl"
 
 BEIJING = timezone(timedelta(hours=8))
 FMT_DISPLAY = "%Y-%m-%d %H:%M:%S"
@@ -381,14 +382,14 @@ def oss_put(
     sk: str,
     visibility: str,
 ) -> None:
-    """对象存储 PUT（签名 V1，零第三方依赖，显式带 x-oss-acl）。"""
+    """对象存储 PUT（签名 V1，零第三方依赖，显式带 x-oss-object-acl）。"""
     endpoint_host = normalize_endpoint(endpoint_host)
     content_type = "application/octet-stream"
     date_header = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
     content_md5 = base64.b64encode(hashlib.md5(data).digest()).decode("ascii")
     resource = f"/{bucket}/{key}"
     # 显式对象 ACL：不依赖桶默认权限，匿名可读才算发出去。
-    canonical_headers = f"x-oss-acl:{visibility}"
+    canonical_headers = f"{OBJECT_ACL_HEADER}:{visibility}"
     to_sign = "\n".join(
         ["PUT", content_md5, content_type, date_header, canonical_headers, resource]
     )
@@ -401,7 +402,7 @@ def oss_put(
     request.add_header("Date", date_header)
     request.add_header("Content-Type", content_type)
     request.add_header("Content-MD5", content_md5)
-    request.add_header("x-oss-acl", visibility)
+    request.add_header(OBJECT_ACL_HEADER, visibility)
     request.add_header("Authorization", f"OSS {ak}:{signature}")
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
@@ -412,6 +413,33 @@ def oss_put(
         raise PublishError(f"上传 {key} 失败: HTTP {exc.code}", code) from exc
     except urllib.error.URLError as exc:
         raise PublishError(f"上传 {key} 网络错误: {exc.reason}", EXIT_NETWORK) from exc
+
+
+def anon_readback(
+    steps: List[Dict[str, Any]], endpoint_host: str, bucket: str
+) -> int:
+    host = normalize_endpoint(endpoint_host)
+    for step in steps:
+        url = f"https://{bucket}.{host}/{step['object']}"
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(url, method="GET"), timeout=30
+            ) as response:
+                body = response.read()
+        except urllib.error.HTTPError as exc:
+            raise PublishError(
+                f"匿名回读 {step['object']} 失败: HTTP {exc.code}，对象没真正公开可读",
+                EXIT_FORBIDDEN,
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise PublishError(f"匿名回读 {step['object']} 网络错误: {exc.reason}", EXIT_NETWORK) from exc
+        actual = hashlib.sha256(body).hexdigest()
+        if actual != step["sha256"]:
+            raise PublishError(
+                f"匿名回读 {step['object']} 内容不符: sha256 {actual} != {step['sha256']}",
+                EXIT_FAILED,
+            )
+    return len(steps)
 
 
 ALLOWED_VISIBILITY = ("public-read", "private")
@@ -434,7 +462,7 @@ def upload_all(
         )
     for step in steps:
         oss_put(endpoint_host, bucket, step["object"], step["_data"], ak, sk, visibility)
-    return len(steps)
+    return anon_readback(steps, endpoint_host, bucket)
 
 
 # --------------------------------------------------------------------- 输出

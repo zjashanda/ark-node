@@ -578,10 +578,11 @@ class OssUploadTests(unittest.TestCase):
             "/noahsark/agent-template/v1.0.0/manifest.json",
         )
 
-    def test_put_sends_object_acl_header(self) -> None:
+    def test_put_sends_object_level_acl_header(self) -> None:
         request = self._capture_put("public-read")
         headers = {key.lower(): value for key, value in request.header_items()}
-        self.assertEqual(headers["x-oss-acl"], "public-read")
+        self.assertEqual(headers["x-oss-object-acl"], "public-read")
+        self.assertNotIn("x-oss-acl", headers)
 
     def test_acl_is_part_of_signature(self) -> None:
         import base64
@@ -599,7 +600,7 @@ class OssUploadTests(unittest.TestCase):
                         headers["content-md5"],
                         headers["content-type"],
                         headers["date"],
-                        "x-oss-acl:public-read",
+                        "x-oss-object-acl:public-read",
                         "/listenai-test-internal/noahsark/agent-template/v1.0.0/manifest.json",
                     ]
                 ).encode("utf-8"),
@@ -616,6 +617,65 @@ class OssUploadTests(unittest.TestCase):
             with self.assertRaises(self.mod.PublishError) as ctx:
                 self.mod.upload_all([], "oss-cn-beijing.aliyuncs.com", "b", "world-readable")
         self.assertEqual(ctx.exception.code, 2)
+
+    def _run_upload(self, get_status: int, get_body: bytes) -> int:
+        class _Response:
+            def __init__(self, status, body):
+                self.status = status
+                self._body = body
+
+            def read(self):
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            if request.get_method() == "GET":
+                if get_status != 200:
+                    raise self.mod.urllib.error.HTTPError(
+                        request.full_url, get_status, "Forbidden", {}, None
+                    )
+                return _Response(200, get_body)
+            return _Response(200, b"")
+
+        original = self.mod.urllib.request.urlopen
+        self.mod.urllib.request.urlopen = fake_urlopen
+        self.addCleanup(setattr, self.mod.urllib.request, "urlopen", original)
+
+        payload = b"{}\n"
+        steps = [
+            {
+                "object": "noahsark/agent-template/v1.0.0/manifest.json",
+                "sha256": self.mod.hashlib.sha256(payload).hexdigest(),
+                "_data": payload,
+            }
+        ]
+        import unittest.mock as mock
+
+        env = {"ACCESS_KEY_ID": "AKIDFORTEST", "ACCESS_KEY_SECRET": "SKFORTEST"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            return self.mod.upload_all(
+                steps, "oss-cn-beijing.aliyuncs.com", "listenai-test-internal", "public-read"
+            )
+
+    def test_upload_confirms_anonymous_readback(self) -> None:
+        payload = b"{}\n"
+        self.assertEqual(self._run_upload(200, payload), 1)
+
+    def test_upload_fails_when_object_stays_private(self) -> None:
+        payload = b"{}\n"
+        with self.assertRaises(self.mod.PublishError) as ctx:
+            self._run_upload(403, b"")
+        self.assertEqual(ctx.exception.code, 4)
+
+    def test_upload_fails_when_readback_content_differs(self) -> None:
+        with self.assertRaises(self.mod.PublishError) as ctx:
+            self._run_upload(200, b"tampered\n")
+        self.assertEqual(ctx.exception.code, 1)
 
     def _dirty_with(self, porcelain: str) -> bool:
         import unittest.mock as mock
