@@ -4,11 +4,11 @@
   "version": "1.0.0",
   "channel": "immutable",
   "source_version": "1.0.0",
-  "published_at": "2026-11-11 16:20:35",
+  "published_at": "2026-11-11 16:27:40",
   "template_schema": "ark.agent-template.v1",
   "git": {
     "repo": "zjashanda/ark-node",
-    "commit": "b0e46fcafadb39a1340f7d5dbcb9994b693a620a",
+    "commit": "78ae3194c87ce0a52407f0c066c1f9d01de67a01",
     "path": "templates/agents",
     "dirty": false,
     "tracked": true
@@ -42,8 +42,8 @@
       "path": "verify-template.py",
       "object": "noahsark/agent-template/v1.0.0/verify-template.py",
       "role": "verifier",
-      "sha256": "6e6bbab90d3a5c1691959baeb3cceb2874f6fc35e523d95ddace85ee9949ded2",
-      "bytes": 15463
+      "sha256": "55e6cb2c460c8a4af6b3f756f8812b8b49c1f14679bc817e5d85173098c5b318",
+      "bytes": 15738
     }
   ],
   "checks": {
