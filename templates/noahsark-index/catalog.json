@@ -340,7 +340,7 @@
           "kind": "git",
           "title": "节点命令行入口",
           "status": "available",
-          "version": "main@8b5fb6573252",
+          "version": "main@eaca2aa64f84",
           "roles": [
             "node-executor",
             "hardware-bench"
@@ -350,7 +350,7 @@
           ],
           "git": "zjashanda/ark-node",
           "file": "bin/ark-node",
-          "commit": "8b5fb6573252a4260941c66445efb630ad8c98d8",
+          "commit": "eaca2aa64f8476a41e57636e4e1ecadb4f140c2f",
           "summary": "节点侧统一入口命令：环境同步、目录初始化、身份与探测、取件；Windows 用 bin/ark-node.ps1。"
         }
       ]
@@ -535,14 +535,14 @@
           "kind": "git",
           "title": "ark-node · 节点运行时",
           "status": "available",
-          "version": "main@8b5fb6573252",
+          "version": "main@eaca2aa64f84",
           "roles": [
             "coordinator",
             "node-executor"
           ],
           "requires": [],
           "git": "zjashanda/ark-node",
-          "commit": "8b5fb6573252a4260941c66445efb630ad8c98d8",
+          "commit": "eaca2aa64f8476a41e57636e4e1ecadb4f140c2f",
           "summary": "节点侧能力：环境同步、目录初始化、身份与探测、取件；本总览的源文件也在本仓库。"
         },
         {
