@@ -306,7 +306,7 @@
           "kind": "git",
           "title": "知识账本",
           "status": "available",
-          "version": "main@efc9ab892ad0",
+          "version": "main@cd34cfd78502",
           "roles": [
             "coordinator",
             "knowledge-curator"
@@ -314,7 +314,7 @@
           "requires": [],
           "git": "zjashanda/ark-kb",
           "file": "registry/skills.json",
-          "commit": "efc9ab892ad019df80f5bcaeea859939579d5788",
+          "commit": "cd34cfd78502761002328913555b507c19f069f5",
           "summary": "全部仓库与技能条目账本（含内部/项目级技能），是检索入口而非发布集。"
         },
         {
@@ -365,13 +365,13 @@
           "kind": "git",
           "title": "venusahisiburner · 烧录工具集",
           "status": "available",
-          "version": "main@8bd7ddd6d51c",
+          "version": "main@85c15f7eb49f",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/venusahisiburner",
-          "commit": "8bd7ddd6d51c2f244951517db7d2dc445b14358b",
+          "commit": "85c15f7eb49fbbc7493989e5c25d3e8a689ae40a",
           "summary": "核心烧录流水线，已吸收 tcl-device-autoburn 与 burn_bundle 两个入口。"
         },
         {
@@ -379,13 +379,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@90024eff6a6a",
+          "version": "main@0185e121939a",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "90024eff6a6a9f668fd0d58b43890a1da8e781a3",
+          "commit": "0185e121939a3d65c2c9e8c15e0111c515127c98",
           "summary": "唯一的测试与语音验证实现，已吸收 Polaris；派发中的 polaris 槽位改指向本仓库加 device-io。"
         },
         {
@@ -521,13 +521,13 @@
           "kind": "git",
           "title": "ark-kb · 知识库",
           "status": "available",
-          "version": "main@efc9ab892ad0",
+          "version": "main@cd34cfd78502",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-kb",
-          "commit": "efc9ab892ad019df80f5bcaeea859939579d5788",
+          "commit": "cd34cfd78502761002328913555b507c19f069f5",
           "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
         },
         {
@@ -565,13 +565,13 @@
           "kind": "git",
           "title": "ark-archive · 归档",
           "status": "available",
-          "version": "main@f1a93020b074",
+          "version": "main@6560a459f033",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-archive",
-          "commit": "f1a93020b074e53979c4652a9b34b7a93eb9a515",
+          "commit": "6560a459f033785381fe6d2ba019aaa6bb079e5f",
           "summary": "把执行产物归档到节点存储并生成回执；不在发布集内，属基础设施。"
         },
         {
