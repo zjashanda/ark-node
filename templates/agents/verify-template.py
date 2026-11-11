@@ -203,18 +203,23 @@ def check_manifest_shape(manifest: Dict[str, Any]) -> List[Check]:
     checks.append(Check("manifest-files", files_ok, detail))
 
     if files_ok and version_ok:
-        prefix = (manifest.get("oss") or {}).get("prefix", "")
+        prefix = str((manifest.get("oss") or {}).get("prefix", ""))
+        channel = str(manifest.get("channel") or "immutable")
+        segment = "/latest/" if channel == "latest" else f"/v{version}/"
         bad = [
-            entry.get("object", "")
+            str(entry.get("object", ""))
             for entry in files
-            if f"/v{version}/" not in str(entry.get("object", ""))
-            or not str(entry.get("object", "")).startswith(str(prefix))
+            if not str(entry.get("object", "")).startswith(prefix)
+            or segment not in str(entry.get("object", ""))
+            or not str(entry.get("object", "")).endswith("/" + str(entry.get("path", "")))
         ]
         checks.append(
             Check(
                 "manifest-object-paths",
                 not bad,
-                "路径与版本/前缀自洽" if not bad else "不自洽: " + ", ".join(bad[:3]),
+                f"渠道 {channel}，路径与版本/前缀自洽"
+                if not bad
+                else "不自洽: " + ", ".join(bad[:3]),
             )
         )
     return checks

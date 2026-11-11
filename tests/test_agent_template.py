@@ -395,6 +395,27 @@ class PublishVerifyTests(unittest.TestCase):
             [entry["role"] for entry in manifest["files"]], ["template", "profile", "verifier"]
         )
 
+    def test_latest_channel_manifest_passes_object_path_check(self) -> None:
+        code, out, err = self._publish()
+        self.assertEqual(code, 0, out + err)
+        self._stage_package()
+        path = self.tmp / "manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        prefix = manifest["oss"]["prefix"]
+        manifest["channel"] = "latest"
+        for entry in manifest["files"]:
+            entry["object"] = f"{prefix}/latest/{entry['path']}"
+        path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(self.tmp), "--manifest", str(path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("渠道 latest", proc.stdout)
+
     def test_manifest_digests_match_files(self) -> None:
         import hashlib
 
