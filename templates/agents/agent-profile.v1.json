@@ -1,0 +1,233 @@
+{
+  "schema": "ark.agent-profile.v1",
+  "profile_version": "1.0.0",
+  "template_version": "1.0.0",
+  "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
+  "default": {
+    "schema": "ark.agent-profile.v1",
+    "agent_name": "方舟节点执行",
+    "role": "node-executor",
+    "description": "节点执行智能体：在指定节点上跑任务、采集证据并回执，不碰设备独占测试",
+    "instructions_ref": "noahsark-agent-template.md",
+    "runtime": {
+      "runtime_id": "<node>",
+      "model": "<workspace-model>",
+      "max_concurrent_tasks": 2,
+      "timeout_minutes": 120
+    },
+    "paths": {
+      "task_root_windows": "D:\\zhsh\\workspace\\tasks",
+      "task_root_linux": "/home/bszheng/tasks",
+      "task_dir_pattern_windows": "<issue-id>",
+      "task_dir_pattern_linux": "<YYYYMMDD-HHMMSS>-<slug>",
+      "subdirs": ["plan", "assets", "work", "logs", "result", "receipts", "manifest"]
+    },
+    "sources": {
+      "git": {
+        "canonical_repo": "zjashanda/ark-node",
+        "ssh_alias": "github-zjashanda",
+        "workflow": "branch-and-pull-request",
+        "push_to_main": "forbidden-without-approval"
+      },
+      "skillhub": {
+        "manifest": "manifests/canonical.json",
+        "tool": "skillhub-sync",
+        "sync_mode": "on-demand",
+        "protect_local_drift": true
+      }
+    },
+    "storage": {
+      "root": "/srv/storage/ark",
+      "results": "/srv/storage/ark/results/<node>/<project>/<run_id>",
+      "receipts": "/srv/storage/ark/receipts/<node>/<project>/<run_id>",
+      "artifacts": "/srv/storage/ark/artifacts",
+      "quarantine": "/srv/storage/ark/_quarantine"
+    },
+    "time": {
+      "display_format": "YYYY-MM-DD HH:MM:SS",
+      "stamp_format": "YYYYMMDD-HHMMSS",
+      "locale_zone": "Beijing",
+      "offset_hours": 8,
+      "zone_designator": "forbidden",
+      "raw_field_prefix": "raw_"
+    },
+    "env_keys": [
+      "GITHUB_TOKEN",
+      "ACCESS_KEY_ID",
+      "ACCESS_KEY_SECRET",
+      "LSTTS_TTS_TOKEN",
+      "EMAIL_PASSWORD",
+      "NAS_ACCOUNT",
+      "NAS_PASSWORD",
+      "STORAGE_HOST",
+      "STORAGE_USER",
+      "STORAGE_PASSWORD"
+    ],
+    "loop": ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"],
+    "supervision": {
+      "rules": ["EXECUTION_CHECK", "PROGRESS_5M", "STATE_DRIFT", "RUNNING_NO_EVIDENCE"],
+      "progress_interval_minutes": 5,
+      "background_and_yield": "forbidden"
+    },
+    "approval": {
+      "requires": ["git-push", "external-publish", "real-device-action", "file-deletion", "permission-change"],
+      "default_mode": "dry-run"
+    },
+    "receipts": {
+      "run": "run.receipt.v1",
+      "onboarding": "ark.agent-onboarding.v1"
+    },
+    "compatibility": {
+      "template_version": "1.0.0",
+      "ark_node": ">=0.1.0",
+      "skillhub_sync": ">=1.0.0",
+      "asset_tools": ">=0.1.0"
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "label": "协调者",
+      "purpose": "拆解任务、派发子 issue、汇总验收",
+      "max_concurrent_tasks": 3,
+      "may_touch_devices": false,
+      "may_change_node_config": false,
+      "default_description": "协调智能体：拆任务、派 issue、对回执做验收，不直接操作设备"
+    },
+    "node-executor": {
+      "label": "节点执行者",
+      "purpose": "在具体节点上执行任务、采集证据、归档",
+      "max_concurrent_tasks": 2,
+      "may_touch_devices": false,
+      "may_change_node_config": false,
+      "default_description": "节点执行智能体：在指定节点上跑任务、采集证据并回执，不碰设备独占测试"
+    },
+    "hardware-bench": {
+      "label": "硬件台架",
+      "purpose": "真机与台架执行，独占设备",
+      "max_concurrent_tasks": 1,
+      "may_touch_devices": true,
+      "may_change_node_config": false,
+      "default_description": "硬件台架智能体：独占设备跑真机测试，产出可追溯证据与失败归因"
+    },
+    "knowledge-curator": {
+      "label": "知识管理员",
+      "purpose": "把执行结果沉淀为可复用知识条目",
+      "max_concurrent_tasks": 2,
+      "may_touch_devices": false,
+      "may_change_node_config": false,
+      "default_description": "知识管理智能体：把回执沉淀为 bug / knowledge / method / run 条目，不改执行结论"
+    }
+  },
+  "fields": {
+    "schema": { "type": "string", "required": true, "const": "ark.agent-profile.v1" },
+    "agent_name": {
+      "type": "string",
+      "required": true,
+      "pattern": "^方舟\\S+$",
+      "description": "方舟+角色；不含任务名与时间戳"
+    },
+    "role": {
+      "type": "string",
+      "required": true,
+      "enum": ["coordinator", "node-executor", "hardware-bench", "knowledge-curator"]
+    },
+    "description": {
+      "type": "string",
+      "required": true,
+      "max_length": 120,
+      "description": "一句话定位，用于列表展示与任务路由"
+    },
+    "instructions_ref": {
+      "type": "string",
+      "required": true,
+      "description": "行为契约文件名；契约正文来自模板"
+    },
+    "runtime.runtime_id": { "type": "string", "required": true },
+    "runtime.model": { "type": "string", "required": true },
+    "runtime.max_concurrent_tasks": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "maximum": 3,
+      "rule": "hardware-bench 必须为 1"
+    },
+    "runtime.timeout_minutes": { "type": "integer", "required": false, "minimum": 1 },
+    "paths.task_root_windows": { "type": "string", "required": true, "const": "D:\\zhsh\\workspace\\tasks" },
+    "paths.task_root_linux": { "type": "string", "required": true, "const": "/home/bszheng/tasks" },
+    "paths.task_dir_pattern_windows": { "type": "string", "required": true },
+    "paths.task_dir_pattern_linux": {
+      "type": "string",
+      "required": true,
+      "pattern": "^<YYYYMMDD-HHMMSS>-<slug>$"
+    },
+    "paths.subdirs": {
+      "type": "array",
+      "required": true,
+      "items_const": ["plan", "assets", "work", "logs", "result", "receipts", "manifest"]
+    },
+    "sources.git.canonical_repo": { "type": "string", "required": true },
+    "sources.git.ssh_alias": { "type": "string", "required": true },
+    "sources.git.workflow": { "type": "string", "required": true, "const": "branch-and-pull-request" },
+    "sources.git.push_to_main": {
+      "type": "string",
+      "required": true,
+      "const": "forbidden-without-approval"
+    },
+    "sources.skillhub.manifest": { "type": "string", "required": true },
+    "sources.skillhub.tool": { "type": "string", "required": true, "const": "skillhub-sync" },
+    "sources.skillhub.sync_mode": { "type": "string", "required": true, "enum": ["on-demand"] },
+    "sources.skillhub.protect_local_drift": { "type": "boolean", "required": true },
+    "storage.root": { "type": "string", "required": true, "const": "/srv/storage/ark" },
+    "storage.results": { "type": "string", "required": true },
+    "storage.receipts": { "type": "string", "required": true },
+    "storage.artifacts": { "type": "string", "required": true },
+    "storage.quarantine": { "type": "string", "required": true },
+    "time.display_format": {
+      "type": "string",
+      "required": true,
+      "const": "YYYY-MM-DD HH:MM:SS",
+      "rule": "北京时间、无时区标记"
+    },
+    "time.stamp_format": { "type": "string", "required": true, "const": "YYYYMMDD-HHMMSS" },
+    "time.locale_zone": { "type": "string", "required": true, "const": "Beijing" },
+    "time.offset_hours": { "type": "integer", "required": true, "const": 8 },
+    "time.zone_designator": { "type": "string", "required": true, "const": "forbidden" },
+    "time.raw_field_prefix": { "type": "string", "required": true, "const": "raw_" },
+    "env_keys": {
+      "type": "array",
+      "required": true,
+      "items_pattern": "^[A-Z][A-Z0-9_]*$",
+      "description": "只允许键名，绝不含值"
+    },
+    "loop": {
+      "type": "array",
+      "required": true,
+      "items_const": ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"]
+    },
+    "supervision.rules": {
+      "type": "array",
+      "required": true,
+      "items_const": ["EXECUTION_CHECK", "PROGRESS_5M", "STATE_DRIFT", "RUNNING_NO_EVIDENCE"]
+    },
+    "supervision.progress_interval_minutes": { "type": "integer", "required": true, "const": 5 },
+    "supervision.background_and_yield": { "type": "string", "required": true, "const": "forbidden" },
+    "approval.requires": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "git-push",
+        "external-publish",
+        "real-device-action",
+        "file-deletion",
+        "permission-change"
+      ]
+    },
+    "approval.default_mode": { "type": "string", "required": true, "const": "dry-run" },
+    "receipts.run": { "type": "string", "required": true, "const": "run.receipt.v1" },
+    "receipts.onboarding": { "type": "string", "required": true, "const": "ark.agent-onboarding.v1" },
+    "compatibility.template_version": { "type": "string", "required": true },
+    "compatibility.ark_node": { "type": "string", "required": true },
+    "compatibility.skillhub_sync": { "type": "string", "required": false },
+    "compatibility.asset_tools": { "type": "string", "required": false }
+  }
+}

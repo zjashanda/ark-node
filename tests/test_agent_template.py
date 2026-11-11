@@ -1,0 +1,522 @@
+"""智能体模板测试（标准库 unittest）。
+
+覆盖模板正文的必备段落、profile 的结构约束、凭据与时间口径的自查，
+以及「发布 dry-run → 校验 → 篡改必被发现」这条发布链路的端到端行为。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+AGENTS_DIR = REPO_ROOT / "templates" / "agents"
+TEMPLATE = AGENTS_DIR / "noahsark-agent-template.md"
+PROFILE = AGENTS_DIR / "agent-profile.v1.json"
+PUBLISHER = AGENTS_DIR / "publish-template.py"
+VERIFIER = AGENTS_DIR / "verify-template.py"
+ONBOARDING_DOC = REPO_ROOT / "docs" / "agent-onboarding.md"
+
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+
+def load_profile() -> dict:
+    return json.loads(PROFILE.read_text(encoding="utf-8"))
+
+
+def read_template() -> str:
+    return TEMPLATE.read_text(encoding="utf-8")
+
+
+class TemplateContentTests(unittest.TestCase):
+    """模板正文必须能独立讲清九件事。"""
+
+    def setUp(self) -> None:
+        self.text = read_template()
+
+    def test_required_sections_present(self) -> None:
+        required = [
+            "ark.agent-template.v1",
+            "coordinator",
+            "node-executor",
+            "hardware-bench",
+            "knowledge-curator",
+            "instructions",
+            "description",
+            "max_concurrent_tasks",
+            "EXECUTION_CHECK",
+            "PROGRESS_5M",
+            "STATE_DRIFT",
+            "RUNNING_NO_EVIDENCE",
+            "background-and-yield",
+            "ark.agent-onboarding.v1",
+            "run.receipt.v1",
+            "LOCAL_DRIFT",
+            "ark-dispatch",
+            "ark-archive",
+            "ark-kb",
+            "quarantine",
+            "_quarantine",
+        ]
+        missing = [token for token in required if token not in self.text]
+        self.assertEqual(missing, [], f"模板缺少关键内容: {missing}")
+
+    def test_platform_is_not_a_skill(self) -> None:
+        self.assertIn("不是一个 Skill", self.text)
+        self.assertIn("任务闭环", self.text)
+
+    def test_hardware_bench_is_serial(self) -> None:
+        self.assertIn("`hardware-bench` | **1**", self.text)
+        self.assertIn("设备独占", self.text)
+
+    def test_instructions_vs_description_distinguished(self) -> None:
+        self.assertIn("长期行为契约", self.text)
+        self.assertIn("一句话定位", self.text)
+
+
+class TemplatePathTests(unittest.TestCase):
+    """两个平台的目录规范必须与 issue 口径一致。"""
+
+    def setUp(self) -> None:
+        self.text = read_template()
+        self.profile = load_profile()
+
+    def test_windows_task_root(self) -> None:
+        self.assertIn("D:\\zhsh\\workspace\\tasks\\<issue-id>\\", self.text)
+        self.assertEqual(
+            self.profile["default"]["paths"]["task_root_windows"], "D:\\zhsh\\workspace\\tasks"
+        )
+
+    def test_linux_task_root_and_pattern(self) -> None:
+        self.assertIn("/home/bszheng/tasks/<YYYYMMDD-HHMMSS>-<slug>/", self.text)
+        self.assertEqual(self.profile["default"]["paths"]["task_root_linux"], "/home/bszheng/tasks")
+        self.assertEqual(
+            self.profile["default"]["paths"]["task_dir_pattern_linux"], "<YYYYMMDD-HHMMSS>-<slug>"
+        )
+
+    def test_subdirs_are_the_seven(self) -> None:
+        expected = ["plan", "assets", "work", "logs", "result", "receipts", "manifest"]
+        self.assertEqual(self.profile["default"]["paths"]["subdirs"], expected)
+        for name in expected:
+            self.assertIn(f"`{name}/`", self.text)
+
+
+class Template1006Tests(unittest.TestCase):
+    """存储节点与 1006 的取件规则。"""
+
+    def setUp(self) -> None:
+        self.text = read_template()
+        self.storage = load_profile()["default"]["storage"]
+
+    def test_storage_layout(self) -> None:
+        self.assertEqual(self.storage["root"], "/srv/storage/ark")
+        for key in ("results", "receipts", "artifacts", "quarantine"):
+            self.assertTrue(self.storage[key].startswith("/srv/storage/ark/"))
+        self.assertIn("_quarantine/", self.text)
+
+    def test_delegate_when_node_unreachable(self) -> None:
+        self.assertIn("委派给可达的节点", self.text)
+        self.assertIn("不证明东西不存在", self.text)
+
+    def test_asset_source_rules(self) -> None:
+        for adapters in ("email", "nas", "oss", "node_storage", "local", "http"):
+            self.assertIn(adapters, self.text)
+        self.assertIn("不碰 IMAP/SMTP", self.text)
+        self.assertIn("默认 dry-run", self.text)
+
+
+class GitAndSkillHubTests(unittest.TestCase):
+    """canonical 真源与 SkillHub 七状态。"""
+
+    def setUp(self) -> None:
+        self.text = read_template()
+        self.sources = load_profile()["default"]["sources"]
+
+    def test_canonical_git_is_source_of_truth(self) -> None:
+        self.assertEqual(self.sources["git"]["workflow"], "branch-and-pull-request")
+        self.assertEqual(self.sources["git"]["push_to_main"], "forbidden-without-approval")
+        self.assertIn("唯一真源", self.text)
+
+    def test_skillhub_states_documented(self) -> None:
+        for state in (
+            "IN_SYNC",
+            "UPDATED",
+            "OUTDATED",
+            "ABSENT",
+            "LOCAL_DRIFT",
+            "PRIVATE_SKILL",
+            "REMOTE_UNREACHABLE",
+        ):
+            self.assertIn(state, self.text)
+
+    def test_local_drift_never_overwritten(self) -> None:
+        self.assertTrue(self.sources["skillhub"]["protect_local_drift"])
+        self.assertIn("`apply` 永不覆盖", self.text)
+
+    def test_sync_is_on_demand(self) -> None:
+        self.assertEqual(self.sources["skillhub"]["sync_mode"], "on-demand")
+        self.assertIn("不做常驻", self.text)
+
+
+class LoopTests(unittest.TestCase):
+    """六步闭环与回执字段。"""
+
+    def setUp(self) -> None:
+        self.text = read_template()
+        self.default = load_profile()["default"]
+
+    def test_loop_order(self) -> None:
+        self.assertEqual(
+            self.default["loop"],
+            ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"],
+        )
+
+    def test_receipt_fields_documented(self) -> None:
+        for token in (
+            "run.receipt.v1",
+            "skill_version",
+            "attribution",
+            "evidence_sha256",
+            "confidence",
+            "manifest_sha256",
+            "needs_review",
+        ):
+            self.assertIn(token, self.text)
+
+    def test_dispatch_is_decision_only(self) -> None:
+        self.assertIn("只决策，不执行", self.text)
+        self.assertIn("fail-closed", self.text)
+
+    def test_code_tests_are_not_device_verification(self) -> None:
+        self.assertIn("代码测试通过 ≠ 真机验证通过", self.text)
+
+
+class SupervisionTests(unittest.TestCase):
+    """监督契约必须完整，且明确禁止 background-and-yield。"""
+
+    def setUp(self) -> None:
+        self.text = read_template()
+        self.supervision = load_profile()["default"]["supervision"]
+
+    def test_four_rules(self) -> None:
+        self.assertEqual(
+            self.supervision["rules"],
+            ["EXECUTION_CHECK", "PROGRESS_5M", "STATE_DRIFT", "RUNNING_NO_EVIDENCE"],
+        )
+
+    def test_progress_interval(self) -> None:
+        self.assertEqual(self.supervision["progress_interval_minutes"], 5)
+        self.assertIn("每 5 分钟", self.text)
+
+    def test_no_fake_running(self) -> None:
+        self.assertEqual(self.supervision["background_and_yield"], "forbidden")
+        self.assertIn("不许说 started=YES", self.text)
+        self.assertIn("前台阻塞等到结果", self.text)
+
+    def test_four_rules_have_body(self) -> None:
+        for rule in self.supervision["rules"]:
+            self.assertIn(f"`{rule}`", self.text)
+
+
+class ProfileSchemaTests(unittest.TestCase):
+    """profile 是机器可读契约，字段必须自洽。"""
+
+    def setUp(self) -> None:
+        self.profile = load_profile()
+
+    def test_schema_and_version(self) -> None:
+        self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
+        self.assertEqual(self.profile["template_version"], "1.0.0")
+
+    def test_every_default_leaf_has_a_field_entry(self) -> None:
+        fields = self.profile["fields"]
+
+        def walk(node, prefix=""):
+            for key, value in node.items():
+                dotted = f"{prefix}{key}"
+                if isinstance(value, dict):
+                    walk(value, f"{dotted}.")
+                else:
+                    yield dotted
+
+        missing = [dotted for dotted in walk(self.profile["default"]) if dotted not in fields]
+        self.assertEqual(missing, [], f"default 里有字段没有 schema 定义: {missing}")
+
+    def test_roles_complete(self) -> None:
+        roles = self.profile["roles"]
+        self.assertEqual(
+            sorted(roles), ["coordinator", "hardware-bench", "knowledge-curator", "node-executor"]
+        )
+        for name, spec in roles.items():
+            for key in ("label", "purpose", "max_concurrent_tasks", "default_description"):
+                self.assertIn(key, spec, f"{name} 缺少 {key}")
+            self.assertLessEqual(spec["max_concurrent_tasks"], 3)
+
+    def test_hardware_bench_concurrency_is_one(self) -> None:
+        self.assertEqual(self.profile["roles"]["hardware-bench"]["max_concurrent_tasks"], 1)
+        self.assertEqual(self.profile["default"]["runtime"]["max_concurrent_tasks"], 2)
+
+    def test_env_keys_match_ark_node_contract(self) -> None:
+        canonical = json.loads((REPO_ROOT / "config" / "env-keys.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(self.profile["default"]["env_keys"]), sorted(canonical["keys"]))
+
+    def test_env_keys_are_names_only(self) -> None:
+        for key in self.profile["default"]["env_keys"]:
+            self.assertRegex(key, r"^[A-Z][A-Z0-9_]*$")
+
+    def test_time_contract(self) -> None:
+        time_cfg = self.profile["default"]["time"]
+        self.assertEqual(time_cfg["display_format"], "YYYY-MM-DD HH:MM:SS")
+        self.assertEqual(time_cfg["stamp_format"], "YYYYMMDD-HHMMSS")
+        self.assertEqual(time_cfg["offset_hours"], 8)
+        self.assertEqual(time_cfg["zone_designator"], "forbidden")
+
+    def test_approval_boundaries(self) -> None:
+        approval = self.profile["default"]["approval"]
+        self.assertEqual(
+            approval["requires"],
+            [
+                "git-push",
+                "external-publish",
+                "real-device-action",
+                "file-deletion",
+                "permission-change",
+            ],
+        )
+        self.assertEqual(approval["default_mode"], "dry-run")
+
+
+class TimeContractTests(unittest.TestCase):
+    """时间口径必须与 ark-node 契约同口径。"""
+
+    def test_time_lint_clean(self) -> None:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "time_lint.py"),
+                str(TEMPLATE),
+                str(PROFILE),
+                str(PUBLISHER),
+                str(VERIFIER),
+                str(ONBOARDING_DOC),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_single_allowed_display_form_documented(self) -> None:
+        text = read_template()
+        self.assertIn("`YYYY-MM-DD HH:MM:SS`", text)
+        self.assertIn("`2026-11-10 19:04:31`", text)
+
+    def test_forbidden_forms_are_named_not_exemplified(self) -> None:
+        text = read_template()
+        self.assertIn("用字母 `T` 分隔", text)
+        self.assertIn("`Z` 后缀", text)
+        self.assertNotIn("2026-11-10T", text)
+
+    def test_raw_prefix_exception(self) -> None:
+        self.assertIn("`raw_` 前缀", read_template())
+
+
+class CredentialTests(unittest.TestCase):
+    """发布包必须零凭据。"""
+
+    def test_secret_scan_clean(self) -> None:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "secret_scan.py"),
+                str(AGENTS_DIR),
+                str(ONBOARDING_DOC),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_template_lists_names_only(self) -> None:
+        import secret_scan
+
+        text = read_template()
+        for key in load_profile()["default"]["env_keys"]:
+            self.assertIn(key, text)
+        self.assertEqual(secret_scan.scan_text("template", text), [])
+
+    def test_no_private_key_or_token_literals(self) -> None:
+        text = read_template()
+        self.assertNotIn("BEGIN " + "PRIVATE KEY", text)
+        self.assertNotIn("ghp_", text)
+        self.assertNotIn("LTAI", text)
+
+    def test_no_plaintext_url_credentials(self) -> None:
+        self.assertNotRegex(read_template(), r"://[^/\s:@]+:[^/\s@]+@")
+
+
+class PublishVerifyTests(unittest.TestCase):
+    """发布链路：dry-run 出包 → 校验通过 → 篡改被发现。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _publish(self) -> tuple[int, str, str]:
+        proc = subprocess.run(
+            [sys.executable, str(PUBLISHER), "--out-dir", str(self.tmp)],
+            capture_output=True,
+            text=True,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def _stage_package(self) -> None:
+        for name in ("noahsark-agent-template.md", "agent-profile.v1.json", "verify-template.py"):
+            shutil.copy2(AGENTS_DIR / name, self.tmp / name)
+
+    def test_dry_run_writes_manifest_without_uploading(self) -> None:
+        code, out, err = self._publish()
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("DRY-RUN", out)
+        manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
+        self.assertEqual(manifest["version"], "1.0.0")
+        self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
+        self.assertEqual(
+            [entry["role"] for entry in manifest["files"]], ["template", "profile", "verifier"]
+        )
+
+    def test_manifest_digests_match_files(self) -> None:
+        import hashlib
+
+        code, out, err = self._publish()
+        self.assertEqual(code, 0, out + err)
+        manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
+        for entry in manifest["files"]:
+            data = (AGENTS_DIR / entry["path"]).read_bytes()
+            self.assertEqual(entry["bytes"], len(data))
+            self.assertEqual(entry["sha256"], hashlib.sha256(data).hexdigest())
+
+    def test_object_paths_are_immutable_plus_latest(self) -> None:
+        code, out, err = self._publish()
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("noahsark/agent-template/v1.0.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/latest/manifest.json", out)
+
+    def test_verify_passes_on_fresh_package(self) -> None:
+        code, out, err = self._publish()
+        self.assertEqual(code, 0, out + err)
+        self._stage_package()
+        proc = subprocess.run(
+            [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("结果: pass", proc.stdout)
+
+    def test_verify_detects_tampering(self) -> None:
+        code, out, err = self._publish()
+        self.assertEqual(code, 0, out + err)
+        self._stage_package()
+        tampered = self.tmp / "noahsark-agent-template.md"
+        original = tampered.read_bytes()
+        # 同长度改写：字节数不变，只有摘要能发现
+        tampered.write_bytes(original.replace(b"v1.0.0", b"v1.0.1", 1))
+        proc = subprocess.run(
+            [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("sha256 不符", proc.stdout)
+
+    def test_verify_without_manifest_is_no_source(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(self.tmp)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+
+    def test_verify_json_is_machine_readable(self) -> None:
+        code, out, err = self._publish()
+        self.assertEqual(code, 0, out + err)
+        self._stage_package()
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(self.tmp / "verify-template.py"),
+                "--dir",
+                str(self.tmp),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["schema"], "ark.agent-template.verify.v1")
+        self.assertEqual(payload["result"], "pass")
+        self.assertGreaterEqual(len(payload["checks"]), 8)
+
+    def _clean_env(self) -> dict:
+        env = {key: value for key, value in os.environ.items() if key not in ("ACCESS_KEY_ID", "ACCESS_KEY_SECRET")}
+        return env
+
+    def test_apply_without_yes_is_usage_error(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(PUBLISHER), "--out-dir", str(self.tmp), "--apply", "--allow-dirty"],
+            capture_output=True,
+            text=True,
+            env=self._clean_env(),
+        )
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+
+    def test_apply_without_credentials_is_forbidden(self) -> None:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(PUBLISHER),
+                "--out-dir",
+                str(self.tmp),
+                "--apply",
+                "--yes",
+                "--endpoint",
+                "oss.example.com",
+                "--allow-dirty",
+            ],
+            capture_output=True,
+            text=True,
+            env=self._clean_env(),
+        )
+        self.assertEqual(proc.returncode, 4, proc.stdout + proc.stderr)
+        self.assertIn("凭据", proc.stderr)
+
+
+class OnboardingDocTests(unittest.TestCase):
+    """维护者文档必须覆盖发布与回滚，且不泄漏凭据。"""
+
+    def setUp(self) -> None:
+        self.text = ONBOARDING_DOC.read_text(encoding="utf-8")
+
+    def test_covers_publish_and_rollback(self) -> None:
+        for token in ("dry-run", "--apply --yes", "回滚", "latest", "verify-template.py", "语义化"):
+            self.assertIn(token, self.text)
+
+    def test_no_manifest_hand_editing(self) -> None:
+        self.assertIn("只能由 `publish-template.py` 生成", self.text)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -98,8 +98,17 @@ printf '%s' "$ARK_HTTP_PASS" | ark-node env --pass-stdin --apply
 - 凭据只以**环境变量名**或本机 600 权限文件的形式被引用（`~/.config/ark/auth`、`%USERPROFILE%\.config\ark\auth.json`）。
 - `fetch` 内置文件名守卫：`.env`、`*.key`、`*.pem`、`id_rsa`、`auth.json`、`git-credentials` 等一律拒绝，且拒绝 `..` 路径穿越。
 - 所有写盘走原子写 + 600；所有 JSON 输出经 `redact` 过一遍才落地。
-- `tools/secret_scan.py` 可在提交前自查：`python3 tools/secret_scan.py ark_node config docs tests tools`。
+- `tools/secret_scan.py` 可在提交前自查：`python3 tools/secret_scan.py ark_node config docs templates tests tools`
+  （`sha256` 摘要字段按内容指纹放行，其余高熵串一律拦截）。
 - `tools/time_lint.py` 拦截违反时间契约的写法（`T` 分隔、`Z` 后缀、数字时区偏移、小数秒/毫秒、带时区序列化）：`python3 tools/time_lint.py`，0 违规才允许提交。`tests/test_time_contract.py` 保证新输出始终是 `YYYY-MM-DD HH:MM:SS`。
+
+## 智能体模板
+
+新建 NoahsArk 智能体的唯一入口：[templates/agents/noahsark-agent-template.md](templates/agents/noahsark-agent-template.md)。
+它不是一个 Skill，而是一套任务闭环的运行范式（角色、目录、来源、闭环、时间、凭据、监督、验收）。
+
+同目录还有机器可读的 `agent-profile.v1.json`、发布器 `publish-template.py`（默认 dry-run）、
+校验器 `verify-template.py`。维护与发布流程见 [docs/agent-onboarding.md](docs/agent-onboarding.md)。
 
 ## 与旧工具的兼容
 
@@ -114,6 +123,7 @@ printf '%s' "$ARK_HTTP_PASS" | ark-node env --pass-stdin --apply
 - [docs/runbook.md](docs/runbook.md) — 日常操作手册
 - [docs/rollback.md](docs/rollback.md) — 回滚步骤
 - [docs/legacy-compat.md](docs/legacy-compat.md) — 旧工具映射与差异
+- [docs/agent-onboarding.md](docs/agent-onboarding.md) — 智能体模板维护、发布与回滚
 
 ## 许可
 

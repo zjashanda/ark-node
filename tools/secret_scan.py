@@ -14,7 +14,7 @@
 * 云厂商 AccessKey（阿里云 / AWS）
 * PEM 私钥块
 * URL 内嵌 ``user:password@host``
-* 长度 ≥32 且高熵的 base64 / hex 串
+* 长度 ≥32 且高熵的 base64 / hex 串（``sha256`` 摘要字段除外，那是内容指纹）
 * RFC1918 私网 IP 字面量（位于 ``*.example.*`` 占位域名的行除外）
 
 约定
@@ -44,6 +44,9 @@ PRIVATE_KEY = re.compile("-----BEGIN" + r"[ \t]+[A-Z ]*PRIVATE KEY-----")  # noq
 URL_CREDENTIAL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^/\s:@]+:[^/\s@]+@")  # noqa: secret-scan
 HEX_BLOB = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{32,}(?![0-9A-Za-z])")  # noqa: secret-scan
 B64_BLOB = re.compile(r"(?<![0-9A-Za-z+/=])[A-Za-z0-9+/]{32,}={0,2}(?![0-9A-Za-z+/=])")  # noqa: secret-scan
+# 内容摘要字段（sha256）是产物指纹，不是凭据：同行内出现即视为合法摘要。
+DIGEST_FIELD = re.compile(r'"(?:content_|evidence_)?sha256"\s*:\s*"[0-9A-Fa-f]{64}"')
+
 PRIVATE_IP = re.compile(
     r"\b(?:"
     r"10\.(?:\d{1,3}\.){2}\d{1,3}"
@@ -107,6 +110,8 @@ def _high_entropy(token: str) -> bool:
 
 
 def _line_hits(line: str) -> List[str]:
+    # 摘要先掩掉，避免 sha256 被当成高熵密钥串
+    line = DIGEST_FIELD.sub('"sha256": "<digest>"', line)
     hits: List[str] = []
     for name, pattern in SIMPLE_RULES:
         if pattern.search(line):
