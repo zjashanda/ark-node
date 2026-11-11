@@ -1,0 +1,840 @@
+{
+  "schema": "ark.noahsark-index.catalog.v1",
+  "name": "noahsark-index",
+  "version": "1.0.0",
+  "title": "NoahsArk 资源总览",
+  "oss": {
+    "bucket": "listenai-test-internal",
+    "endpoint": "oss-cn-beijing.aliyuncs.com",
+    "prefix": "noahsark",
+    "visibility": "public-read"
+  },
+  "git": {
+    "host": "github.com",
+    "owner": "zjashanda",
+    "repo": "zjashanda/ark-node",
+    "source": "templates/noahsark-index"
+  },
+  "workdir": {
+    "windows": "D:\\zhsh\\workspace\\tasks\\<tasks-id>\\",
+    "linux": "/home/zhsh/workspace/tasks/<tasks-id>/"
+  },
+  "positioning": [
+    "NoahsArk 是一个闭环平台，不是单个 Skill：任务拆解、真机执行、证据归档、知识回写由一组 Skill 与节点协作完成。",
+    "Git 仓库是唯一真源；OSS 上的 noahsark/ 目录只是对外分发副本，全部内容由本仓库 templates/noahsark-index/ 生成，不手工维护。",
+    "外部工作区只需要一个地址：noahsark/index.md。读完总览后按角色进入对应条目，不需要理解内部仓库结构。",
+    "本目录的地址永久不变；更新只重新指向 index.md / index.json / manifest.json，已发布的版本目录不可修改。"
+  ],
+  "roles": [
+    {
+      "id": "external-reader",
+      "label": "外部接入方",
+      "summary": "在别的工作区首次接入 NoahsArk 的智能体：只读总览与模板，按规则建目录后即可开工。",
+      "must_read": [
+        "root.index-md",
+        "agent-template.latest",
+        "agent-template.template",
+        "rule.workdir"
+      ],
+      "optional": [
+        "root.index-json",
+        "agent-template.profile",
+        "rule.credentials"
+      ]
+    },
+    {
+      "id": "coordinator",
+      "label": "协调者",
+      "summary": "拆解任务、派发执行、汇总回执的调度型智能体。",
+      "must_read": [
+        "root.index-md",
+        "agent-template.template",
+        "rule.supervision",
+        "rule.approval",
+        "rule.credentials",
+        "rule.time",
+        "canonical.routing"
+      ],
+      "optional": [
+        "canonical.skillhub",
+        "git.ark-node",
+        "git.ark-dispatch",
+        "rule.workdir"
+      ]
+    },
+    {
+      "id": "node-executor",
+      "label": "节点执行",
+      "summary": "在具体机器上落地命令、同步环境、回收产物的执行型智能体。",
+      "must_read": [
+        "root.index-md",
+        "agent-template.template",
+        "rule.workdir",
+        "rule.credentials",
+        "rule.time",
+        "canonical.node-cli"
+      ],
+      "optional": [
+        "git.ark-node",
+        "git.device-io",
+        "canonical.skillhub",
+        "canonical.routing"
+      ]
+    },
+    {
+      "id": "hardware-bench",
+      "label": "真机基准",
+      "summary": "跑烧录、播放、录音等真机验证的智能体；代码测试通过不等于真机通过。",
+      "must_read": [
+        "root.index-md",
+        "agent-template.template",
+        "rule.workdir",
+        "rule.supervision",
+        "git.lstest",
+        "git.venusahisiburner"
+      ],
+      "optional": [
+        "git.device-io",
+        "git.usb-tree",
+        "git.clearusb",
+        "git.audio-runtime",
+        "git.tts-runtime"
+      ]
+    },
+    {
+      "id": "knowledge-curator",
+      "label": "知识沉淀",
+      "summary": "把执行证据整理成可检索知识、维护账本与归档的智能体。",
+      "must_read": [
+        "root.index-md",
+        "agent-template.template",
+        "rule.time",
+        "rule.storage",
+        "canonical.kb-ledger",
+        "git.ark-archive"
+      ],
+      "optional": [
+        "git.ark-kb",
+        "git.asset-tools",
+        "canonical.skillhub"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "meta",
+      "label": "根入口",
+      "summary": "唯一对外地址与本目录的自描述文件。第一次进来先读 index.md。",
+      "entries": [
+        {
+          "id": "root.index-md",
+          "kind": "entry",
+          "title": "总览（人读入口）",
+          "status": "available",
+          "version": "1.0.0",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "oss": "noahsark/index.md",
+          "summary": "平台定位、角色必读顺序、各组条目入口。地址永久固定，外部工作区只记这一个链接。"
+        },
+        {
+          "id": "root.index-json",
+          "kind": "entry",
+          "title": "总览（机器读入口）",
+          "status": "available",
+          "version": "1.0.0",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "root.index-md"
+          ],
+          "oss": "noahsark/index.json",
+          "summary": "逐条结构化导航：每条含 id、状态、版本、地址、校验值、适用角色与前置依赖，供智能体直接解析。"
+        },
+        {
+          "id": "root.manifest",
+          "kind": "entry",
+          "title": "根清单",
+          "status": "available",
+          "version": "1.0.0",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "root.index-json"
+          ],
+          "oss": "noahsark/manifest.json",
+          "summary": "根版本号、内容所在 Git 提交、index.md 与 index.json 的校验值和发布时间，用于判断本目录是否被改动。"
+        }
+      ]
+    },
+    {
+      "id": "agent-template",
+      "label": "Agent 创建",
+      "summary": "新建智能体从这里开始。latest 是别名，以不可变版本目录为准。",
+      "entries": [
+        {
+          "id": "agent-template.latest",
+          "kind": "entry",
+          "title": "创建入口（latest 清单）",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "oss": "noahsark/agent-template/latest/manifest.json",
+          "summary": "当前推荐版本清单（v1.0.1）。latest 只做指向，内容与 v1.0.1 逐字节一致，长期留存请改用版本目录。"
+        },
+        {
+          "id": "agent-template.manifest",
+          "kind": "entry",
+          "title": "模板清单 v1.0.1（不可变）",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.latest"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/manifest.json",
+          "sha256": "71518f4eaea5f4baf68f4e2314728da676e42bf55c800a0ac9456e5ff1049238",
+          "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
+        },
+        {
+          "id": "agent-template.template",
+          "kind": "entry",
+          "title": "智能体模板正文 v1.0.1",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.manifest"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。"
+        },
+        {
+          "id": "agent-template.profile",
+          "kind": "entry",
+          "title": "Agent Profile v1 结构定义",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.manifest"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/agent-profile.v1.json",
+          "local": "templates/agents/agent-profile.v1.json",
+          "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。"
+        },
+        {
+          "id": "agent-template.verifier",
+          "kind": "entry",
+          "title": "模板自检脚本",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.manifest"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/verify-template.py",
+          "local": "templates/agents/verify-template.py",
+          "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。"
+        }
+      ]
+    },
+    {
+      "id": "canonical",
+      "label": "真源清单",
+      "summary": "一切清单只在 Git 里。这里指向权威文件，不在本目录复制清单内容。",
+      "entries": [
+        {
+          "id": "canonical.skillhub",
+          "kind": "git",
+          "title": "Skill 发布集与发布顺序",
+          "status": "available",
+          "version": "main@4e47218737fc",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "git": "zjashanda/skillhub-sync",
+          "file": "manifests/canonical.json",
+          "commit": "4e47218737fc7dd357bc763315b3c87c0c2847cf",
+          "summary": "14 条对外发布 Skill 的唯一清单，数组顺序即发布顺序；模板正文不复述清单，避免两处不一致。"
+        },
+        {
+          "id": "canonical.kb-ledger",
+          "kind": "git",
+          "title": "知识账本",
+          "status": "available",
+          "version": "main@efc9ab892ad0",
+          "roles": [
+            "coordinator",
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "git": "zjashanda/ark-kb",
+          "file": "registry/skills.json",
+          "commit": "efc9ab892ad019df80f5bcaeea859939579d5788",
+          "summary": "全部仓库与技能条目账本（含内部/项目级技能），是检索入口而非发布集。"
+        },
+        {
+          "id": "canonical.routing",
+          "kind": "git",
+          "title": "派发路由表",
+          "status": "available",
+          "version": "main@334f1dfbbbcb",
+          "roles": [
+            "coordinator",
+            "node-executor"
+          ],
+          "requires": [
+            "git.ark-dispatch"
+          ],
+          "git": "zjashanda/ark-dispatch",
+          "file": "scripts/routing.json",
+          "commit": "334f1dfbbbcbb90687bf7c55f9b5d04754f5d9e6",
+          "summary": "按任务类型给出调用模板与端口角色（port_map、playback、synth、voice_test、burn、record、evidence）；只做决策不执行。"
+        },
+        {
+          "id": "canonical.node-cli",
+          "kind": "git",
+          "title": "节点命令行入口",
+          "status": "available",
+          "version": "main@8b5fb6573252",
+          "roles": [
+            "node-executor",
+            "hardware-bench"
+          ],
+          "requires": [
+            "git.ark-node"
+          ],
+          "git": "zjashanda/ark-node",
+          "file": "bin/ark-node",
+          "commit": "8b5fb6573252a4260941c66445efb630ad8c98d8",
+          "summary": "节点侧统一入口命令：环境同步、目录初始化、身份与探测、取件；Windows 用 bin/ark-node.ps1。"
+        }
+      ]
+    },
+    {
+      "id": "repos",
+      "label": "代码仓库",
+      "summary": "各能力仓库的主分支状态；克隆用 git clone 加对应仓库名，私有库需要凭据。",
+      "entries": [
+        {
+          "id": "git.venusahisiburner",
+          "kind": "git",
+          "title": "venusahisiburner · 烧录工具集",
+          "status": "available",
+          "version": "main@8bd7ddd6d51c",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/venusahisiburner",
+          "commit": "8bd7ddd6d51c2f244951517db7d2dc445b14358b",
+          "summary": "核心烧录流水线，已吸收 tcl-device-autoburn 与 burn_bundle 两个入口。"
+        },
+        {
+          "id": "git.lstest",
+          "kind": "git",
+          "title": "lstest · 测试与语音验证",
+          "status": "available",
+          "version": "main@90024eff6a6a",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/lstest",
+          "commit": "90024eff6a6a9f668fd0d58b43890a1da8e781a3",
+          "summary": "唯一的测试与语音验证实现，已吸收 Polaris；派发中的 polaris 槽位改指向本仓库加 device-io。"
+        },
+        {
+          "id": "git.listenai-play",
+          "kind": "git",
+          "title": "listenai-play · 播放与安装",
+          "status": "available",
+          "version": "main@84944c275dff",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/listenai-play",
+          "commit": "84944c275dff996c7b8edbc50f3d756c06b2a558",
+          "summary": "播放能力，已吸收 listenai-laid-installer。"
+        },
+        {
+          "id": "git.mars-belt",
+          "kind": "git",
+          "title": "mars-belt · 采集与处理",
+          "status": "available",
+          "version": "main@92b3178a17ba",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/mars-belt",
+          "commit": "92b3178a17baa20e7016b734ce72ed63e2a7feea",
+          "summary": "采集与后处理能力；不在 win-bench 节点默认安装集内。"
+        },
+        {
+          "id": "git.usb-tree",
+          "kind": "git",
+          "title": "usb-tree · USB 拓扑识别",
+          "status": "available",
+          "version": "main@b439ae8ee72c",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/usb-tree",
+          "commit": "b439ae8ee72c54721431b046753e3985e5962d3c",
+          "summary": "识别设备插拔拓扑，供烧录与验证定位端口。"
+        },
+        {
+          "id": "git.clearusb",
+          "kind": "git",
+          "title": "clearusb · USB 清理",
+          "status": "available",
+          "version": "main@9d47e8662347",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/clearusb",
+          "commit": "9d47e866234761ea1f04b4b050c5bfb20a23912e",
+          "summary": "清理串口/USB 残留占用，真机验证前的前置动作。"
+        },
+        {
+          "id": "git.device-io",
+          "kind": "git",
+          "title": "device-io · 设备 IO 适配层",
+          "status": "available",
+          "version": "main@09061d9fa85e",
+          "roles": [
+            "node-executor",
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/device-io",
+          "commit": "09061d9fa85e9b888900ddde9a916da4c79d6a50",
+          "summary": "统一串口/PDU 访问：须显式给 ip 与 1..8 的 outlet，off_seconds 默认 20，默认 dry-run；SNMP 读写编码相反。"
+        },
+        {
+          "id": "git.audio-runtime",
+          "kind": "git",
+          "title": "audio-runtime · 音频运行时",
+          "status": "available",
+          "version": "main@384031cb7e6b",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/audio-runtime",
+          "commit": "384031cb7e6bd321eae59cf478e18ec4b16d8963",
+          "summary": "音频采集与播放运行时。"
+        },
+        {
+          "id": "git.tts-runtime",
+          "kind": "git",
+          "title": "tts-runtime · 语音合成运行时",
+          "status": "available",
+          "version": "main@4b01f3688375",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/tts-runtime",
+          "commit": "4b01f36883751178379c2a248772dd45d8bca5ef",
+          "summary": "合成能力，凭据取自环境变量，不在文件里落盘。"
+        },
+        {
+          "id": "git.skill-git",
+          "kind": "git",
+          "title": "skill-git · 仓库与发布工具",
+          "status": "available",
+          "version": "main@d35ad9a39d0a",
+          "roles": [
+            "coordinator",
+            "node-executor"
+          ],
+          "requires": [],
+          "git": "zjashanda/skill-git",
+          "commit": "d35ad9a39d0a6a2203ba18195712f21b9a734f81",
+          "summary": "仓库操作与发布脚本；本目录的发布流程沿用其 OSS 环境约定。"
+        },
+        {
+          "id": "git.ark-dispatch",
+          "kind": "git",
+          "title": "ark-dispatch · 方舟调度",
+          "status": "available",
+          "version": "main@334f1dfbbbcb",
+          "roles": [
+            "coordinator"
+          ],
+          "requires": [],
+          "git": "zjashanda/ark-dispatch",
+          "commit": "334f1dfbbbcbb90687bf7c55f9b5d04754f5d9e6",
+          "summary": "只做决策不执行的调度 Skill：输入任务特征，给出调用模板与端口角色。"
+        },
+        {
+          "id": "git.ark-kb",
+          "kind": "git",
+          "title": "ark-kb · 知识库",
+          "status": "available",
+          "version": "main@efc9ab892ad0",
+          "roles": [
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "git": "zjashanda/ark-kb",
+          "commit": "efc9ab892ad019df80f5bcaeea859939579d5788",
+          "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
+        },
+        {
+          "id": "git.ark-node",
+          "kind": "git",
+          "title": "ark-node · 节点运行时",
+          "status": "available",
+          "version": "main@8b5fb6573252",
+          "roles": [
+            "coordinator",
+            "node-executor"
+          ],
+          "requires": [],
+          "git": "zjashanda/ark-node",
+          "commit": "8b5fb6573252a4260941c66445efb630ad8c98d8",
+          "summary": "节点侧能力：环境同步、目录初始化、身份与探测、取件；本总览的源文件也在本仓库。"
+        },
+        {
+          "id": "git.asset-tools",
+          "kind": "git",
+          "title": "asset-tools · 多来源取件",
+          "status": "available",
+          "version": "main@aee3a33f7066",
+          "roles": [
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "git": "zjashanda/asset-tools",
+          "commit": "aee3a33f706638a24b180edcbcf58c3fca1a395b",
+          "summary": "六来源统一取件（本地、HTTP、OSS、节点存储、邮件、NAS），默认 dry-run，校验值不符进隔离区。"
+        },
+        {
+          "id": "git.ark-archive",
+          "kind": "git",
+          "title": "ark-archive · 归档",
+          "status": "available",
+          "version": "main@f1a93020b074",
+          "roles": [
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "git": "zjashanda/ark-archive",
+          "commit": "f1a93020b074e53979c4652a9b34b7a93eb9a515",
+          "summary": "把执行产物归档到节点存储并生成回执；不在发布集内，属基础设施。"
+        },
+        {
+          "id": "git.skillhub-sync",
+          "kind": "git",
+          "title": "skillhub-sync · 发布集同步",
+          "status": "available",
+          "version": "main@4e47218737fc",
+          "roles": [
+            "coordinator",
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "git": "zjashanda/skillhub-sync",
+          "commit": "4e47218737fc7dd357bc763315b3c87c0c2847cf",
+          "summary": "维护发布集清单并同步各节点副本；七种同步状态中 LOCAL_DRIFT 绝不覆盖。"
+        }
+      ]
+    },
+    {
+      "id": "rules",
+      "label": "硬规则",
+      "summary": "以下规则对所有角色生效，全部出自模板正文对应章节；冲突时以模板正文为准。",
+      "entries": [
+        {
+          "id": "rule.workdir",
+          "kind": "rule",
+          "title": "唯一任务目录",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "hardware-bench"
+          ],
+          "requires": [
+            "agent-template.template"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "4. 工作目录",
+          "summary": "每个任务一个目录：Windows 为 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 为 /home/zhsh/workspace/tasks/<tasks-id>/；<tasks-id> 用任务编号，不用时间戳；不得用 C 盘、系统临时目录、/tmp 或运行时工作目录代替。"
+        },
+        {
+          "id": "rule.storage",
+          "kind": "rule",
+          "title": "存储与归档布局",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.template"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "6. 资产、结果与 1006",
+          "summary": "结果与回执按 节点/项目/批次 三级归档；1006 资产必须同时记录文件名、大小、校验值，本机不可达时先记原因再委派可达节点取件，禁止直接结论「资产不存在」。"
+        },
+        {
+          "id": "rule.time",
+          "kind": "rule",
+          "title": "时间口径",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.template"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "8. 时间口径",
+          "summary": "唯一形态「年-月-日 时:分:秒」，文件名为紧凑无分隔形式；禁止字母分隔符、末尾时区字母、数字时区偏移与毫秒，禁止节点本地时区。"
+        },
+        {
+          "id": "rule.credentials",
+          "kind": "rule",
+          "title": "凭据与安全",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.template"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "9. 凭据与安全",
+          "summary": "凭据只来自进程环境变量或权限 600 的受控密钥文件，共十个变量名；任何凭据值不得出现在模板、日志、回执、评论、提交或对外对象里。本总览不复制任何凭据。"
+        },
+        {
+          "id": "rule.supervision",
+          "kind": "rule",
+          "title": "监督契约",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.template"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "10. 监督契约",
+          "summary": "开工先报执行检查字段，长任务每五分钟报进度，状态漂移与无证据运行都要显式暴露；禁止起后台任务后直接结束。"
+        },
+        {
+          "id": "rule.approval",
+          "kind": "rule",
+          "title": "审批边界",
+          "status": "available",
+          "version": "1.0.1",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "hardware-bench"
+          ],
+          "requires": [
+            "agent-template.template"
+          ],
+          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "9.4 审批边界",
+          "summary": "推送代码、对外发布、真机操作、删除文件、改权限或 ACL 五类必须先获批；没有明确同意字样即视为未批准；只读巡检免审，写操作默认 dry-run。"
+        }
+      ]
+    },
+    {
+      "id": "dirs",
+      "label": "预留目录",
+      "summary": "以下目录尚未发布，规划中；在出现对应条目之前不要引用其中的链接。",
+      "entries": [
+        {
+          "id": "dir.platform",
+          "kind": "dir",
+          "title": "platform/ · 平台层",
+          "status": "planned",
+          "version": null,
+          "roles": [
+            "coordinator",
+            "external-reader"
+          ],
+          "requires": [
+            "root.index-md"
+          ],
+          "summary": "规划中：多智能体协作、任务编排与运行时接入说明。"
+        },
+        {
+          "id": "dir.git",
+          "kind": "dir",
+          "title": "git/ · 仓库层",
+          "status": "planned",
+          "version": null,
+          "roles": [
+            "coordinator",
+            "node-executor"
+          ],
+          "requires": [
+            "root.index-md"
+          ],
+          "summary": "规划中：仓库清单、同步状态与私有库访问约定的稳定入口。"
+        },
+        {
+          "id": "dir.storage",
+          "kind": "dir",
+          "title": "storage/ · 存储层",
+          "status": "planned",
+          "version": null,
+          "roles": [
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "root.index-md"
+          ],
+          "summary": "规划中：节点存储布局、结果与回执归档路径说明。"
+        },
+        {
+          "id": "dir.knowledge",
+          "kind": "dir",
+          "title": "knowledge/ · 知识层",
+          "status": "planned",
+          "version": null,
+          "roles": [
+            "knowledge-curator"
+          ],
+          "requires": [
+            "root.index-md"
+          ],
+          "summary": "规划中：知识账本的使用方式与检索入口。"
+        },
+        {
+          "id": "dir.execution",
+          "kind": "dir",
+          "title": "execution/ · 执行层",
+          "status": "planned",
+          "version": null,
+          "roles": [
+            "node-executor",
+            "hardware-bench"
+          ],
+          "requires": [
+            "root.index-md"
+          ],
+          "summary": "规划中：执行与真机验证的操作手册、端口与接线约定。"
+        },
+        {
+          "id": "dir.releases",
+          "kind": "dir",
+          "title": "releases/ · 版本汇总",
+          "status": "planned",
+          "version": null,
+          "roles": [
+            "external-reader",
+            "coordinator"
+          ],
+          "requires": [
+            "root.index-md"
+          ],
+          "summary": "规划中：跨仓库的版本与发布历史汇总。"
+        }
+      ]
+    },
+    {
+      "id": "assets",
+      "label": "资产",
+      "summary": "体积较大或节点本地持有的资产；未发布的只登记身份信息，不提供链接。",
+      "entries": [
+        {
+          "id": "asset.1006-pudcorntrol",
+          "kind": "asset",
+          "title": "1006 审计工具 pudCorntrol.rar",
+          "status": "planned",
+          "version": null,
+          "roles": [
+            "node-executor",
+            "hardware-bench"
+          ],
+          "requires": [
+            "rule.storage"
+          ],
+          "sha256": "76fe34431505d9dc676d5d8c5579c930d9846747ee49f6d4120f3e05a3c2a673",
+          "size": 185754459,
+          "summary": "1006 节点只读盘点得到的审计工具包，现存于节点存储的 artifacts 目录，尚未发布到对外目录；使用前按存储规则先取件校验。"
+        }
+      ]
+    }
+  ]
+}
