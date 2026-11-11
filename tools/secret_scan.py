@@ -14,7 +14,7 @@
 * 云厂商 AccessKey（阿里云 / AWS）
 * PEM 私钥块
 * URL 内嵌 ``user:password@host``
-* 长度 ≥32 且高熵的 base64 / hex 串（``sha256`` 摘要字段除外，那是内容指纹）
+* 长度 ≥32 且高熵的 base64 / hex 串（``sha256`` 摘要与 ``commit`` 提交号除外，它们是标识符）
 * RFC1918 私网 IP 字面量（位于 ``*.example.*`` 占位域名的行除外）
 
 约定
@@ -44,8 +44,11 @@ PRIVATE_KEY = re.compile("-----BEGIN" + r"[ \t]+[A-Z ]*PRIVATE KEY-----")  # noq
 URL_CREDENTIAL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^/\s:@]+:[^/\s@]+@")  # noqa: secret-scan
 HEX_BLOB = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{32,}(?![0-9A-Za-z])")  # noqa: secret-scan
 B64_BLOB = re.compile(r"(?<![0-9A-Za-z+/=])[A-Za-z0-9+/]{32,}={0,2}(?![0-9A-Za-z+/=])")  # noqa: secret-scan
-# 内容摘要字段（sha256）是产物指纹，不是凭据：同行内出现即视为合法摘要。
-DIGEST_FIELD = re.compile(r'"(?:content_|evidence_)?sha256"\s*:\s*"[0-9A-Fa-f]{64}"')
+# 内容摘要（sha256）与 Git 提交号都是标识符，不是凭据：同行内出现即放行。
+DIGEST_FIELD = re.compile(
+    r'"(?:content_|evidence_)?sha256"\s*:\s*"[0-9A-Fa-f]{64}"'
+    r'|"commit"\s*:\s*"[0-9A-Fa-f]{40}"'
+)
 
 PRIVATE_IP = re.compile(
     r"\b(?:"

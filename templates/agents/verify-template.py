@@ -57,7 +57,10 @@ TIME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 # 内容摘要字段不是凭据，扫描时整行放行
-DIGEST_LINE = re.compile(r'"(?:sha256|evidence_sha256)"\s*:\s*"[0-9a-f]{64}"')  # noqa: secret-scan
+DIGEST_LINE = re.compile(  # noqa: secret-scan
+    r'"(?:content_|evidence_)?sha256"\s*:\s*"[0-9a-f]{64}"'
+    r'|"commit"\s*:\s*"[0-9a-f]{40}"'
+)
 
 SECRET_RULES: List[Tuple[str, str]] = [
     ("github-token", r"\bgh[pousr]_[A-Za-z0-9]{20,}"),

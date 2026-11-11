@@ -71,7 +71,10 @@ OSS_ENV_KEYS = ("ACCESS_KEY_ID", "ACCESS_KEY_SECRET")
 BEIJING = timezone(timedelta(hours=8))
 FMT_DISPLAY = "%Y-%m-%d %H:%M:%S"
 
-DIGEST_FIELD = re.compile(r'"(?:sha256|evidence_sha256)"\s*:\s*"[0-9a-f]{64}"')  # noqa: secret-scan
+DIGEST_FIELD = re.compile(  # noqa: secret-scan
+    r'"(?:content_|evidence_)?sha256"\s*:\s*"[0-9a-f]{64}"'
+    r'|"commit"\s*:\s*"[0-9a-f]{40}"'
+)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
