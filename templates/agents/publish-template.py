@@ -361,13 +361,35 @@ def upload_plan(manifest: Dict[str, Any], blobs: Dict[str, bytes], bucket: str) 
 # --------------------------------------------------------------------- 上传
 
 
-def oss_put(endpoint_host: str, bucket: str, key: str, data: bytes, ak: str, sk: str) -> None:
-    """对象存储 PUT（签名 V1，零第三方依赖）。"""
+def normalize_endpoint(raw: str) -> str:
+    """把 endpoint 归一成纯主机名：去掉协议头与尾部斜杠。"""
+    host = raw.strip()
+    for scheme in ("https://", "http://"):
+        if host.startswith(scheme):
+            host = host[len(scheme) :]
+    return host.rstrip("/")
+
+
+def oss_put(
+    endpoint_host: str,
+    bucket: str,
+    key: str,
+    data: bytes,
+    ak: str,
+    sk: str,
+    visibility: str,
+) -> None:
+    """对象存储 PUT（签名 V1，零第三方依赖，显式带 x-oss-acl）。"""
+    endpoint_host = normalize_endpoint(endpoint_host)
     content_type = "application/octet-stream"
     date_header = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
     content_md5 = base64.b64encode(hashlib.md5(data).digest()).decode("ascii")
     resource = f"/{bucket}/{key}"
-    to_sign = "\n".join(["PUT", content_md5, content_type, date_header, resource])
+    # 显式对象 ACL：不依赖桶默认权限，匿名可读才算发出去。
+    canonical_headers = f"x-oss-acl:{visibility}"
+    to_sign = "\n".join(
+        ["PUT", content_md5, content_type, date_header, canonical_headers, resource]
+    )
     signature = base64.b64encode(
         hmac.new(sk.encode("utf-8"), to_sign.encode("utf-8"), hashlib.sha1).digest()
     ).decode("ascii")
@@ -377,6 +399,7 @@ def oss_put(endpoint_host: str, bucket: str, key: str, data: bytes, ak: str, sk:
     request.add_header("Date", date_header)
     request.add_header("Content-Type", content_type)
     request.add_header("Content-MD5", content_md5)
+    request.add_header("x-oss-acl", visibility)
     request.add_header("Authorization", f"OSS {ak}:{signature}")
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
@@ -389,7 +412,12 @@ def oss_put(endpoint_host: str, bucket: str, key: str, data: bytes, ak: str, sk:
         raise PublishError(f"上传 {key} 网络错误: {exc.reason}", EXIT_NETWORK) from exc
 
 
-def upload_all(steps: List[Dict[str, Any]], endpoint_host: str, bucket: str) -> int:
+ALLOWED_VISIBILITY = ("public-read", "private")
+
+
+def upload_all(
+    steps: List[Dict[str, Any]], endpoint_host: str, bucket: str, visibility: str
+) -> int:
     ak = os.environ.get("ACCESS_KEY_ID", "")
     sk = os.environ.get("ACCESS_KEY_SECRET", "")
     if not ak or not sk:
@@ -397,8 +425,13 @@ def upload_all(steps: List[Dict[str, Any]], endpoint_host: str, bucket: str) -> 
             "缺少对象存储凭据：请设置 " + " / ".join(OSS_ENV_KEYS) + "（值不要出现在命令行）",
             EXIT_FORBIDDEN,
         )
+    if visibility not in ALLOWED_VISIBILITY:
+        raise PublishError(
+            f"不支持的可见性: {visibility}（可选 " + " / ".join(ALLOWED_VISIBILITY) + "）",
+            EXIT_USAGE,
+        )
     for step in steps:
-        oss_put(endpoint_host, bucket, step["object"], step["_data"], ak, sk)
+        oss_put(endpoint_host, bucket, step["object"], step["_data"], ak, sk, visibility)
     return len(steps)
 
 
@@ -517,8 +550,12 @@ def main(argv: List[str]) -> int:
         if not args.endpoint:
             raise PublishError("--apply 需要 --endpoint 或 ARK_OSS_ENDPOINT", EXIT_USAGE)
 
-        uploaded = upload_all(steps, args.endpoint, args.bucket)
-        print(f"已上传 {uploaded} 个对象到 {args.bucket}（{args.visibility}）")
+        uploaded = upload_all(steps, args.endpoint, args.bucket, args.visibility)
+        print(
+            "已上传 {} 个对象到 {}.{}（{}）".format(
+                uploaded, args.bucket, normalize_endpoint(args.endpoint), args.visibility
+            )
+        )
         return EXIT_OK
     except PublishError as exc:
         sys.stderr.write(f"publish-template: {exc}\n")

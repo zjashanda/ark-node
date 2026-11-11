@@ -61,11 +61,14 @@ python3 templates/agents/publish-template.py
 python3 templates/agents/publish-template.py --json
 
 # 发布（需已获批准 + 凭据就位）
-python3 templates/agents/publish-template.py --apply --yes --endpoint <endpoint-host>
+python3 templates/agents/publish-template.py --apply --yes \
+    --bucket <bucket> --endpoint https://<endpoint-host> --visibility public-read
 ```
 
 凭据变量名固定为 `ACCESS_KEY_ID` / `ACCESS_KEY_SECRET`，对象存储桶与端点用
 `ARK_OSS_BUCKET` / `ARK_OSS_ENDPOINT` 覆盖。**值不进命令行、不进仓库、不进日志。**
+`--endpoint` 写 `host` 或完整 URL 都可以（协议头与尾部斜杠会被归一），上传路径是
+`https://<bucket>.<endpoint-host>/<key>`。
 
 ### 3.3 对象布局
 
@@ -81,6 +84,8 @@ python3 templates/agents/publish-template.py --apply --yes --endpoint <endpoint-
 ```
 
 默认前缀 `noahsark/agent-template`，默认可见性 `public-read`（新工作区要能不认证就能读）。
+`public-read` 是**按对象**写在 `x-oss-acl` 请求头里的，并计入签名，不依赖桶的默认权限；
+桶本身若是私有的也照样能读，判定标准只有一个：不带凭据的 GET 能拿到内容。
 `latest` 只是别名，内容与对应版本逐字节一致——不一致就是发布事故。
 
 ## 4. 回滚

@@ -518,5 +518,105 @@ class OnboardingDocTests(unittest.TestCase):
         self.assertIn("只能由 `publish-template.py` 生成", self.text)
 
 
+class OssUploadTests(unittest.TestCase):
+    """上传细节：endpoint 归一、显式对象 ACL、ACL 必须进签名。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("publish_template", PUBLISHER)
+        assert spec and spec.loader
+        cls.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.mod)
+
+    def _capture_put(self, visibility: str) -> object:
+        captured: list = []
+
+        class _Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            captured.append(request)
+            return _Response()
+
+        original = self.mod.urllib.request.urlopen
+        self.mod.urllib.request.urlopen = fake_urlopen
+        self.addCleanup(setattr, self.mod.urllib.request, "urlopen", original)
+        self.mod.oss_put(
+            endpoint_host="https://oss-cn-beijing.aliyuncs.com/",
+            bucket="listenai-test-internal",
+            key="noahsark/agent-template/v1.0.0/manifest.json",
+            data=b"{}\n",
+            ak="AKIDFORTEST",
+            sk="SKFORTEST",
+            visibility=visibility,
+        )
+        return captured[0]
+
+    def test_normalize_endpoint_strips_scheme_and_trailing_slash(self) -> None:
+        self.assertEqual(
+            self.mod.normalize_endpoint("https://oss-cn-beijing.aliyuncs.com/"),
+            "oss-cn-beijing.aliyuncs.com",
+        )
+        self.assertEqual(
+            self.mod.normalize_endpoint("oss-cn-hangzhou.aliyuncs.com"),
+            "oss-cn-hangzhou.aliyuncs.com",
+        )
+
+    def test_put_builds_virtual_hosted_url(self) -> None:
+        request = self._capture_put("public-read")
+        self.assertEqual(
+            request.full_url,
+            "https://listenai-test-internal.oss-cn-beijing.aliyuncs.com"
+            "/noahsark/agent-template/v1.0.0/manifest.json",
+        )
+
+    def test_put_sends_object_acl_header(self) -> None:
+        request = self._capture_put("public-read")
+        headers = {key.lower(): value for key, value in request.header_items()}
+        self.assertEqual(headers["x-oss-acl"], "public-read")
+
+    def test_acl_is_part_of_signature(self) -> None:
+        import base64
+        import hashlib
+        import hmac as hmac_mod
+
+        request = self._capture_put("public-read")
+        headers = {key.lower(): value for key, value in request.header_items()}
+        expected = base64.b64encode(
+            hmac_mod.new(
+                b"SKFORTEST",
+                "\n".join(
+                    [
+                        "PUT",
+                        headers["content-md5"],
+                        headers["content-type"],
+                        headers["date"],
+                        "x-oss-acl:public-read",
+                        "/listenai-test-internal/noahsark/agent-template/v1.0.0/manifest.json",
+                    ]
+                ).encode("utf-8"),
+                hashlib.sha1,
+            ).digest()
+        ).decode("ascii")
+        self.assertEqual(headers["authorization"], f"OSS AKIDFORTEST:{expected}")
+
+    def test_unknown_visibility_rejected(self) -> None:
+        import unittest.mock as mock
+
+        env = {"ACCESS_KEY_ID": "AKIDFORTEST", "ACCESS_KEY_SECRET": "SKFORTEST"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(self.mod.PublishError) as ctx:
+                self.mod.upload_all([], "oss-cn-beijing.aliyuncs.com", "b", "world-readable")
+        self.assertEqual(ctx.exception.code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
