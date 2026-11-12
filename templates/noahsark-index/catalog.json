@@ -222,7 +222,7 @@
             "agent-template.latest"
           ],
           "oss": "noahsark/agent-template/v1.1.0/manifest.json",
-          "sha256": "deead73c6fec6bcb63c049baa7afc6193ed8db999cb9594e437cafdc4491a522",
+          "sha256": "0bdf7a504ad7b8c2d8289b24bb0f51af437bc025d5a4c60f5afe9d18cdfdfd1e",
           "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
         },
         {
