@@ -1,14 +1,14 @@
 {
   "schema": "ark.agent-template.manifest.v1",
   "name": "noahsark-agent-template",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "channel": "immutable",
-  "source_version": "1.5.0",
-  "published_at": "2026-11-12 16:44:27",
+  "source_version": "1.6.0",
+  "published_at": "2026-11-12 17:07:03",
   "template_schema": "ark.agent-template.v1",
   "git": {
     "repo": "zjashanda/ark-node",
-    "commit": "fbdb59fad0197d4857536f19889c4e155c410440",
+    "commit": "997695621fd757ef25f1bd28005319174b8b2339",
     "path": "templates/agents",
     "dirty": false,
     "tracked": true
@@ -26,28 +26,28 @@
   "files": [
     {
       "path": "noahsark-agent-template.md",
-      "object": "noahsark/agent-template/v1.5.0/noahsark-agent-template.md",
+      "object": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
       "role": "template",
-      "sha256": "43530764aac753a92d22fdcf64ffc3847c4989901031129dd703dd2784cae847",
-      "bytes": 57133
+      "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9",
+      "bytes": 68929
     },
     {
       "path": "agent-profile.v1.json",
-      "object": "noahsark/agent-template/v1.5.0/agent-profile.v1.json",
+      "object": "noahsark/agent-template/v1.6.0/agent-profile.v1.json",
       "role": "profile",
-      "sha256": "07ba52019c636a2e2a972d53f038627cc94f2d0447dc5405732b85d450f45af0",
-      "bytes": 26661
+      "sha256": "d681dcf4534324d3fc212f3798784e7ae951c672c086eecaabef1353cc41171e",
+      "bytes": 29776
     },
     {
       "path": "verify-template.py",
-      "object": "noahsark/agent-template/v1.5.0/verify-template.py",
+      "object": "noahsark/agent-template/v1.6.0/verify-template.py",
       "role": "verifier",
-      "sha256": "585d97cf1a56ea6f03a9b05532fcbedf7f6533a86429fec439a93a5514b131c4",
-      "bytes": 45943
+      "sha256": "3d66ab203591caebee50fab5bf027af0e4f58373541e51b4b04b3c41070dd534",
+      "bytes": 49654
     },
     {
       "path": "run-state.v1.json",
-      "object": "noahsark/agent-template/v1.5.0/run-state.v1.json",
+      "object": "noahsark/agent-template/v1.6.0/run-state.v1.json",
       "role": "schema",
       "sha256": "d9633c2277fc5017f925166867a98e0e903d67a44146355202ad7bdca43eaa07",
       "bytes": 9950
@@ -57,5 +57,5 @@
     "secret_scan": "pass",
     "time_lint": "pass"
   },
-  "notes": "对象路径不可变；latest 是稳定别名，内容与 v1.5.0 完全一致。校验下载内容用同目录 verify-template.py。"
+  "notes": "对象路径不可变；latest 是稳定别名，内容与 v1.6.0 完全一致。校验下载内容用同目录 verify-template.py。"
 }
