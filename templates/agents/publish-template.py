@@ -55,7 +55,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 DEFAULT_VERSION = "1.6.0"
 DEFAULT_PREFIX = "noahsark/agent-template"
-DEFAULT_BUCKET = "ark-public"
+DEFAULT_BUCKET = "listenai-test-internal"
 DEFAULT_VISIBILITY = "public-read"
 
 # (文件名, 角色)：发布包只含这四件，多一个都不发。
