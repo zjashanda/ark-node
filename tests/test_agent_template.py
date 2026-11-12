@@ -353,7 +353,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.2.0")
+        self.assertEqual(self.profile["template_version"], "1.3.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -514,7 +514,7 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.2.0")
+        self.assertEqual(manifest["version"], "1.3.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
@@ -557,7 +557,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.2.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.3.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -580,7 +580,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.2.0", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.3.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
@@ -913,6 +913,32 @@ class RunStateContractTests(unittest.TestCase):
         for token in self.EVENTS:
             self.assertIn(token, self.template)
         self.assertIn("receipts/stage-index.json", self.template)
+
+    def test_execution_check_preflight_contract(self) -> None:
+        preflight = self.schema["$defs"]["execution_check"]["properties"]["preflight"]
+        self.assertFalse(preflight["additionalProperties"])
+        self.assertEqual(
+            preflight["required"], ["status", "checks", "checked_at", "checker_version"]
+        )
+        checks = preflight["properties"]["checks"]
+        self.assertFalse(checks["additionalProperties"])
+        expected = self.profile["default"]["run_state"]["preflight_checks"]
+        self.assertEqual(checks["required"], expected)
+        self.assertEqual(sorted(checks["properties"]), sorted(expected))
+        for name, spec in checks["properties"].items():
+            self.assertEqual(spec["type"], "boolean", name)
+        self.assertEqual(preflight["properties"]["status"]["enum"], ["passed", "blocked"])
+
+    def test_template_documents_launch_record(self) -> None:
+        self.assertIn("logs/launch.json", self.template)
+        self.assertIn("hidden_verified", self.template)
+        self.assertIn("### 11.6", self.template)
+
+    def test_watchdog_sampling_contract(self) -> None:
+        gate = self.profile["default"]["gate_events"]
+        self.assertEqual(gate["watchdog_sample_seconds_min"], 10)
+        self.assertEqual(gate["watchdog_sample_seconds_max"], 30)
+        self.assertEqual(self.profile["default"]["execution_channel"]["launch_record"], "logs/launch.json")
 
     def test_manifest_ships_schema_artifact(self) -> None:
         manifest = json.loads((AGENTS_DIR / "manifest.json").read_text(encoding="utf-8"))

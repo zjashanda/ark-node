@@ -47,13 +47,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 TEMPLATE_SCHEMA = "ark.agent-template.v1"
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
-DEFAULT_VERSION = "1.2.0"
+DEFAULT_VERSION = "1.3.0"
 DEFAULT_PREFIX = "noahsark/agent-template"
 DEFAULT_BUCKET = "ark-public"
 DEFAULT_VISIBILITY = "public-read"

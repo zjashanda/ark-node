@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 PROFILE_SCHEMA = "ark.agent-profile.v1"
 REQUIRED_ROLES = ("template", "profile", "verifier")
@@ -123,6 +123,7 @@ EXPECTED_EXECUTION_CHANNEL = {
     "stdout_redirect": "logs/",
     "stderr_redirect": "logs/",
     "require_batch_mode": True,
+    "launch_record": "logs/launch.json",
     "unverifiable_action": EXPECTED_CHANNEL_VIOLATION,
     "background_and_yield": "forbidden",
 }
@@ -531,6 +532,15 @@ EXPECTED_BLOCKER_CODES = (
 )
 EXPECTED_RUN_STATE = {
     "schema": RUN_STATE_SCHEMA,
+    "preflight_checks": [
+        "runtime_online",
+        "agent_runtime_match",
+        "workdir_policy",
+        "plan_present",
+        "launcher_available",
+        "hidden_execution_capable",
+        "device_preflight",
+    ],
     "schema_ref": RUN_STATE_FILE,
     "event_log": "receipts/events/gates-<YYYYMMDD>.jsonl",
     "stage_index": "receipts/stage-index.json",
@@ -547,6 +557,8 @@ EXPECTED_STAGE_POLICY = {
 EXPECTED_GATE_EVENTS = {
     "write_before_work": True,
     "progress_interval_minutes": 5,
+    "watchdog_sample_seconds_min": 10,
+    "watchdog_sample_seconds_max": 30,
     "missing_event": "BLOCKED",
 }
 EXPECTED_RECEIPT_LAYERS = {
@@ -569,6 +581,20 @@ SAMPLE_EXECUTION_CHECK = {
     "stage": 15,
     "first_action": "读取任务目录 plan.md",
     "first_artifact": "plan.md",
+    "preflight": {
+        "status": "passed",
+        "checks": {
+            "runtime_online": True,
+            "agent_runtime_match": True,
+            "workdir_policy": True,
+            "plan_present": True,
+            "launcher_available": True,
+            "hidden_execution_capable": True,
+            "device_preflight": True,
+        },
+        "checked_at": "2026-11-12 15:04:59",
+        "checker_version": "execution-check-v1",
+    },
     "at": "2026-11-12 15:05:00",
 }
 SAMPLE_FINAL_RECEIPT = {

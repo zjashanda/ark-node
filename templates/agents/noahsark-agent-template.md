@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.2.0
+# NoahsArk 智能体模板 v1.3.0
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -117,6 +117,17 @@
 
 平台自动给的运行时 workdir **不是**任务目录。它不在上表路径内时，先按上表建出真实任务目录，
 把执行切过去再干活；建不出来或不允许建，直接报 `BLOCKED_WORKDIR_POLICY` 并停下，不要就地凑合。
+
+`plan.md` 与目录骨架的初始化同样有独立错误码，不要把它们混进 `BLOCKED_WORKDIR_POLICY`：
+
+| 情形 | 码 | 处置 |
+|---|---|---|
+| 目录建不出来或路径不在 `task_root` 下 | `BLOCKED_WORKDIR_POLICY` | 停下，切换正确路径后重来 |
+| 目录建好但 `plan.md` 写不进去 | `BLOCKED_PLAN_INIT` | 查权限/磁盘，不换目录 |
+| `plan.md` 不存在就开工 | `BLOCKED_PLAN_MISSING` | 先补 `plan.md`，再链 `EXECUTION_CHECK` |
+| `plan.md` 为空、无目标、无当前阶段，或明显是别的任务的计划 | `BLOCKED_PLAN_INVALID` | 重写本任务的计划 |
+
+平台没有 daemon 钩子时，**由 agent 幂等创建**目录与 `plan.md` 骨架（已存在则只读取，不覆盖）；这是过渡实现，不改变「未通过 `EXECUTION_CHECK` 不得开跑」的结论。
 
 以下位置**永远不能当任务根**：Windows 的 C 盘（含 `%TEMP%`）、Linux 的 `/tmp`、以及任何个人主目录下的
 临时工作区。它们只能当短时临时区：产物与证据必须及时复制回任务目录，本任务的临时文件用完即清。
@@ -486,10 +497,36 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
   "stderr_redirect": "logs/",
   "forbidden_launchers": ["Start-Process", "Win32_Process.Create", "conhost", "wt", "powershell -NoExit"],
   "require_batch_mode": true,
+  "launch_record": "logs/launch.json",
   "unverifiable_action": "BLOCKED_EXECUTION_CHANNEL",
   "background_and_yield": "forbidden"
 }
 ```
+
+### 11.6 启动记录：`logs/launch.json`
+
+启动器（或降级时的 agent 自身）必须在进程创建后立刻写 `logs/launch.json`，字段固定：
+
+```json
+{
+  "task_id": "NOAH-63",
+  "pid": 8524,
+  "parent_pid": 16660,
+  "cwd": "<任务目录>",
+  "stdin": "NUL",
+  "stdout": "logs/stdout.log",
+  "stderr": "logs/stderr.log",
+  "window_count": 0,
+  "main_window_handle": 0,
+  "launcher": "noahsark-task-launcher-v1",
+  "hidden_verified": true,
+  "exit_code": null,
+  "created_at": "2026-11-12 10:00:10"
+}
+```
+
+- `hidden_verified` 只能来自可复现证据（`MainWindowHandle == 0`、EnumWindows 无该 PID 顶层窗口、无交互 stdin），**不能**由「看起来没弹窗」推断。
+- 没有启动器可用时，`launcher` 写 `none`、`hidden_verified` 写 `false`，并按 `BLOCKED_EXECUTION_CHANNEL` 处理；不得把 `false` 当成「大概率没事」继续跑。
 
 `no_visible_terminal` 在 Windows 上必须为 `true`，`non_interactive` 全平台必须为 `true`。
 `verify-template.py` 独立校验这三项：缺字段、为假、或命令判据不过，都判定整包不合规。
@@ -619,7 +656,7 @@ agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题
 
 | 事件 | 必填字段 | 时机 |
 |---|---|---|
-| `EXECUTION_CHECK` | `schema` `event` `run_id` `issue_id` `agent_id` `runtime_id` `started` `stage` `at` `first_action` `first_artifact` | 开工前，第一个动作之前 |
+| `EXECUTION_CHECK` | `schema` `event` `run_id` `issue_id` `agent_id` `runtime_id` `started` `stage` `at` `first_action` `first_artifact`；可选 `workdir` `preflight` | 开工前，第一个动作之前 |
 | `PROGRESS_5M` | `schema` `event` `run_id` `issue_id` `stage` `at` `status` `last_5m_action` `artifacts_state` `artifacts` `next_step` | 每 5 分钟 |
 | `STAGE_FINISHED` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `evidence` `rollback` `next_stage` | 一个 stage 收尾 |
 | `BLOCKED` | `schema` `event` `run_id` `issue_id` `stage` `at` `code` `reason` `needs` `next_step` | 一发现缺条件就写 |
@@ -629,7 +666,15 @@ agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题
 
 - `at` 用北京时间、秒级、无时区标记（`YYYY-MM-DD HH:MM:SS`）。
 - `PROGRESS_5M.status` 枚举 `RUNNING` / `QUEUED` / `BLOCKED` / `NEEDS_REVIEW`；`artifacts_state=NONE` 时 `artifacts` 必须为空并写 `no_artifact_reason`，**编造路径视为失败**。
-- `BLOCKED.code` 枚举：`BLOCKED_SOURCE_MISSING` / `BLOCKED_EXECUTION_CHANNEL` / `BLOCKED_WORKDIR_POLICY` / `BLOCKED_APPROVAL_REQUIRED` / `BLOCKED_PLAN_INCOMPLETE`。
+- `EXECUTION_CHECK.preflight` 是预检**结果**，与事件本身（开工**声明**）不是一回事。写了 `preflight` 就必须写满 7 项布尔检查，顺序固定：`runtime_online` `agent_runtime_match` `workdir_policy` `plan_present` `launcher_available` `hidden_execution_capable` `device_preflight`，另带 `status`（`passed` / `blocked`）、`checked_at`、`checker_version`。任一为 `false` 时 `status` 必须是 `blocked`，并且紧接着写一条 `BLOCKED` 事件。
+- `BLOCKED.code` 枚举：`BLOCKED_SOURCE_MISSING` / `BLOCKED_EXECUTION_CHANNEL` / `BLOCKED_WORKDIR_POLICY` / `BLOCKED_APPROVAL_REQUIRED` / `BLOCKED_PLAN_INCOMPLETE`。项目 profile 层的专有码（串口、声卡、存储、运行器退出/卡死等）不扩展枚举，写进 `reason` 前缀，由下述映射表归一：
+
+| 项目层说法 | 归一到 | 说明 |
+|---|---|---|
+| `BLOCKED_HIDDEN_EXECUTION` | `BLOCKED_EXECUTION_CHANNEL` | 同一件事，平台层用后者 |
+| `BLOCKED_PLAN_INIT` / `BLOCKED_PLAN_MISSING` / `BLOCKED_PLAN_INVALID` | `BLOCKED_PLAN_INCOMPLETE` | 细节写进 `reason` |
+| `BLOCKED_SERIAL` / `BLOCKED_AUDIO` / `BLOCKED_STORAGE` | `BLOCKED_EXECUTION_CHANNEL` 之外的**项目 profile 阻断** | 归为项目层，仍要发 `BLOCKED` 事件并在 `reason` 写明 `project:<code>` |
+| `RUNNER_EXITED` / `RUNNER_STALLED` / `RESULT_INCOMPLETE` | 症状码 `WATCH_*` | 是 watchdog 症状，不是阻断码 |
 - 事件流缺 `EXECUTION_CHECK` 就开工，按「无证据」处理，直接置 `BLOCKED`。
 - `plan.md` 的同名块与 issue 评论是同一事实的投影，三者不一致时以事件流为准，并立刻补一条修正事件。
 
@@ -640,6 +685,8 @@ agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题
 - 阶段产物没落地、验收没通过，`result` 只能写 `FAIL` / `BLOCKED` / `NEEDS_REVIEW`，不许写 `PASS`。
 
 ### 14.6 Watchdog：三通道交叉验证
+
+Watchdog 的**采样**节奏是 10–30 秒（进程、`status.json`、`rounds.jsonl` 行数、日志与 PCM mtime、设备链路、磁盘、milestone 文件、`runner_exit.log`）；**上报**节奏仍是每 5 分钟的 `PROGRESS_5M`。采样快、上报慢，两者不要混为一谈。
 
 单看一个通道会误判，三个通道同时看：
 
@@ -728,6 +775,9 @@ agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题
 | `run_state.stage_index` | string | `receipts/stage-index.json` |
 | `run_state.events` | array | 五个门禁事件名 |
 | `run_state.blocker_codes` | array | 五个 `BLOCKED_*` 码 |
+| `run_state.preflight_checks` | array | `EXECUTION_CHECK.preflight.checks` 的固定 7 项 |
+| `gate_events.watchdog_sample_seconds_min` / `_max` | integer | watchdog 采样区间 10–30 秒 |
+| `execution_channel.launch_record` | string | 启动记录相对路径 `logs/launch.json` |
 | `run_state.run_statuses` | array | run 状态全集 |
 | `run_state.done_by` | string | 固定 `human-only` |
 | `run_state.landing_status` | string | agent 交付后写 `in_review` |
