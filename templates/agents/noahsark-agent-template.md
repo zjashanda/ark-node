@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.3.0
+# NoahsArk 智能体模板 v1.4.0
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -602,6 +602,7 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | 目录名带毫秒/时区/时间戳后缀 | 目录名只用 `<tasks-id>` |
 | 没有 run 记录就报 `started=YES`，或缺 `EXECUTION_CHECK` 直接开工 | 先落事件流再动手，没 run 只能 `started=false` |
 | 把候选回执当正式回执回流 `ark-kb` | 只允许 `receipts/run.receipt.json` 回流 |
+| 只跑本地结果就报 PASS / 无知识价值静默跳过 | 补齐 delivery 四状态位；无知识价值必须 `NO_KB_REQUIRED` 并给出原因 |
 
 ---
 
@@ -735,6 +736,122 @@ Watchdog 的**采样**节奏是 10–30 秒（进程、`status.json`、`rounds.j
 
 ---
 
+## 16. 知识同步（查询 → 回流 → 确认）
+
+知识同步不是可选项：开工先查 ark-kb 并留痕，收工按固定顺序回流并 query-back 确认。
+delivery 四状态位没补齐，就不许判 PASS。
+
+### 16.1 开工前查询
+
+在**第一个动作之前**（有派发时由 ark-dispatch 在生成计划前完成）查询 ark-kb：
+按 `capability` / `project` / `device` / `firmware` / `profile` 五个维度调用
+`python3 <ark-kb>/tools/kb.py query --json`，不新增查询引擎。
+
+查询结果写两处：
+
+| 位置 | 用途 | 形态 |
+|---|---|---|
+| `plan.md` 的 `## 知识查询` 段 | 人读 | 命中 id、commit、查询时间 |
+| `run.receipt.json` 顶层 `kb_context` | 机读 | 契约 `ark.kb-context.v1` |
+
+`ark.kb-context.v1` 字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `schema` | string | 固定 `ark.kb-context.v1` |
+| `contract_version` | string | 契约版本 |
+| `queried_at` | string | 北京时间、秒级 |
+| `dims` | object | `capability` / `project` / `device` / `firmware` / `profile` / `skill` |
+| `registry_commit` | string | 40 位提交号或 `unknown` |
+| `hits` | array | 每条含 `id` / `type` / `status` / `confidence` / `score` / `commit` / `source_skill` |
+| `no_hit` | bool | 无命中写 `true`，空结果不是错误 |
+| `refresh_points` | array | 刷新点与原因 |
+| `refresh_log` | array | 每次刷新追加，不覆盖首次 |
+
+- `no_hit=true` 是合法记录结果，不是失败，但必须写下来。
+- 禁止「把整个知识库同步到本地」：按维度按需查询。
+- onboarding 只读 NoahsArk index 与本契约（index 指向 Git 入口与本模板），不要求全量同步。
+
+### 16.2 刷新点
+
+以下任一条件满足即重查，并把新命中追加到 `refresh_log`，**不覆盖首次查询**：
+
+| 触发 | 说明 |
+|---|---|
+| 阶段边界 | 每个 `STAGE_FINISHED` 落盘之前 |
+| 时间 | 长任务每 30 分钟 |
+| 轮次 | 每 100 轮（与 30 分钟取先到者） |
+| 知识库变化 | `registry_commit` 变化时立即刷新 |
+
+### 16.3 收工回流顺序
+
+顺序固定、禁止跳步：
+
+```text
+evidence manifest → run.receipt.json → ark-archive(archive_status=ok)
+                  → ark-kb record → ark-kb query-back
+```
+
+- 归档只复制不移动；回执只生成不覆盖。
+- 四类结果 `PASS` / `FAIL` / `BLOCKED` / `NEEDS_REVIEW` 都要生成回执并回流；失败也是知识。
+- 跳步即判 `DELIVERY_INCOMPLETE`。
+
+### 16.4 delivery 四状态位
+
+`receipts/delivery.json` 按 `ark.delivery.v1` 落地，`run.receipt.json` 可选顶层 `delivery` 复制一份。
+
+| 状态位 | 取值 | 说明 |
+|---|---|---|
+| `archive_status` | `pending` / `ok` / `failed` / `skipped` | 归档结果 |
+| `kb_ingest_status` | `pending` / `recorded` / `skipped_no_kb` / `failed` | 入库结果 |
+| `kb_entry_ids` | array | 本次入库或复用的条目 id |
+| `kb_query_back_status` | `pending` / `pass` / `fail` / `deferred` | 回流可见性确认 |
+
+判定：
+
+- `archive_status=ok` 且（`kb_ingest_status=recorded` 且 `kb_query_back_status=pass`）→ 允许 PASS；
+- `kb_ingest_status=skipped_no_kb` 且 `no_kb_reason` 非空 → 允许 PASS；
+- 其余组合 → `DELIVERY_INCOMPLETE`，`FINAL_RECEIPT` 只能 `NEEDS_REVIEW`。
+
+`record` 之后必须用**相同维度**再查一次，确认新条目出现在默认 top 20；写回 `kb_query_back_status` 与命中 id。
+query-back 失败重试一次，仍失败记 `fail`；跨节点暂不可见记 `deferred`。
+
+### 16.5 NO_KB_REQUIRED
+
+无知识价值时禁止静默跳过，必须写 `kb_ingest_status=skipped_no_kb`，并用 `no_kb_reason` 给出原因。
+原因只允许四类：
+
+| 原因 | 含义 |
+|---|---|
+| `no-new-knowledge` | 重复既有结论，无新增 |
+| `pure-inventory` | 只清点不产出知识 |
+| `duplicate-of-existing:<entry_id>` | 与既有条目重复，给出条目 id |
+| `sensitive-not-indexable` | 含敏感信息，只登记位置 |
+
+原因缺失或不在集合内 → 用法错误（usage error），不许判 PASS。
+
+### 16.6 分层与内容边界
+
+| 层 | 位置 | 可回流 | 可驱动 dispatch |
+|---|---|---|---|
+| formal | `receipts/run.receipt.json` | 是 | 是（需 active 且证据完整） |
+| candidate | `receipts/candidates/` | 否 | 否 |
+| evidence-gap | `receipts/evidence-gaps/` | 否 | 否 |
+
+- candidate 与 evidence-gap **不得**驱动 dispatch 的 `recovery` / `stop_rules`。
+- ark-kb 只收：脱敏摘要、索引、sha256、受控资产位置。
+- 禁止入库：凭据、原始敏感日志、大文件正文；超过 1 MiB 只登记路径与 sha256。
+
+### 16.7 幂等与重试
+
+- 幂等键 `idempotency_key = sha256(scope + run_id)`；同键重复 record 不新增条目，只累加 `hits` / `validations`。
+- 重复导入同一 run 命中 `find_duplicate()` 即复用旧条目 id，不新建。
+- 生命周期 `pending → active → stale → superseded`；`superseded_by` 指向新条目，query 默认排除 stale / superseded。
+- 失败重试最多 3 次，指数退避 1 / 2 / 4 分钟，每次写 `retry`。
+- 跨节点暂不可见 → `kb_query_back_status=deferred` 并上报 `WATCH_DELIVERY_INCOMPLETE`，不伪造 pass。
+
+---
+
 ## 附录 A：字段速查
 
 机器可读版本见同目录 `agent-profile.v1.json`。核心字段：
@@ -796,6 +913,22 @@ Watchdog 的**采样**节奏是 10–30 秒（进程、`status.json`、`rounds.j
 | `receipt_layers.join_key` | string | 固定 `run_id` |
 | `receipt_layers.reflow_source` | string | 固定 `formal-only` |
 | `receipt_layers.schema_change` | string | 固定 `forbidden` |
+| `kb_sync.enabled` | bool | 固定 `true`，知识同步必开 |
+| `kb_sync.context_schema` | string | 查询留痕契约 `ark.kb-context.v1` |
+| `kb_sync.delivery_schema` | string | 回流状态契约 `ark.delivery.v1` |
+| `kb_sync.query_command` | string | `python3 <ark-kb>/tools/kb.py query --json` |
+| `kb_sync.query_dims` | array | 五个查询维度 |
+| `kb_sync.record_first` | bool | 固定 `false`，先查询后记录 |
+| `kb_sync.refresh_points` | array | 四个刷新触发点 |
+| `kb_sync.delivery_path` | string | `receipts/delivery.json` |
+| `kb_sync.order` | array | 回流五步固定顺序 |
+| `kb_sync.query_back_top` | integer | 回流确认默认 top 20 |
+| `kb_sync.no_kb_required_reasons` | array | 四类免回流原因 |
+| `kb_sync.incomplete_code` | string | 缺状态位判 `DELIVERY_INCOMPLETE` |
+| `kb_sync.layers.formal` | string | 正式回执路径 |
+| `kb_sync.layers.candidate` | string | 候选回执目录 |
+| `kb_sync.layers.evidence_gap` | string | 证据缺口目录 |
+| `kb_sync.candidate_may_drive_dispatch` | bool | 固定 `false`，候选不驱动派发 |
 | `compatibility.template_version` | string | 模板版本 |
 
 ---

@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 PROFILE_SCHEMA = "ark.agent-profile.v1"
 REQUIRED_ROLES = ("template", "profile", "verifier")
@@ -570,6 +570,47 @@ EXPECTED_RECEIPT_LAYERS = {
     "schema_change": "forbidden",
 }
 
+EXPECTED_KB_SYNC = {
+    "enabled": True,
+    "context_schema": "ark.kb-context.v1",
+    "delivery_schema": "ark.delivery.v1",
+    "query_dims": ["capability", "project", "device", "firmware", "profile"],
+    "record_first": False,
+    "refresh_points": [
+        "stage_boundary",
+        "every_30_minutes",
+        "every_100_rounds",
+        "registry_commit_change",
+    ],
+    "delivery_path": "receipts/delivery.json",
+    "order": ["manifest", "receipt", "archive", "kb_record", "kb_query_back"],
+    "query_back_top": 20,
+    "no_kb_required_reasons": [
+        "no-new-knowledge",
+        "pure-inventory",
+        "duplicate-of-existing:<entry_id>",
+        "sensitive-not-indexable",
+    ],
+    "incomplete_code": "DELIVERY_INCOMPLETE",
+    "layers": {
+        "formal": "receipts/run.receipt.json",
+        "candidate": "receipts/candidates/",
+        "evidence_gap": "receipts/evidence-gaps/",
+    },
+    "candidate_may_drive_dispatch": False,
+}
+EXPECTED_KB_SYNC_ORDER = ["manifest", "receipt", "archive", "kb_record", "kb_query_back"]
+KB_SYNC_HEADING = "## 16. 知识同步（查询 → 回流 → 确认）"
+KB_SYNC_TOKENS = (
+    "ark.kb-context.v1",
+    "ark.delivery.v1",
+    "receipts/delivery.json",
+    "DELIVERY_INCOMPLETE",
+    "NO_KB_REQUIRED",
+    "kb_query_back_status",
+    "receipts/evidence-gaps/",
+)
+
 SAMPLE_EXECUTION_CHECK = {
     "schema": RUN_STATE_SCHEMA,
     "event": "EXECUTION_CHECK",
@@ -885,6 +926,72 @@ def check_run_state(manifest: Dict[str, Any], base: Path) -> List[Check]:
     return checks
 
 
+def check_kb_sync(manifest: Dict[str, Any], base: Path) -> List[Check]:
+    """知识同步契约：profile 的 kb_sync 段与模板第 16 节双向对齐。"""
+    checks: List[Check] = []
+    entries = manifest.get("files") or []
+    profile_entry = next((item for item in entries if str(item.get("role", "")) == "profile"), None)
+    block: Dict[str, Any] = {}
+    profile_error: Optional[str] = None
+    if profile_entry is None:
+        profile_error = "发布包里没有 profile"
+    else:
+        path = base / str(profile_entry.get("path", ""))
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+            default = profile.get("default") if isinstance(profile.get("default"), dict) else {}
+            value = default.get("kb_sync")
+            if isinstance(value, dict):
+                block = value
+            else:
+                profile_error = "profile 缺少 kb_sync 段"
+        except (OSError, json.JSONDecodeError) as exc:
+            profile_error = f"profile 读取失败: {exc}"
+
+    if profile_error is not None:
+        checks.append(Check("profile-kb-sync", False, profile_error))
+        checks.append(Check("profile-kb-sync-order", False, profile_error))
+    else:
+        mismatched = {
+            key: block.get(key) for key, expected in EXPECTED_KB_SYNC.items() if block.get(key) != expected
+        }
+        checks.append(
+            Check(
+                "profile-kb-sync",
+                not mismatched,
+                "kb_sync 段自洽" if not mismatched else f"不符: {sorted(mismatched)}",
+            )
+        )
+        order = block.get("order")
+        checks.append(
+            Check(
+                "profile-kb-sync-order",
+                order == EXPECTED_KB_SYNC_ORDER,
+                f"order={order}",
+            )
+        )
+
+    text = ""
+    template_entry = next((item for item in entries if str(item.get("role", "")) == "template"), None)
+    if template_entry is not None:
+        try:
+            text = (base / str(template_entry.get("path", ""))).read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+    missing_tokens = [token for token in KB_SYNC_TOKENS if token not in text]
+    heading_ok = KB_SYNC_HEADING in text
+    checks.append(
+        Check(
+            "template-kb-sync",
+            not missing_tokens and heading_ok,
+            "知识同步章节齐备"
+            if not missing_tokens and heading_ok
+            else f"缺少: {missing_tokens} heading={heading_ok}",
+        )
+    )
+    return checks
+
+
 def verify(base: Path, manifest_path: Optional[Path] = None) -> Tuple[List[Check], Optional[Dict[str, Any]]]:
     target = manifest_path or (base / "manifest.json")
     if not target.exists():
@@ -900,6 +1007,7 @@ def verify(base: Path, manifest_path: Optional[Path] = None) -> Tuple[List[Check
     checks.extend(check_profile(manifest, base))
     checks.extend(check_execution_channel(manifest, base))
     checks.extend(check_run_state(manifest, base))
+    checks.extend(check_kb_sync(manifest, base))
     return checks, manifest
 
 

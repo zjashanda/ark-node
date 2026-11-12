@@ -353,7 +353,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.3.0")
+        self.assertEqual(self.profile["template_version"], "1.4.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -514,7 +514,7 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.3.0")
+        self.assertEqual(manifest["version"], "1.4.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
@@ -557,7 +557,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.3.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.4.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -580,7 +580,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.3.0", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.4.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
@@ -957,6 +957,81 @@ class RunStateContractTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+
+class KbSyncContractTests(unittest.TestCase):
+    """知识同步契约：profile 块、模板第 16 节、校验器自检三者一致。"""
+
+    TOKENS = (
+        "ark.kb-context.v1",
+        "ark.delivery.v1",
+        "receipts/delivery.json",
+        "DELIVERY_INCOMPLETE",
+        "NO_KB_REQUIRED",
+        "kb_query_back_status",
+        "receipts/evidence-gaps/",
+    )
+
+    def setUp(self) -> None:
+        self.profile = load_profile()
+        self.template = read_template()
+        self.block = self.profile["default"]["kb_sync"]
+
+    def test_profile_kb_sync_block(self) -> None:
+        self.assertTrue(self.block["enabled"])
+        self.assertEqual(self.block["context_schema"], "ark.kb-context.v1")
+        self.assertEqual(self.block["delivery_schema"], "ark.delivery.v1")
+        self.assertEqual(self.block["query_dims"], ["capability", "project", "device", "firmware", "profile"])
+        self.assertFalse(self.block["record_first"])
+        self.assertEqual(self.block["delivery_path"], "receipts/delivery.json")
+        self.assertEqual(self.block["query_back_top"], 20)
+        self.assertEqual(self.block["incomplete_code"], "DELIVERY_INCOMPLETE")
+        self.assertIs(self.block["candidate_may_drive_dispatch"], False)
+        self.assertEqual(
+            self.block["no_kb_required_reasons"],
+            [
+                "no-new-knowledge",
+                "pure-inventory",
+                "duplicate-of-existing:<entry_id>",
+                "sensitive-not-indexable",
+            ],
+        )
+
+    def test_profile_kb_sync_order(self) -> None:
+        self.assertEqual(
+            self.block["order"],
+            ["manifest", "receipt", "archive", "kb_record", "kb_query_back"],
+        )
+
+    def test_template_kb_sync_section(self) -> None:
+        self.assertIn("## 16. 知识同步（查询 → 回流 → 确认）", self.template)
+        missing = [token for token in self.TOKENS if token not in self.template]
+        self.assertEqual(missing, [], f"模板缺少知识同步要素: {missing}")
+        for index, heading in enumerate(
+            ("### 16.1 开工前查询", "### 16.2 刷新点", "### 16.3 收工回流顺序",
+             "### 16.4 delivery 四状态位", "### 16.5 NO_KB_REQUIRED",
+             "### 16.6 分层与内容边界", "### 16.7 幂等与重试"),
+             start=1,
+        ):
+            self.assertIn(heading, self.template, f"缺少小节 {index}")
+
+    def test_verifier_reports_kb_sync_checks(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        names = {check["name"] for check in payload["checks"]}
+        for name in ("profile-kb-sync", "profile-kb-sync-order", "template-kb-sync"):
+            self.assertIn(name, names)
+            self.assertEqual(
+                next(check["result"] for check in payload["checks"] if check["name"] == name),
+                "pass",
+                name,
+            )
 
 
 if __name__ == "__main__":
