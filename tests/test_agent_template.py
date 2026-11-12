@@ -353,7 +353,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.1.0")
+        self.assertEqual(self.profile["template_version"], "1.2.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -500,7 +500,12 @@ class PublishVerifyTests(unittest.TestCase):
         return proc.returncode, proc.stdout, proc.stderr
 
     def _stage_package(self) -> None:
-        for name in ("noahsark-agent-template.md", "agent-profile.v1.json", "verify-template.py"):
+        for name in (
+            "noahsark-agent-template.md",
+            "agent-profile.v1.json",
+            "verify-template.py",
+            "run-state.v1.json",
+        ):
             shutil.copy2(AGENTS_DIR / name, self.tmp / name)
 
     def test_dry_run_writes_manifest_without_uploading(self) -> None:
@@ -509,11 +514,12 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.1.0")
+        self.assertEqual(manifest["version"], "1.2.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
-            [entry["role"] for entry in manifest["files"]], ["template", "profile", "verifier"]
+            [entry["role"] for entry in manifest["files"]],
+            ["template", "profile", "verifier", "schema"],
         )
 
     def test_latest_channel_manifest_passes_object_path_check(self) -> None:
@@ -551,7 +557,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.1.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.2.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -574,7 +580,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.1.0", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.2.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
@@ -834,6 +840,97 @@ class OssUploadTests(unittest.TestCase):
 
     def test_clean_tree_is_not_dirty(self) -> None:
         self.assertFalse(self._dirty_with(""))
+
+
+
+class RunStateContractTests(unittest.TestCase):
+    """run-state.v1 事件流契约：schema、profile 块、模板段落、发布包四件套自洽。"""
+
+    RUN_STATE = AGENTS_DIR / "run-state.v1.json"
+    EVENTS = (
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FINAL_RECEIPT",
+    )
+
+    def setUp(self) -> None:
+        self.schema = json.loads(self.RUN_STATE.read_text(encoding="utf-8"))
+        self.profile = load_profile()
+        self.template = read_template()
+
+    def test_schema_marker_and_refs(self) -> None:
+        self.assertEqual(self.schema["x-ark-schema"], "ark.run-state.v1")
+        refs = [item["$ref"].rsplit("/", 1)[-1] for item in self.schema["oneOf"]]
+        self.assertEqual(sorted(refs), sorted(name.lower() for name in self.EVENTS))
+
+    def test_envelope_requires_join_keys(self) -> None:
+        envelope = self.schema["$defs"]["envelope"]
+        self.assertEqual(
+            sorted(envelope["required"]),
+            ["at", "event", "issue_id", "run_id", "schema", "stage"],
+        )
+        self.assertEqual(envelope["properties"]["event"]["enum"], list(self.EVENTS))
+        self.assertIn("run_id", envelope["properties"])
+
+    def test_every_event_def_includes_envelope(self) -> None:
+        """五个事件都通过 allOf 引用信封，并在 required 里重复声明共有字段。"""
+        envelope = self.schema["$defs"]["envelope"]
+        for name in ("execution_check", "progress_5m", "stage_finished", "blocked", "final_receipt"):
+            spec = self.schema["$defs"][name]
+            refs = [item.get("$ref") for item in spec.get("allOf", [])]
+            self.assertIn("#/$defs/envelope", refs, name)
+            self.assertTrue(set(envelope["required"]) <= set(spec["required"]), name)
+            self.assertEqual(spec["properties"]["event"]["const"], name.upper(), name)
+
+    def test_profile_run_state_block(self) -> None:
+        block = self.profile["default"]["run_state"]
+        self.assertEqual(block["schema"], "ark.run-state.v1")
+        self.assertEqual(block["schema_ref"], "run-state.v1.json")
+        self.assertEqual(block["event_log"], "receipts/events/gates-<YYYYMMDD>.jsonl")
+        self.assertEqual(block["stage_index"], "receipts/stage-index.json")
+        self.assertEqual(block["events"], list(self.EVENTS))
+        self.assertEqual(block["done_by"], "human-only")
+        self.assertEqual(block["landing_status"], "in_review")
+
+    def test_profile_stage_and_receipt_blocks(self) -> None:
+        self.assertEqual(self.profile["default"]["stage_policy"]["milestone"], "not-supported")
+        self.assertEqual(self.profile["default"]["stage_policy"]["delete_evidence"], "forbidden")
+        layers = self.profile["default"]["receipt_layers"]
+        self.assertEqual(layers["join_key"], "run_id")
+        self.assertEqual(layers["reflow_source"], "formal-only")
+        self.assertEqual(layers["schema_change"], "forbidden")
+        self.assertEqual(
+            self.profile["default"]["gate_events"]["watchdog_channels"],
+            ["comment", "run_record", "artifact_mtime"],
+        )
+
+    def test_template_section_present(self) -> None:
+        self.assertIn("## 14. 状态机与阶段门禁", self.template)
+        self.assertIn("## 15. 回执分层与闭环", self.template)
+        self.assertIn("run-state.v1.json", self.template)
+        for token in self.EVENTS:
+            self.assertIn(token, self.template)
+        self.assertIn("receipts/stage-index.json", self.template)
+
+    def test_manifest_ships_schema_artifact(self) -> None:
+        manifest = json.loads((AGENTS_DIR / "manifest.json").read_text(encoding="utf-8"))
+        entry = [item for item in manifest["files"] if item["role"] == "schema"]
+        self.assertEqual(len(entry), 1)
+        self.assertEqual(entry[0]["path"], "run-state.v1.json")
+        self.assertEqual(
+            entry[0]["object"], f"noahsark/agent-template/v{manifest['version']}/run-state.v1.json"
+        )
+
+    def test_verifier_passes_on_checked_in_package(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
 
 if __name__ == "__main__":

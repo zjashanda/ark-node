@@ -1,7 +1,7 @@
 {
   "schema": "ark.agent-profile.v1",
-  "profile_version": "1.1.0",
-  "template_version": "1.1.0",
+  "profile_version": "1.2.0",
+  "template_version": "1.2.0",
   "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
   "default": {
     "schema": "ark.agent-profile.v1",
@@ -96,8 +96,54 @@
       "run": "run.receipt.v1",
       "onboarding": "ark.agent-onboarding.v1"
     },
+    "run_state": {
+      "schema": "ark.run-state.v1",
+      "schema_ref": "run-state.v1.json",
+      "event_log": "receipts/events/gates-<YYYYMMDD>.jsonl",
+      "stage_index": "receipts/stage-index.json",
+      "events": ["EXECUTION_CHECK", "PROGRESS_5M", "STAGE_FINISHED", "BLOCKED", "FINAL_RECEIPT"],
+      "blocker_codes": [
+        "BLOCKED_SOURCE_MISSING",
+        "BLOCKED_EXECUTION_CHANNEL",
+        "BLOCKED_WORKDIR_POLICY",
+        "BLOCKED_APPROVAL_REQUIRED",
+        "BLOCKED_PLAN_INCOMPLETE"
+      ],
+      "run_statuses": [
+        "queued",
+        "dispatched",
+        "running",
+        "waiting_local_directory",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "done_by": "human-only",
+      "landing_status": "in_review"
+    },
+    "stage_policy": {
+      "id_source": "multica-stage-integer",
+      "milestone": "not-supported",
+      "barrier": "--until-children-done --stage N",
+      "rollback": "per-stage",
+      "delete_evidence": "forbidden"
+    },
+    "gate_events": {
+      "write_before_work": true,
+      "progress_interval_minutes": 5,
+      "missing_event": "BLOCKED",
+      "watchdog_channels": ["comment", "run_record", "artifact_mtime"]
+    },
+    "receipt_layers": {
+      "formal": "receipts/run.receipt.json",
+      "candidate": "receipts/candidates/",
+      "evidence_gap": "receipts/evidence-gaps/",
+      "join_key": "run_id",
+      "reflow_source": "formal-only",
+      "schema_change": "forbidden"
+    },
     "compatibility": {
-      "template_version": "1.1.0",
+      "template_version": "1.2.0",
       "ark_node": ">=0.1.0",
       "skillhub_sync": ">=1.0.0",
       "asset_tools": ">=0.1.0"
@@ -259,6 +305,60 @@
     "approval.default_mode": { "type": "string", "required": true, "const": "dry-run" },
     "receipts.run": { "type": "string", "required": true, "const": "run.receipt.v1" },
     "receipts.onboarding": { "type": "string", "required": true, "const": "ark.agent-onboarding.v1" },
+    "run_state.schema": { "type": "string", "required": true, "const": "ark.run-state.v1" },
+    "run_state.schema_ref": { "type": "string", "required": true, "const": "run-state.v1.json" },
+    "run_state.event_log": { "type": "string", "required": true, "const": "receipts/events/gates-<YYYYMMDD>.jsonl" },
+    "run_state.stage_index": { "type": "string", "required": true, "const": "receipts/stage-index.json" },
+    "run_state.events": {
+      "type": "array",
+      "required": true,
+      "items_const": ["EXECUTION_CHECK", "PROGRESS_5M", "STAGE_FINISHED", "BLOCKED", "FINAL_RECEIPT"]
+    },
+    "run_state.blocker_codes": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "BLOCKED_SOURCE_MISSING",
+        "BLOCKED_EXECUTION_CHANNEL",
+        "BLOCKED_WORKDIR_POLICY",
+        "BLOCKED_APPROVAL_REQUIRED",
+        "BLOCKED_PLAN_INCOMPLETE"
+      ]
+    },
+    "run_state.run_statuses": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "queued",
+        "dispatched",
+        "running",
+        "waiting_local_directory",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "run_state.done_by": { "type": "string", "required": true, "const": "human-only" },
+    "run_state.landing_status": { "type": "string", "required": true, "const": "in_review" },
+    "stage_policy.id_source": { "type": "string", "required": true, "const": "multica-stage-integer" },
+    "stage_policy.milestone": { "type": "string", "required": true, "const": "not-supported" },
+    "stage_policy.barrier": { "type": "string", "required": true, "const": "--until-children-done --stage N" },
+    "stage_policy.rollback": { "type": "string", "required": true, "const": "per-stage" },
+    "stage_policy.delete_evidence": { "type": "string", "required": true, "const": "forbidden" },
+    "gate_events.write_before_work": { "type": "boolean", "required": true, "const": true },
+    "gate_events.progress_interval_minutes": { "type": "integer", "required": true, "const": 5 },
+    "gate_events.missing_event": { "type": "string", "required": true, "const": "BLOCKED" },
+    "gate_events.watchdog_channels": {
+      "type": "array",
+      "required": true,
+      "items_const": ["comment", "run_record", "artifact_mtime"]
+    },
+    "receipt_layers.formal": { "type": "string", "required": true, "const": "receipts/run.receipt.json" },
+    "receipt_layers.candidate": { "type": "string", "required": true, "const": "receipts/candidates/" },
+    "receipt_layers.evidence_gap": { "type": "string", "required": true, "const": "receipts/evidence-gaps/" },
+    "receipt_layers.join_key": { "type": "string", "required": true, "const": "run_id" },
+    "receipt_layers.reflow_source": { "type": "string", "required": true, "const": "formal-only" },
+    "receipt_layers.schema_change": { "type": "string", "required": true, "const": "forbidden" },
     "compatibility.template_version": { "type": "string", "required": true },
     "compatibility.ark_node": { "type": "string", "required": true },
     "compatibility.skillhub_sync": { "type": "string", "required": false },

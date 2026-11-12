@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.1.0
+# NoahsArk 智能体模板 v1.2.0
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -563,6 +563,128 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | 命令输出只打在控制台 | 重定向到任务目录 `logs/`，无日志按无证据处理 |
 | 代码测试绿了就报「验证通过」 | 真机结果只能来自真机执行 |
 | 目录名带毫秒/时区/时间戳后缀 | 目录名只用 `<tasks-id>` |
+| 没有 run 记录就报 `started=YES`，或缺 `EXECUTION_CHECK` 直接开工 | 先落事件流再动手，没 run 只能 `started=false` |
+| 把候选回执当正式回执回流 `ark-kb` | 只允许 `receipts/run.receipt.json` 回流 |
+
+---
+
+## 14. 状态机与阶段门禁
+
+平台只提供 Issue 与 Run 两个状态机，门禁必须落在这两个状态机之上，不能假设平台有服务端门禁、没有的能力用事件流和唤醒补齐。
+
+### 14.1 Issue 状态机（人看的那条线）
+
+| 状态 | 含义 | 谁能写 |
+|---|---|---|
+| `todo` / `backlog` | 待开工 / 暂存 | 人、调度方 |
+| `in_progress` | 正在做，本轮产出属于本 issue | agent 开工即写 |
+| `in_review` | agent 已交付，等验收 | agent 交付后写 |
+| `done` | 验收通过 | **只有人能写**，agent 不得自己置 done |
+| `blocked` | 缺外部条件，已写明需要谁做什么 | agent 或人 |
+| `cancelled` | 作废（重复单用 `--duplicate-of` 关联原件） | 人、调度方 |
+
+agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题、没有产出本 issue 交付物时，**不改状态**。
+
+### 14.2 Run 状态机（机器那条线）
+
+| 状态 | 含义 |
+|---|---|
+| `queued` | 已入队，尚未派发 |
+| `dispatched` | 已派发，等待 runtime 接单 |
+| `waiting_local_directory` | 等待本地工作目录就绪 |
+| `running` | 正在执行 |
+| `completed` / `failed` / `cancelled` | 终态 |
+
+判定「有没有在跑」只看 run 记录：`multica issue runs <issue-id> --output json` 的 `status` / `started_at` / `completed_at` / `attempt`。
+**没有 run 记录就不许写 `started=YES`。** 终态 run 而 issue 仍 `in_progress`，就是 `STATE_DRIFT`。
+
+### 14.3 stage：整数，不是里程碑对象
+
+`stage` 是 issue 上的整数字段，平台**没有** milestone 对象；不要把 stage 写成里程碑、标签或目录名的一部分。
+
+- 顺序推进用 stage 编号表达，子 issue 用 `--stage N` 归组。
+- 阶段 barrier 用 `multica issue wakeup create --until-children-done --stage N`；它只表达「子 issue 都结束了」，**不表达「都验收通过」**，后者仍要人判。
+- stage 与 run 的关联键是 `run_id`，不是标题、不是时间。
+
+### 14.4 门禁事件流：`run-state.v1`
+
+四个门禁事件的机器可读真源是任务目录下的事件流，一行一个 JSON：
+
+```text
+<任务目录>/receipts/events/gates-<YYYYMMDD>.jsonl
+<任务目录>/receipts/stage-index.json     # run_id / stage / 事件序号索引
+```
+
+行格式由同目录 `run-state.v1.json` 定义（`ark.run-state.v1`），**五个事件**：
+
+| 事件 | 必填字段 | 时机 |
+|---|---|---|
+| `EXECUTION_CHECK` | `schema` `event` `run_id` `issue_id` `agent_id` `runtime_id` `started` `stage` `at` `first_action` `first_artifact` | 开工前，第一个动作之前 |
+| `PROGRESS_5M` | `schema` `event` `run_id` `issue_id` `stage` `at` `status` `last_5m_action` `artifacts_state` `artifacts` `next_step` | 每 5 分钟 |
+| `STAGE_FINISHED` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `evidence` `rollback` `next_stage` | 一个 stage 收尾 |
+| `BLOCKED` | `schema` `event` `run_id` `issue_id` `stage` `at` `code` `reason` `needs` `next_step` | 一发现缺条件就写 |
+| `FINAL_RECEIPT` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `receipt_path` `evidence_sha256` `archive_path` | 正式回执落地后 |
+
+约束：
+
+- `at` 用北京时间、秒级、无时区标记（`YYYY-MM-DD HH:MM:SS`）。
+- `PROGRESS_5M.status` 枚举 `RUNNING` / `QUEUED` / `BLOCKED` / `NEEDS_REVIEW`；`artifacts_state=NONE` 时 `artifacts` 必须为空并写 `no_artifact_reason`，**编造路径视为失败**。
+- `BLOCKED.code` 枚举：`BLOCKED_SOURCE_MISSING` / `BLOCKED_EXECUTION_CHANNEL` / `BLOCKED_WORKDIR_POLICY` / `BLOCKED_APPROVAL_REQUIRED` / `BLOCKED_PLAN_INCOMPLETE`。
+- 事件流缺 `EXECUTION_CHECK` 就开工，按「无证据」处理，直接置 `BLOCKED`。
+- `plan.md` 的同名块与 issue 评论是同一事实的投影，三者不一致时以事件流为准，并立刻补一条修正事件。
+
+### 14.5 阶段推进与回滚
+
+- 每个 stage 必须能**独立回滚**：`STAGE_FINISHED.rollback` 写清回滚动作（改回哪个 commit、停哪个服务、删哪个新产物）。
+- 回滚**不删除旧证据**：旧日志、旧回执、旧事件流一律保留，覆盖写入视为破坏证据。
+- 阶段产物没落地、验收没通过，`result` 只能写 `FAIL` / `BLOCKED` / `NEEDS_REVIEW`，不许写 `PASS`。
+
+### 14.6 Watchdog：三通道交叉验证
+
+单看一个通道会误判，三个通道同时看：
+
+| 通道 | 观察对象 | 判据 |
+|---|---|---|
+| C1 评论 | 最近一条 `EXECUTION_CHECK` / `PROGRESS_5M` 时间 | 超过 5 分钟无新事件 → 可疑；超过 15 分钟 → `STATE_DRIFT` |
+| C2 run 记录 | `status` / `started_at` / `completed_at` | 无 run 却声称在跑 → `RUNNING_NO_EVIDENCE`；终态 run 而 issue 仍 `in_progress` → `STATE_DRIFT` |
+| C3 产物 | `receipts/events/` 与 `result/` 的 mtime | 有 run 但无新产物 → `RUNNING_NO_EVIDENCE`，置 `blocked` |
+
+症状码：`WATCH_QUEUED_STALE` / `WATCH_RUNNING_NO_EVIDENCE` / `WATCH_STATE_DRIFT` / `WATCH_DELIVERY_INCOMPLETE` / `WATCH_CHANNEL_UNVERIFIABLE`。
+
+`delivered_comment_ids` 为空**不能**证明没交付（历史 run 存在已交付但列表为空的情况），必须回看评论正文。
+优先用平台唤醒（`multica issue wakeup create`，事件/条件/定时三种）代替自建轮询；唤醒规则只在本 issue 上生效，不支持跨 issue 订阅。
+
+---
+
+## 15. 回执分层与闭环
+
+### 15.1 三层回执
+
+| 层 | 路径 | 能否回流 ark-kb | 说明 |
+|---|---|---|---|
+| 正式 | `receipts/run.receipt.json` | 可以 | 字段满足 `run.receipt.v1`，证据哈希可复算 |
+| 候选 | `receipts/candidates/` | 不可以 | 结论待确认、证据不全、或只跑了部分设备 |
+| 证据缺口 | `receipts/evidence-gaps/` | 不可以 | 明确记录缺什么证据、为什么缺 |
+
+三层用 `run_id` 关联，**不新增 schema 字段**：`run.receipt.v1` 与 `manifest.v1.json` 都是 `additionalProperties: false`，加字段会破坏既有校验与 1142 条测试。
+
+### 15.2 闭环顺序
+
+```text
+执行 → 证据落 result/ 与 logs/ → ark-archive 归档 + manifest.v1.json
+     → 正式回执 receipts/run.receipt.json → ark-kb 回流
+     → 下一轮 ark-dispatch 派发
+```
+
+- 归档只复制、不搬走；`source_dir` 原样保留。
+- 回流只认正式回执；候选与缺口回执一律不回流。
+- 同一 `run_id` 重复回流必须幂等，不产生第二条 entry。
+
+### 15.3 验收与审批
+
+- 每个 stage 验收要有：证据路径、复现命令、失败项清单；缺一即 `NEEDS_REVIEW`。
+- 四类动作分开审批：**代码**（推分支/开 PR）、**配置**（节点环境变量、凭据落盘）、**模板**（发布新版本）、**OSS 对外发布**。一类批准不能顶另一类。
+- 默认 `dry-run`：先出清单和 diff，拿到明确「同意/可以/批准」再执行。
 
 ---
 
@@ -600,6 +722,30 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | `execution_channel.non_interactive` | bool | 全平台必须 `true` |
 | `execution_channel.forbidden_launchers` | array | 禁止的启动器与参数 |
 | `execution_channel.unverifiable_action` | string | 证明不了通道时报 `BLOCKED_EXECUTION_CHANNEL` |
+| `run_state.schema` | string | 事件流 schema，固定 `ark.run-state.v1` |
+| `run_state.schema_ref` | string | 同目录 `run-state.v1.json` |
+| `run_state.event_log` | string | `receipts/events/gates-<YYYYMMDD>.jsonl` |
+| `run_state.stage_index` | string | `receipts/stage-index.json` |
+| `run_state.events` | array | 五个门禁事件名 |
+| `run_state.blocker_codes` | array | 五个 `BLOCKED_*` 码 |
+| `run_state.run_statuses` | array | run 状态全集 |
+| `run_state.done_by` | string | 固定 `human-only` |
+| `run_state.landing_status` | string | agent 交付后写 `in_review` |
+| `stage_policy.id_source` | string | stage 来自 issue 整数字段 |
+| `stage_policy.milestone` | string | 固定 `not-supported` |
+| `stage_policy.barrier` | string | `--until-children-done --stage N` |
+| `stage_policy.rollback` | string | 固定 `per-stage` |
+| `stage_policy.delete_evidence` | string | 固定 `forbidden` |
+| `gate_events.write_before_work` | bool | 开工前先写 `EXECUTION_CHECK` |
+| `gate_events.progress_interval_minutes` | int | 固定 5 |
+| `gate_events.missing_event` | string | 缺事件即置 `BLOCKED` |
+| `gate_events.watchdog_channels` | array | 三通道：comment / run_record / artifact_mtime |
+| `receipt_layers.formal` | string | 正式回执路径 |
+| `receipt_layers.candidate` | string | 候选回执目录 |
+| `receipt_layers.evidence_gap` | string | 证据缺口目录 |
+| `receipt_layers.join_key` | string | 固定 `run_id` |
+| `receipt_layers.reflow_source` | string | 固定 `formal-only` |
+| `receipt_layers.schema_change` | string | 固定 `forbidden` |
 | `compatibility.template_version` | string | 模板版本 |
 
 ---
