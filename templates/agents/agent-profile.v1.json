@@ -1,7 +1,7 @@
 {
   "schema": "ark.agent-profile.v1",
-  "profile_version": "1.4.0",
-  "template_version": "1.4.0",
+  "profile_version": "1.5.0",
+  "template_version": "1.5.0",
   "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
   "default": {
     "schema": "ark.agent-profile.v1",
@@ -231,10 +231,64 @@
         "candidate": "receipts/candidates/",
         "evidence_gap": "receipts/evidence-gaps/"
       },
-      "candidate_may_drive_dispatch": false
+      "candidate_may_drive_dispatch": false,
+      "checkpoint": {
+        "event_schema": "ark.checkpoint.v1",
+        "wal": "receipts/outbox/checkpoints-<YYYYMMDD>.jsonl",
+        "index": "receipts/outbox/outbox.json",
+        "append_only": true,
+        "idempotency_key": "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"
+      },
+      "triggers": [
+        "EXECUTION_CHECK",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FAIL",
+        "NEEDS_REVIEW",
+        "WATCHDOG_RUNNING_NO_EVIDENCE",
+        "WATCHDOG_STATE_DRIFT",
+        "WATCHDOG_TIMEOUT",
+        "WATCHDOG_HEARTBEAT_LOST",
+        "MANUAL_CANCEL",
+        "RUNTIME_CRASH",
+        "RECOVERY_REPLAY"
+      ],
+      "final_receipt_role": "aggregate-close-only",
+      "quality_tiers": {
+        "formal": "evidence-complete",
+        "candidate": "evidence-incomplete",
+        "evidence_gap": "no-evidence"
+      },
+      "failure_can_be_formal": true,
+      "failure_outcome_forbidden": "PASS",
+      "scopes": [
+        "run",
+        "node",
+        "project",
+        "device_family",
+        "platform",
+        "capability",
+        "global"
+      ],
+      "scope_inherit": "near-to-far",
+      "cross_scope_reference": "derived_from-applies_to-exceptions",
+      "project_may_override_global": false,
+      "promotion": {
+        "min_projects": 2,
+        "promote_to": [
+          "capability",
+          "global"
+        ],
+        "requires_review": true,
+        "demotion": "add-applies_to-or-exceptions"
+      },
+      "outbox_close_when": "all archive ok and kb ingest recorded-or-skipped and query-back pass-or-deferred",
+      "recovery_scan": true,
+      "recovery_scan_when": "run-start",
+      "query_back_per_checkpoint": true
     },
     "compatibility": {
-      "template_version": "1.4.0",
+      "template_version": "1.5.0",
       "ark_node": ">=0.1.0",
       "skillhub_sync": ">=1.0.0",
       "asset_tools": ">=0.1.0"
@@ -757,6 +811,46 @@
     "kb_sync.layers.candidate": {"type": "string", "required": true, "const": "receipts/candidates/"},
     "kb_sync.layers.evidence_gap": {"type": "string", "required": true, "const": "receipts/evidence-gaps/"},
     "kb_sync.candidate_may_drive_dispatch": {"type": "boolean", "required": true, "const": false},
+    "kb_sync.checkpoint.event_schema": {"type": "string", "required": true, "const": "ark.checkpoint.v1"},
+    "kb_sync.checkpoint.wal": {"type": "string", "required": true, "const": "receipts/outbox/checkpoints-<YYYYMMDD>.jsonl"},
+    "kb_sync.checkpoint.index": {"type": "string", "required": true, "const": "receipts/outbox/outbox.json"},
+    "kb_sync.checkpoint.append_only": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.checkpoint.idempotency_key": {"type": "string", "required": true, "const": "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"},
+    "kb_sync.triggers": {
+      "type": "array",
+      "required": true,
+      "items_const": ["EXECUTION_CHECK", "STAGE_FINISHED", "BLOCKED", "FAIL", "NEEDS_REVIEW", "WATCHDOG_RUNNING_NO_EVIDENCE", "WATCHDOG_STATE_DRIFT", "WATCHDOG_TIMEOUT", "WATCHDOG_HEARTBEAT_LOST", "MANUAL_CANCEL", "RUNTIME_CRASH", "RECOVERY_REPLAY"]
+    },
+    "kb_sync.final_receipt_role": {"type": "string", "required": true, "const": "aggregate-close-only"},
+    "kb_sync.quality_tiers.formal": {"type": "string", "required": true, "const": "evidence-complete"},
+    "kb_sync.quality_tiers.candidate": {"type": "string", "required": true, "const": "evidence-incomplete"},
+    "kb_sync.quality_tiers.evidence_gap": {"type": "string", "required": true, "const": "no-evidence"},
+    "kb_sync.failure_can_be_formal": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.failure_outcome_forbidden": {"type": "string", "required": true, "const": "PASS"},
+    "kb_sync.scopes": {
+      "type": "array",
+      "required": true,
+      "items_const": ["run", "node", "project", "device_family", "platform", "capability", "global"]
+    },
+    "kb_sync.scope_inherit": {"type": "string", "required": true, "const": "near-to-far"},
+    "kb_sync.cross_scope_reference": {"type": "string", "required": true, "const": "derived_from-applies_to-exceptions"},
+    "kb_sync.project_may_override_global": {"type": "boolean", "required": true, "const": false},
+    "kb_sync.promotion.min_projects": {"type": "integer", "required": true, "const": 2},
+    "kb_sync.promotion.promote_to": {
+      "type": "array",
+      "required": true,
+      "items_const": ["capability", "global"]
+    },
+    "kb_sync.promotion.requires_review": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.promotion.demotion": {"type": "string", "required": true, "const": "add-applies_to-or-exceptions"},
+    "kb_sync.outbox_close_when": {
+      "type": "string",
+      "required": true,
+      "const": "all archive ok and kb ingest recorded-or-skipped and query-back pass-or-deferred"
+    },
+    "kb_sync.recovery_scan": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.recovery_scan_when": {"type": "string", "required": true, "const": "run-start"},
+    "kb_sync.query_back_per_checkpoint": {"type": "boolean", "required": true, "const": true},
     "compatibility.template_version": {
       "type": "string",
       "required": true

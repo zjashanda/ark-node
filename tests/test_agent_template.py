@@ -353,7 +353,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.4.0")
+        self.assertEqual(self.profile["template_version"], "1.5.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -514,7 +514,7 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.4.0")
+        self.assertEqual(manifest["version"], "1.5.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
@@ -557,7 +557,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.4.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.5.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -580,7 +580,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.4.0", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.5.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
@@ -970,6 +970,13 @@ class KbSyncContractTests(unittest.TestCase):
         "NO_KB_REQUIRED",
         "kb_query_back_status",
         "receipts/evidence-gaps/",
+        "ark.checkpoint.v1",
+        "receipts/outbox/checkpoints-",
+        "RECOVERY_REPLAY",
+        "derived_from",
+        "promotion",
+        "evidence_gap",
+        "聚合",
     )
 
     def setUp(self) -> None:
@@ -1004,13 +1011,17 @@ class KbSyncContractTests(unittest.TestCase):
         )
 
     def test_template_kb_sync_section(self) -> None:
-        self.assertIn("## 16. 知识同步（查询 → 回流 → 确认）", self.template)
+        self.assertIn("## 16. 知识同步（事件驱动检查点）", self.template)
         missing = [token for token in self.TOKENS if token not in self.template]
         self.assertEqual(missing, [], f"模板缺少知识同步要素: {missing}")
         for index, heading in enumerate(
-            ("### 16.1 开工前查询", "### 16.2 刷新点", "### 16.3 收工回流顺序",
-             "### 16.4 delivery 四状态位", "### 16.5 NO_KB_REQUIRED",
-             "### 16.6 分层与内容边界", "### 16.7 幂等与重试"),
+            ("### 16.1 为什么不是 end-only", "### 16.2 检查点事件与 WAL",
+             "### 16.3 12 个触发器", "### 16.4 幂等键与重放",
+             "### 16.5 质量分层与提升", "### 16.6 多作用域与引用",
+             "### 16.7 promotion / demotion（提升与降级）",
+             "### 16.8 查询与消费边界",
+             "### 16.9 outbox 关闭条件与 FINAL_RECEIPT",
+             "### 16.10 跨项目共享自测清单"),
              start=1,
         ):
             self.assertIn(heading, self.template, f"缺少小节 {index}")
@@ -1032,6 +1043,123 @@ class KbSyncContractTests(unittest.TestCase):
                 "pass",
                 name,
             )
+
+
+class KbSyncV2Tests(unittest.TestCase):
+    """v1.5.0 事件驱动检查点：profile 契约、模板章节、校验器三处一致。"""
+
+    TRIGGERS = (
+        "EXECUTION_CHECK",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FAIL",
+        "NEEDS_REVIEW",
+        "WATCHDOG_RUNNING_NO_EVIDENCE",
+        "WATCHDOG_STATE_DRIFT",
+        "WATCHDOG_TIMEOUT",
+        "WATCHDOG_HEARTBEAT_LOST",
+        "MANUAL_CANCEL",
+        "RUNTIME_CRASH",
+        "RECOVERY_REPLAY",
+    )
+    SCOPES = ["run", "node", "project", "device_family", "platform", "capability", "global"]
+    V2_TOKENS = (
+        "ark.checkpoint.v1",
+        "receipts/outbox/checkpoints-",
+        "RECOVERY_REPLAY",
+        "derived_from",
+        "promotion",
+        "evidence_gap",
+        "aggregate",
+        "聚合",
+    )
+
+    def setUp(self) -> None:
+        self.profile = load_profile()
+        self.template = read_template()
+        self.block = self.profile["default"]["kb_sync"]
+
+    def test_checkpoint_block_paths(self) -> None:
+        checkpoint = self.block["checkpoint"]
+        self.assertEqual(checkpoint["event_schema"], "ark.checkpoint.v1")
+        self.assertIn("receipts/outbox/", checkpoint["wal"])
+        self.assertIn("checkpoints-", checkpoint["wal"])
+        self.assertEqual(checkpoint["index"], "receipts/outbox/outbox.json")
+        self.assertIs(checkpoint["append_only"], True)
+        self.assertEqual(
+            checkpoint["idempotency_key"],
+            "sha256(issue_id|run_id|stage|event_seq|evidence_digest)",
+        )
+
+    def test_triggers_exact_order(self) -> None:
+        self.assertEqual(list(self.block["triggers"]), list(self.TRIGGERS))
+        self.assertEqual(len(self.block["triggers"]), 12)
+        self.assertNotIn("FINAL_RECEIPT", self.block["triggers"])
+        self.assertEqual(self.block["final_receipt_role"], "aggregate-close-only")
+
+    def test_quality_tiers_and_failure_rules(self) -> None:
+        self.assertEqual(
+            self.block["quality_tiers"],
+            {
+                "formal": "evidence-complete",
+                "candidate": "evidence-incomplete",
+                "evidence_gap": "no-evidence",
+            },
+        )
+        self.assertIs(self.block["failure_can_be_formal"], True)
+        self.assertEqual(self.block["failure_outcome_forbidden"], "PASS")
+
+    def test_scopes_and_inheritance(self) -> None:
+        self.assertEqual(list(self.block["scopes"]), self.SCOPES)
+        self.assertEqual(self.block["scope_inherit"], "near-to-far")
+        self.assertEqual(
+            self.block["cross_scope_reference"], "derived_from-applies_to-exceptions"
+        )
+        self.assertIs(self.block["project_may_override_global"], False)
+
+    def test_promotion_and_demotion(self) -> None:
+        promotion = self.block["promotion"]
+        self.assertEqual(promotion["min_projects"], 2)
+        self.assertEqual(list(promotion["promote_to"]), ["capability", "global"])
+        self.assertIs(promotion["requires_review"], True)
+        self.assertIn("applies_to", promotion["demotion"])
+        self.assertIn("exceptions", promotion["demotion"])
+
+    def test_recovery_and_outbox_flags(self) -> None:
+        self.assertIs(self.block["recovery_scan"], True)
+        self.assertEqual(self.block["recovery_scan_when"], "run-start")
+        self.assertIs(self.block["query_back_per_checkpoint"], True)
+        close_when = self.block["outbox_close_when"]
+        self.assertIn("archive ok", close_when)
+        self.assertIn("recorded-or-skipped", close_when)
+        self.assertIn("pass-or-deferred", close_when)
+
+    def test_template_has_v2_section(self) -> None:
+        self.assertIn("## 16. 知识同步（事件驱动检查点）", self.template)
+        missing = [token for token in self.V2_TOKENS if token not in self.template]
+        self.assertEqual(missing, [], f"模板缺少 v2 要素: {missing}")
+        for heading in (
+            "### 16.1 为什么不是 end-only",
+            "### 16.3 12 个触发器",
+            "### 16.4 幂等键与重放",
+            "### 16.7 promotion / demotion（提升与降级）",
+            "### 16.10 跨项目共享自测清单",
+        ):
+            self.assertIn(heading, self.template)
+
+    def test_verifier_reports_v2_checks(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        results = {check["name"]: check["result"] for check in payload["checks"]}
+        for name in ("kb-sync-profile", "kb-sync-triggers", "kb-sync-template"):
+            self.assertEqual(results.get(name), "pass", name)
+
 
 
 if __name__ == "__main__":

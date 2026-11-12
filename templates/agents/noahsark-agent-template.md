@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.4.0
+# NoahsArk 智能体模板 v1.5.0
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -14,7 +14,7 @@
 | 项目 | 值 |
 |---|---|
 | 模板 schema | `ark.agent-template.v1` |
-| 模板版本 | `1.1.0` |
+| 模板版本 | `1.5.0` |
 | 配套机器可读配置 | `agent-profile.v1.json`（同目录） |
 | 配套校验器 | `verify-template.py`（同目录） |
 | 兼容 | `agent-profile.v1`，ark-node ≥ 0.1.0 |
@@ -250,12 +250,15 @@
 
 ## 7. 任务闭环
 
-一个任务在系统里走六步，**每一步都有产物，缺一步闭环就断**：
+一个任务在系统里走七步，**每一步都有产物，缺一步闭环就断**：
 
 ```
-ark-dispatch  →  执行  →  ark-archive  →  receipt  →  ark-kb  →  下一轮 dispatch
-   选能力         干活        归档          回执        沉淀          复用
+ark-dispatch  →  执行  →  检查点 WAL  →  ark-archive  →  receipt  →  ark-kb  →  下一轮 dispatch
+   选能力         干活     逐事件追加        归档          回执       沉淀          复用
 ```
+
+检查点不是「收工才写」：从 `EXECUTION_CHECK` 起，每个生命周期事件都先落一份 append-only 检查点，
+失败、中断、崩溃同样留痕，收工只做聚合与关闭 outbox（见第 16 节）。
 
 ### 7.1 派发：`ark-dispatch`（只决策，不执行）
 
@@ -295,13 +298,15 @@ python scripts/dispatch.py check --plan plan.json
 
 ### 7.4 沉淀：`ark-kb`
 
-回执回流知识库，四类条目：`bug` / `knowledge` / `method` / `run`。
+沉淀在任务生命周期内逐事件发生，不是收工一次性动作：每个 `EXECUTION_CHECK` / `STAGE_FINISHED` /
+`BLOCKED` / `FAIL` / `NEEDS_REVIEW` / `WATCHDOG_*` / `MANUAL_CANCEL` / `RUNTIME_CRASH` 都先写检查点，
+再由 outbox 异步归档、入库并 query-back。四类条目仍是 `bug` / `knowledge` / `method` / `run`。
 每条都能被 `ark-dispatch` 引用为证据，形成「上次这么干有效/无效」的记忆。
 
 ### 7.5 下一轮
 
-下一轮 dispatch 读 KB 与 registry 决定怎么走。**闭环的标志是下一轮能引用上一轮**，
-不是「这次跑完了」。
+下一轮 dispatch 读 KB 与 registry 决定怎么走；run 启动时先扫一遍 WAL，把上一次中断未关闭的
+outbox 用 `RECOVERY_REPLAY` 补发，再开始新知识。**闭环的标志是下一轮能引用上一轮**，不是「这次跑完了」。
 
 ### 7.6 代码测试通过 ≠ 真机验证通过
 
@@ -404,7 +409,7 @@ STORAGE_PASSWORD      # 存储节点口令
 
 ## 10. 监督契约
 
-没有监督的执行 = 无法区分「在跑」和「卡住」。四条规则，全部强制执行。
+没有监督的执行 = 无法区分「在跑」和「卡住」。五条规则，全部强制执行。
 
 ### 10.1 `EXECUTION_CHECK`（开跑第一句）
 
@@ -439,6 +444,13 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 正确做法：需要结果就**前台阻塞等到结果**；需要等待外部系统就记下证据后结束本轮，
 由平台唤醒机制接手，不要自己挂着等。通道层面另见第 11 节：无可见窗口、非交互、日志落 `logs/`，
 三者缺一即视为没有可观测执行。
+
+### 10.6 检查点先落盘（`ark.checkpoint.v1`）
+
+`EXECUTION_CHECK` / `STAGE_FINISHED` / `BLOCKED` / `NEEDS_REVIEW` 以及 watchdog、取消、崩溃判定，
+在写事件流**之后、做别的动作之前**追加一条检查点到 `receipts/outbox/checkpoints-<YYYYMMDD>.jsonl`。
+先落盘再归档/入库：归档失败、知识库不可达、进程被杀，检查点都还在，下一次 run 可恢复重放。
+只写检查点不写事件流，或反过来，都算证据链断裂。
 
 ---
 
@@ -601,8 +613,12 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | 代码测试绿了就报「验证通过」 | 真机结果只能来自真机执行 |
 | 目录名带毫秒/时区/时间戳后缀 | 目录名只用 `<tasks-id>` |
 | 没有 run 记录就报 `started=YES`，或缺 `EXECUTION_CHECK` 直接开工 | 先落事件流再动手，没 run 只能 `started=false` |
-| 把候选回执当正式回执回流 `ark-kb` | 只允许 `receipts/run.receipt.json` 回流 |
-| 只跑本地结果就报 PASS / 无知识价值静默跳过 | 补齐 delivery 四状态位；无知识价值必须 `NO_KB_REQUIRED` 并给出原因 |
+| 把候选回执当正式证据驱动 `ark-kb` 消费 | 只允许 `formal` + active 驱动 preflight / recovery / stop_rules，`candidate` 仅作提示 |
+| 任务结束才写知识，失败/中断就不写 | 每个生命周期事件先落检查点，失败、取消、崩溃同样留痕 |
+| 直接写 ark-kb 再补本地 | 先写 append-only WAL，再归档/入库；失败由 outbox 重放 |
+| 同一事实在多个项目各存一份 | 一条 canonical 条目 + `derived_from` 引用，不复制孤岛 |
+| 项目条目覆盖全局事实 | 项目层只加 `exceptions` / `applies_to` 并写 `reason` |
+| 只跑本地结果就报 PASS / 无知识价值静默跳过 | 补齐 outbox 与 delivery 状态位；无知识价值必须 `NO_KB_REQUIRED` 并给出原因 |
 
 ---
 
@@ -677,6 +693,7 @@ agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题
 | `BLOCKED_SERIAL` / `BLOCKED_AUDIO` / `BLOCKED_STORAGE` | `BLOCKED_EXECUTION_CHANNEL` 之外的**项目 profile 阻断** | 归为项目层，仍要发 `BLOCKED` 事件并在 `reason` 写明 `project:<code>` |
 | `RUNNER_EXITED` / `RUNNER_STALLED` / `RESULT_INCOMPLETE` | 症状码 `WATCH_*` | 是 watchdog 症状，不是阻断码 |
 - 事件流缺 `EXECUTION_CHECK` 就开工，按「无证据」处理，直接置 `BLOCKED`。
+- 每条门禁事件写入事件流后，立刻追加一条 `ark.checkpoint.v1` 检查点（第 16 节）。watchdog 的四条症状对应 `WATCHDOG_*` 触发；取消与进程崩溃分别补 `MANUAL_CANCEL` / `RUNTIME_CRASH`，由下一次 run 的 `RECOVERY_REPLAY` 扫描补发。
 - `plan.md` 的同名块与 issue 评论是同一事实的投影，三者不一致时以事件流为准，并立刻补一条修正事件。
 
 ### 14.5 阶段推进与回滚
@@ -708,25 +725,29 @@ Watchdog 的**采样**节奏是 10–30 秒（进程、`status.json`、`rounds.j
 
 ### 15.1 三层回执
 
-| 层 | 路径 | 能否回流 ark-kb | 说明 |
+| 层 | 路径 | 检查点质量 | 说明 |
 |---|---|---|---|
-| 正式 | `receipts/run.receipt.json` | 可以 | 字段满足 `run.receipt.v1`，证据哈希可复算 |
-| 候选 | `receipts/candidates/` | 不可以 | 结论待确认、证据不全、或只跑了部分设备 |
-| 证据缺口 | `receipts/evidence-gaps/` | 不可以 | 明确记录缺什么证据、为什么缺 |
+| 正式 | `receipts/run.receipt.json` | `formal` | 字段满足 `run.receipt.v1`，证据哈希可复算 |
+| 候选 | `receipts/candidates/` | `candidate` | 结论待确认、证据不全、或只跑了部分设备 |
+| 证据缺口 | `receipts/evidence-gaps/` | `evidence_gap` | 明确记录缺什么证据、为什么缺 |
 
+三层都产生检查点，区别只在 `quality`：`formal` 可驱动 dispatch，`candidate` 仅提示，`evidence_gap` 不消费。
 三层用 `run_id` 关联，**不新增 schema 字段**：`run.receipt.v1` 与 `manifest.v1.json` 都是 `additionalProperties: false`，加字段会破坏既有校验与 1142 条测试。
+`receipt_layers.reflow_source=formal-only` 约束的是归档回执本身；检查点 WAL 覆盖三层，两者不冲突。
 
 ### 15.2 闭环顺序
 
 ```text
-执行 → 证据落 result/ 与 logs/ → ark-archive 归档 + manifest.v1.json
-     → 正式回执 receipts/run.receipt.json → ark-kb 回流
-     → 下一轮 ark-dispatch 派发
+执行 → 证据落 result/ 与 logs/ → 逐事件写检查点 WAL（receipts/outbox/）
+     → ark-archive 归档 + manifest.v1.json
+     → 每个 checkpoint 归档/入库 + query-back → outbox 关闭
+     → FINAL_RECEIPT 只做聚合 → 下一轮 ark-dispatch 派发
 ```
 
 - 归档只复制、不搬走；`source_dir` 原样保留。
-- 回流只认正式回执；候选与缺口回执一律不回流。
-- 同一 `run_id` 重复回流必须幂等，不产生第二条 entry。
+- 检查点先落盘再归档/入库；归档或入库失败重试，事件本身不丢。
+- 同一 `checkpoint_id` 重复 append 直接跳过，不新建条目、不重复入库。
+- 没有任何检查点就声称交付，按无证据处理，不得判 PASS。
 
 ### 15.3 验收与审批
 
@@ -736,121 +757,154 @@ Watchdog 的**采样**节奏是 10–30 秒（进程、`status.json`、`rounds.j
 
 ---
 
-## 16. 知识同步（查询 → 回流 → 确认）
+## 16. 知识同步（事件驱动检查点）
 
-知识同步不是可选项：开工先查 ark-kb 并留痕，收工按固定顺序回流并 query-back 确认。
-delivery 四状态位没补齐，就不许判 PASS。
+知识同步不是收工才做的一次动作，而是贯穿任务生命周期的**逐事件检查点**。
+每次预检、阶段收尾、阻断、失败、待审、看门狗判定、取消、崩溃都先落一份 `ark.checkpoint.v1` 到任务目录 WAL，
+再异步归档、入库、query-back；`FINAL_RECEIPT` 只做聚合与关闭 outbox。
 
-### 16.1 开工前查询
+### 16.1 为什么不是 end-only
 
-在**第一个动作之前**（有派发时由 ark-dispatch 在生成计划前完成）查询 ark-kb：
-按 `capability` / `project` / `device` / `firmware` / `profile` 五个维度调用
-`python3 <ark-kb>/tools/kb.py query --json`，不新增查询引擎。
+end-only 只覆盖「任务正常结束」，代价是把最贵的失败经验丢在死路上：任务被阻断、阶段失败、人工取消、进程崩溃。
+v2 把回流绑定到**生命周期事件**，而不是「结束」。中断来源分七类：
 
-查询结果写两处：
+| # | 中断来源 | 典型表现 | 谁写检查点 |
+|---|---|---|---|
+| 1 | 执行阻断 | 缺源 / 缺通道 / 缺审批，已发 `BLOCKED` | 执行者立即写 |
+| 2 | 阶段失败 | `STAGE_FINISHED.result=FAIL` | 执行者立即写 |
+| 3 | 待审 | 验收缺证据，转 `NEEDS_REVIEW` | 执行者立即写 |
+| 4 | watchdog 判定 | 无证据 / 状态漂移 / 超时 / 心跳丢失 | watchdog 判定即写 |
+| 5 | 人工取消 | 平台取消 run，执行者来不及收尾 | 恢复器或下一次 run 扫 WAL 补写 |
+| 6 | 运行时崩溃 | 进程被杀、节点掉线 | 下一次 run 扫描 WAL 补写 |
+| 7 | 恢复重放 | 上一次 outbox 未关闭 | 下一次 run 启动时补发 |
 
-| 位置 | 用途 | 形态 |
+失败同样是有价值的知识：`BLOCKED` / `FAIL` 只要有现象、attempts、证据，就可以是 `formal` 的 bug 或 method 条目，
+但 `outcome` 永远不得写 `PASS`。
+
+### 16.2 检查点事件与 WAL
+
+路径固定，全部在任务目录内：
+
+| 用途 | 路径 | 规则 |
 |---|---|---|
-| `plan.md` 的 `## 知识查询` 段 | 人读 | 命中 id、commit、查询时间 |
-| `run.receipt.json` 顶层 `kb_context` | 机读 | 契约 `ark.kb-context.v1` |
+| WAL | `receipts/outbox/checkpoints-<YYYYMMDD>.jsonl` | 一行一个 JSON，只追加，永不改写、永不删除 |
+| outbox 索引 | `receipts/outbox/outbox.json` | 每个 checkpoint 一行状态，可从 WAL 重建 |
+| 归档副本 | `receipts/outbox/archived/<checkpoint_id>.json` | 归档成功后写入，重试不丢事件 |
 
-`ark.kb-context.v1` 字段：
+必填字段：`schema`、`checkpoint_id`、`issue_id`、`run_id`、`stage`、`event_seq`、`trigger`、`at`、
+`quality`、`scope`、`summary`、`evidence`、`outbox`。
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `schema` | string | 固定 `ark.kb-context.v1` |
-| `contract_version` | string | 契约版本 |
-| `queried_at` | string | 北京时间、秒级 |
-| `dims` | object | `capability` / `project` / `device` / `firmware` / `profile` / `skill` |
-| `registry_commit` | string | 40 位提交号或 `unknown` |
-| `hits` | array | 每条含 `id` / `type` / `status` / `confidence` / `score` / `commit` / `source_skill` |
-| `no_hit` | bool | 无命中写 `true`，空结果不是错误 |
-| `refresh_points` | array | 刷新点与原因 |
-| `refresh_log` | array | 每次刷新追加，不覆盖首次 |
+- `schema` 固定 `ark.checkpoint.v1`；`at` 用北京时间秒级、无时区标记。
+- `summary` 至少写清现象、attempts、排除项与恢复建议；没有证据就写空数组，**编造路径视为失败**。
+- **先落盘再归档/入库**：检查点成功写入磁盘之前，不许宣称该事件已交付。
 
-- `no_hit=true` 是合法记录结果，不是失败，但必须写下来。
-- 禁止「把整个知识库同步到本地」：按维度按需查询。
-- onboarding 只读 NoahsArk index 与本契约（index 指向 Git 入口与本模板），不要求全量同步。
+### 16.3 12 个触发器
 
-### 16.2 刷新点
+`trigger` 是封闭枚举，顺序固定；`FINAL_RECEIPT` 不是触发器，只做聚合（见 16.9）。
 
-以下任一条件满足即重查，并把新命中追加到 `refresh_log`，**不覆盖首次查询**：
+| # | trigger | 何时写 | quality | 是否 formal |
+|---|---|---|---|---|
+| 1 | `EXECUTION_CHECK` | 预检完成后立即 | 环境 / 能力 / 输入版本 / kb 基线 | 是（仅元数据） |
+| 2 | `STAGE_FINISHED` | 每个阶段结束，含 PASS 与 FAIL | 证据完整即 `formal` | 是 |
+| 3 | `BLOCKED` | 一发现缺条件就写，不等结束 | 现象 + attempts + 证据齐全则 `formal` | 是（type=bug/method） |
+| 4 | `FAIL` | 执行失败立即写 | 同上 | 是（outcome 不得 `PASS`） |
+| 5 | `NEEDS_REVIEW` | 验收缺证据转待审时 | 同上 | 是（结论待确认） |
+| 6 | `WATCHDOG_RUNNING_NO_EVIDENCE` | watchdog 判定即写 | 从最后已落盘事件构建 | 否，`candidate` |
+| 7 | `WATCHDOG_STATE_DRIFT` | 同上 | 从最后已落盘事件构建 | 否，`candidate` |
+| 8 | `WATCHDOG_TIMEOUT` | 同上 | 从最后已落盘事件构建 | 否，`candidate` |
+| 9 | `WATCHDOG_HEARTBEAT_LOST` | 同上 | 从最后已落盘事件构建 | 否，`candidate` |
+| 10 | `MANUAL_CANCEL` | 恢复器或下一次 run 扫 WAL 补写 | 证据不完整 `candidate`，完全无证据 `evidence_gap` | 否 |
+| 11 | `RUNTIME_CRASH` | 恢复器或下一次 run 扫 WAL 补写 | 同上 | 否 |
+| 12 | `RECOVERY_REPLAY` | 下一次 run 启动时 | 补发未完成 outbox，不新建语义条目 | 继承原条目 |
 
-| 触发 | 说明 |
-|---|---|
-| 阶段边界 | 每个 `STAGE_FINISHED` 落盘之前 |
-| 时间 | 长任务每 30 分钟 |
-| 轮次 | 每 100 轮（与 30 分钟取先到者） |
-| 知识库变化 | `registry_commit` 变化时立即刷新 |
-
-### 16.3 收工回流顺序
-
-顺序固定、禁止跳步：
+### 16.4 幂等键与重放
 
 ```text
-evidence manifest → run.receipt.json → ark-archive(archive_status=ok)
-                  → ark-kb record → ark-kb query-back
+checkpoint_id    = sha256(issue_id + run_id + stage + event_seq + evidence_digest)
+evidence_digest  = sha256(排序后拼接所有 evidence[].sha256)；无证据时用空串哈希
 ```
 
-- 归档只复制不移动；回执只生成不覆盖。
-- 四类结果 `PASS` / `FAIL` / `BLOCKED` / `NEEDS_REVIEW` 都要生成回执并回流；失败也是知识。
-- 跳步即判 `DELIVERY_INCOMPLETE`。
+- 同一个 `checkpoint_id` 重复 append → 直接跳过并返回已有状态，不新建条目、不重复入库。
+- `event_seq` 在单个 run 内单调递增，重放按原序号复现，不重新编号。
+- `RECOVERY_REPLAY` 在下一次 run 启动时扫描 WAL 与 `outbox.json`，补发未完成的归档/入库，
+  但**不新建语义条目**：它恢复的是既有检查点的 outbox 状态。
+- 恢复扫描是 run 启动的第一步；扫描完成前不开始新阶段。
 
-### 16.4 delivery 四状态位
+### 16.5 质量分层与提升
+
+| 情形 | quality | 可驱动 dispatch |
+|---|---|---|
+| 正常阶段、证据完整 | `formal`（evidence-complete） | 是 |
+| `BLOCKED` / `FAIL` / `NEEDS_REVIEW` 且现象、attempts、证据完整 | `formal`（bug / method） | 是（作为恢复建议与 stop rule） |
+| 进程崩溃、证据不完整 | `candidate`（evidence-incomplete） | 否，仅作提示 |
+| 只有推测、无证据 | `evidence_gap`（no-evidence） | 否 |
+
+- 失败可以为 `formal`（`failure_can_be_formal=true`），但 `outcome` 禁止写 `PASS`。
+- 后续 run 补齐证据 ⇒ `candidate → formal`；旧条目 `status=superseded`，`superseded_by` 指向新条目，
+  `lineage[]` 保留追溯链。**永不删除历史**。
+- 提升只改质量与状态，不改写历史条目的正文。
+
+### 16.6 多作用域与引用
+
+作用域层级由近到远：`run → node → project → device_family → platform → capability → global`。
+查询时 `scope_inherit=near-to-far`：先取精确命中，再逐层继承，按 canonical id 去重并保留 `source_level` 与优先级。
+
+- 每条知识必须带 `scope: {level, key, parent}`。
+- 项目层只能以「约束 / 例外」影响更广层事实：`project_may_override_global=false`。
+- 跨作用域引用固定三种：`derived_from`（来源）、`applies_to`（适用范围）、`exceptions`（例外与理由）。
+- **不复制孤岛**：共同内容只存一条 canonical 条目，项目条目引用它，不复制正文。
+- 查询结果每条都写来源 `kb:<entry_id>@<commit>`，供 dispatch 写入 `sources[]`。
+
+### 16.7 promotion / demotion（提升与降级）
+
+- 至少两个项目验证通过、且无项目专属字段 ⇒ 生成 promotion candidate，`promote_to` 只能是 `capability` 或 `global`。
+- 提升必须经证据与审核（`requires_review=true`），审核前不改变任何 dispatch 消费集合。
+- 发现反例 ⇒ 降级：加 `applies_to` 限定或写 `exceptions`（附 `reason`），**不删除历史**。
+- 已提升条目被降级时保留原条目并标 `superseded`，`lineage[]` 记录来龙去脉。
+
+### 16.8 查询与消费边界
+
+开工前（第一个动作之前，有派发时由 ark-dispatch 在生成计划前完成）查询 ark-kb，
+按 `capability` / `project` / `device` / `firmware` / `profile` 五个维度调用 `query_command`，不新增查询引擎。
+结果写 `plan.md` 的 `## 知识查询` 段（人读）与 `run.receipt.json` 顶层 `kb_context`
+（机读契约 `ark.kb-context.v1`，含 `queried_at`、`registry_commit`、`hits`、`no_hit`）。
+
+- 只有 `formal` + 非 `stale` / `superseded` + 适用范围匹配的知识可驱动 `preflight` / `recovery` / `stop_rules`。
+- `candidate` 只能作为提示，消费方必须标 `needs_confirmation`。
+- 每个 checkpoint 入库后单独 query-back（`query_back_per_checkpoint=true`），写 `kb_query_back_status`；
+  跨节点暂不可见记 `deferred-with-reason`，不伪造 `pass`。
+- 刷新点保留四个：阶段边界（`STAGE_FINISHED` 落盘前）、长任务每 30 分钟、每 100 轮（与 30 分钟取先到者）、
+  `registry_commit` 变化；新命中追加到 `refresh_log`，不覆盖首次查询。
+
+### 16.9 outbox 关闭条件与 FINAL_RECEIPT
 
 `receipts/delivery.json` 按 `ark.delivery.v1` 落地，`run.receipt.json` 可选顶层 `delivery` 复制一份。
+每个 checkpoint 的 outbox 状态：`archive_status` / `kb_ingest_status` / `kb_query_back_status` / `kb_entry_ids` / `retry`。
 
-| 状态位 | 取值 | 说明 |
-|---|---|---|
-| `archive_status` | `pending` / `ok` / `failed` / `skipped` | 归档结果 |
-| `kb_ingest_status` | `pending` / `recorded` / `skipped_no_kb` / `failed` | 入库结果 |
-| `kb_entry_ids` | array | 本次入库或复用的条目 id |
-| `kb_query_back_status` | `pending` / `pass` / `fail` / `deferred` | 回流可见性确认 |
+outbox 关闭条件（全部满足才可关闭）：
 
-判定：
+1. 所有 checkpoint 的 `archive_status=ok`；
+2. `kb_ingest_status` ∈ {`recorded`, `skipped_no_kb`}；
+3. `kb_query_back_status` ∈ {`pass`, `deferred-with-reason`}。
 
-- `archive_status=ok` 且（`kb_ingest_status=recorded` 且 `kb_query_back_status=pass`）→ 允许 PASS；
-- `kb_ingest_status=skipped_no_kb` 且 `no_kb_reason` 非空 → 允许 PASS；
-- 其余组合 → `DELIVERY_INCOMPLETE`，`FINAL_RECEIPT` 只能 `NEEDS_REVIEW`。
-
-`record` 之后必须用**相同维度**再查一次，确认新条目出现在默认 top 20；写回 `kb_query_back_status` 与命中 id。
-query-back 失败重试一次，仍失败记 `fail`；跨节点暂不可见记 `deferred`。
-
-### 16.5 NO_KB_REQUIRED
-
-无知识价值时禁止静默跳过，必须写 `kb_ingest_status=skipped_no_kb`，并用 `no_kb_reason` 给出原因。
-原因只允许四类：
-
-| 原因 | 含义 |
-|---|---|
-| `no-new-knowledge` | 重复既有结论，无新增 |
-| `pure-inventory` | 只清点不产出知识 |
-| `duplicate-of-existing:<entry_id>` | 与既有条目重复，给出条目 id |
-| `sensitive-not-indexable` | 含敏感信息，只登记位置 |
-
-原因缺失或不在集合内 → 用法错误（usage error），不许判 PASS。
-
-### 16.6 分层与内容边界
-
-| 层 | 位置 | 可回流 | 可驱动 dispatch |
-|---|---|---|---|
-| formal | `receipts/run.receipt.json` | 是 | 是（需 active 且证据完整） |
-| candidate | `receipts/candidates/` | 否 | 否 |
-| evidence-gap | `receipts/evidence-gaps/` | 否 | 否 |
-
-- candidate 与 evidence-gap **不得**驱动 dispatch 的 `recovery` / `stop_rules`。
-- ark-kb 只收：脱敏摘要、索引、sha256、受控资产位置。
+- 任一不满足 → `DELIVERY_INCOMPLETE`，`FINAL_RECEIPT` 只能 `NEEDS_REVIEW`，不许判 `PASS`。
+- `FINAL_RECEIPT` 的角色是 `aggregate-close-only`：不产生新知识，只聚合已写检查点、提升质量、关闭 outbox。
+  聚合结果就是正式回执 `receipts/run.receipt.json`。
+- 无知识价值时禁止静默跳过：写 `kb_ingest_status=skipped_no_kb` 并给 `no_kb_reason`，
+  原因只允许 `no-new-knowledge` / `pure-inventory` / `duplicate-of-existing:<entry_id>` / `sensitive-not-indexable`；
+  缺失或越界即用法错误（`NO_KB_REQUIRED`），不许判 `PASS`。
+- 失败重试最多 3 次，指数退避 1 / 2 / 4 分钟，每次写 `retry.attempts` 与 `last_error`。
 - 禁止入库：凭据、原始敏感日志、大文件正文；超过 1 MiB 只登记路径与 sha256。
 
-### 16.7 幂等与重试
+### 16.10 跨项目共享自测清单
 
-- 幂等键 `idempotency_key = sha256(scope + run_id)`；同键重复 record 不新增条目，只累加 `hits` / `validations`。
-- 重复导入同一 run 命中 `find_duplicate()` 即复用旧条目 id，不新建。
-- 生命周期 `pending → active → stale → superseded`；`superseded_by` 指向新条目，query 默认排除 stale / superseded。
-- 失败重试最多 3 次，指数退避 1 / 2 / 4 分钟，每次写 `retry`。
-- 跨节点暂不可见 → `kb_query_back_status=deferred` 并上报 `WATCH_DELIVERY_INCOMPLETE`，不伪造 pass。
-
----
+| # | 检查 | 期望 |
+|---|---|---|
+| 1 | 项目 A 产生 capability 知识，项目 B 同维度查询 | B 命中 A 的 canonical 条目，结果带来源 `kb:<entry_id>@<commit>` |
+| 2 | A 写入项目例外后再查 B | B 的结果里没有 A 的 `exceptions` |
+| 3 | dispatch 消费集合 | `candidate` / `evidence_gap` 只出现在提示，不进 `preflight` / `stop_rules` |
+| 4 | 两个项目引用同一事实 | 只有一条 canonical 条目，其余用 `derived_from` 引用，不复制正文 |
+| 5 | promotion 候选 | 至少两个项目验证 + 审核通过才提升到 `capability` / `global` |
 
 ## 附录 A：字段速查
 
@@ -921,7 +975,7 @@ query-back 失败重试一次，仍失败记 `fail`；跨节点暂不可见记 `
 | `kb_sync.record_first` | bool | 固定 `false`，先查询后记录 |
 | `kb_sync.refresh_points` | array | 四个刷新触发点 |
 | `kb_sync.delivery_path` | string | `receipts/delivery.json` |
-| `kb_sync.order` | array | 回流五步固定顺序 |
+| `kb_sync.order` | array | 每个检查点的归档/入库顺序固定五步 |
 | `kb_sync.query_back_top` | integer | 回流确认默认 top 20 |
 | `kb_sync.no_kb_required_reasons` | array | 四类免回流原因 |
 | `kb_sync.incomplete_code` | string | 缺状态位判 `DELIVERY_INCOMPLETE` |
@@ -929,6 +983,27 @@ query-back 失败重试一次，仍失败记 `fail`；跨节点暂不可见记 `
 | `kb_sync.layers.candidate` | string | 候选回执目录 |
 | `kb_sync.layers.evidence_gap` | string | 证据缺口目录 |
 | `kb_sync.candidate_may_drive_dispatch` | bool | 固定 `false`，候选不驱动派发 |
+| `kb_sync.checkpoint.event_schema` | string | 检查点契约 `ark.checkpoint.v1` |
+| `kb_sync.checkpoint.wal` | string | 只追加 WAL `receipts/outbox/checkpoints-<YYYYMMDD>.jsonl` |
+| `kb_sync.checkpoint.index` | string | outbox 状态索引 `receipts/outbox/outbox.json` |
+| `kb_sync.checkpoint.append_only` | bool | 固定 `true`，永不改写、永不删除 |
+| `kb_sync.checkpoint.idempotency_key` | string | `sha256(issue_id|run_id|stage|event_seq|evidence_digest)` |
+| `kb_sync.triggers` | array | 12 个检查点触发器，顺序固定 |
+| `kb_sync.final_receipt_role` | string | 固定 `aggregate-close-only`，只聚合不产知识 |
+| `kb_sync.quality_tiers` | object | `formal` / `candidate` / `evidence_gap` 三层判据 |
+| `kb_sync.failure_can_be_formal` | bool | 固定 `true`，失败可为 formal bug/method |
+| `kb_sync.failure_outcome_forbidden` | string | 固定 `PASS`，失败知识不得写 PASS |
+| `kb_sync.scopes` | array | 七级作用域，由近到远 |
+| `kb_sync.scope_inherit` | string | 固定 `near-to-far` |
+| `kb_sync.cross_scope_reference` | string | `derived_from` / `applies_to` / `exceptions` |
+| `kb_sync.project_may_override_global` | bool | 固定 `false`，项目只加例外 |
+| `kb_sync.promotion.min_projects` | integer | 提升门槛固定 2 个项目 |
+| `kb_sync.promotion.promote_to` | array | 只允许 `capability` / `global` |
+| `kb_sync.promotion.requires_review` | bool | 固定 `true`，提升需审核 |
+| `kb_sync.promotion.demotion` | string | 降级用 `applies_to` / `exceptions`，不删除 |
+| `kb_sync.outbox_close_when` | string | outbox 关闭三条件 |
+| `kb_sync.recovery_scan` / `recovery_scan_when` | bool / string | run 启动时扫 WAL 补发 |
+| `kb_sync.query_back_per_checkpoint` | bool | 固定 `true`，每个检查点单独 query-back |
 | `compatibility.template_version` | string | 模板版本 |
 
 ---

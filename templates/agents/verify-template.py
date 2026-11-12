@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 PROFILE_SCHEMA = "ark.agent-profile.v1"
 REQUIRED_ROLES = ("template", "profile", "verifier")
@@ -600,7 +600,53 @@ EXPECTED_KB_SYNC = {
     "candidate_may_drive_dispatch": False,
 }
 EXPECTED_KB_SYNC_ORDER = ["manifest", "receipt", "archive", "kb_record", "kb_query_back"]
-KB_SYNC_HEADING = "## 16. 知识同步（查询 → 回流 → 确认）"
+KB_SYNC_HEADING = "## 16. 知识同步（事件驱动检查点）"
+KB_CHECKPOINT_SCHEMA = "ark.checkpoint.v1"
+KB_WAL_PREFIX = "receipts/outbox/"
+KB_OUTBOX_INDEX = "receipts/outbox/outbox.json"
+KB_IDEMPOTENCY_KEY = "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"
+KB_TRIGGERS = (
+    "EXECUTION_CHECK",
+    "STAGE_FINISHED",
+    "BLOCKED",
+    "FAIL",
+    "NEEDS_REVIEW",
+    "WATCHDOG_RUNNING_NO_EVIDENCE",
+    "WATCHDOG_STATE_DRIFT",
+    "WATCHDOG_TIMEOUT",
+    "WATCHDOG_HEARTBEAT_LOST",
+    "MANUAL_CANCEL",
+    "RUNTIME_CRASH",
+    "RECOVERY_REPLAY",
+)
+KB_FINAL_RECEIPT_ROLE = "aggregate-close-only"
+KB_QUALITY_TIERS = {
+    "formal": "evidence-complete",
+    "candidate": "evidence-incomplete",
+    "evidence_gap": "no-evidence",
+}
+KB_SCOPES = ("run", "node", "project", "device_family", "platform", "capability", "global")
+KB_SCOPE_INHERIT = "near-to-far"
+KB_CROSS_SCOPE_REFERENCE = "derived_from-applies_to-exceptions"
+KB_PROMOTION = {
+    "min_projects": 2,
+    "promote_to": ["capability", "global"],
+    "requires_review": True,
+    "demotion": "add-applies_to-or-exceptions",
+}
+KB_OUTBOX_CLOSE_WHEN = (
+    "all archive ok and kb ingest recorded-or-skipped and query-back pass-or-deferred"
+)
+KB_V2_TEMPLATE_TOKENS = (
+    "ark.checkpoint.v1",
+    "receipts/outbox/checkpoints-",
+    "RECOVERY_REPLAY",
+    "derived_from",
+    "promotion",
+    "evidence_gap",
+    "aggregate",
+    "聚合",
+)
 KB_SYNC_TOKENS = (
     "ark.kb-context.v1",
     "ark.delivery.v1",
@@ -609,7 +655,7 @@ KB_SYNC_TOKENS = (
     "NO_KB_REQUIRED",
     "kb_query_back_status",
     "receipts/evidence-gaps/",
-)
+) + KB_V2_TEMPLATE_TOKENS
 
 SAMPLE_EXECUTION_CHECK = {
     "schema": RUN_STATE_SCHEMA,
@@ -926,6 +972,50 @@ def check_run_state(manifest: Dict[str, Any], base: Path) -> List[Check]:
     return checks
 
 
+def kb_checkpoint_problems(block: Dict[str, Any]) -> List[str]:
+    """检查点契约（v2）：profile 的 checkpoint / 质量分层 / 作用域 / 提升 / 恢复标志。"""
+    problems: List[str] = []
+    checkpoint = block.get("checkpoint") if isinstance(block.get("checkpoint"), dict) else {}
+    if checkpoint.get("event_schema") != KB_CHECKPOINT_SCHEMA:
+        problems.append("checkpoint.event_schema")
+    wal = str(checkpoint.get("wal", ""))
+    if KB_WAL_PREFIX not in wal or "checkpoints-" not in wal:
+        problems.append("checkpoint.wal")
+    if checkpoint.get("index") != KB_OUTBOX_INDEX:
+        problems.append("checkpoint.index")
+    if checkpoint.get("append_only") is not True:
+        problems.append("checkpoint.append_only")
+    if checkpoint.get("idempotency_key") != KB_IDEMPOTENCY_KEY:
+        problems.append("checkpoint.idempotency_key")
+    if block.get("final_receipt_role") != KB_FINAL_RECEIPT_ROLE:
+        problems.append("final_receipt_role")
+    if block.get("quality_tiers") != KB_QUALITY_TIERS:
+        problems.append("quality_tiers")
+    if block.get("failure_can_be_formal") is not True:
+        problems.append("failure_can_be_formal")
+    if block.get("failure_outcome_forbidden") != "PASS":
+        problems.append("failure_outcome_forbidden")
+    if block.get("scopes") != list(KB_SCOPES):
+        problems.append("scopes")
+    if block.get("scope_inherit") != KB_SCOPE_INHERIT:
+        problems.append("scope_inherit")
+    if block.get("cross_scope_reference") != KB_CROSS_SCOPE_REFERENCE:
+        problems.append("cross_scope_reference")
+    if block.get("project_may_override_global") is not False:
+        problems.append("project_may_override_global")
+    if block.get("promotion") != KB_PROMOTION:
+        problems.append("promotion")
+    if block.get("outbox_close_when") != KB_OUTBOX_CLOSE_WHEN:
+        problems.append("outbox_close_when")
+    if block.get("recovery_scan") is not True:
+        problems.append("recovery_scan")
+    if block.get("recovery_scan_when") != "run-start":
+        problems.append("recovery_scan_when")
+    if block.get("query_back_per_checkpoint") is not True:
+        problems.append("query_back_per_checkpoint")
+    return problems
+
+
 def check_kb_sync(manifest: Dict[str, Any], base: Path) -> List[Check]:
     """知识同步契约：profile 的 kb_sync 段与模板第 16 节双向对齐。"""
     checks: List[Check] = []
@@ -951,6 +1041,8 @@ def check_kb_sync(manifest: Dict[str, Any], base: Path) -> List[Check]:
     if profile_error is not None:
         checks.append(Check("profile-kb-sync", False, profile_error))
         checks.append(Check("profile-kb-sync-order", False, profile_error))
+        checks.append(Check("kb-sync-profile", False, profile_error))
+        checks.append(Check("kb-sync-triggers", False, profile_error))
     else:
         mismatched = {
             key: block.get(key) for key, expected in EXPECTED_KB_SYNC.items() if block.get(key) != expected
@@ -970,6 +1062,25 @@ def check_kb_sync(manifest: Dict[str, Any], base: Path) -> List[Check]:
                 f"order={order}",
             )
         )
+        problems = kb_checkpoint_problems(block)
+        checks.append(
+            Check(
+                "kb-sync-profile",
+                not problems,
+                "检查点 / 质量分层 / 作用域 / 提升 / 恢复标志齐备"
+                if not problems
+                else f"不符: {problems}",
+            )
+        )
+        triggers = block.get("triggers") if isinstance(block.get("triggers"), list) else []
+        triggers_ok = tuple(triggers) == KB_TRIGGERS
+        checks.append(
+            Check(
+                "kb-sync-triggers",
+                triggers_ok,
+                f"12 个触发器顺序{'正确' if triggers_ok else '不符'}: {triggers}",
+            )
+        )
 
     text = ""
     template_entry = next((item for item in entries if str(item.get("role", "")) == "template"), None)
@@ -987,6 +1098,16 @@ def check_kb_sync(manifest: Dict[str, Any], base: Path) -> List[Check]:
             "知识同步章节齐备"
             if not missing_tokens and heading_ok
             else f"缺少: {missing_tokens} heading={heading_ok}",
+        )
+    )
+    missing_v2 = [token for token in KB_V2_TEMPLATE_TOKENS if token not in text]
+    checks.append(
+        Check(
+            "kb-sync-template",
+            not missing_v2 and heading_ok,
+            "事件驱动检查点章节齐备"
+            if not missing_v2 and heading_ok
+            else f"缺少: {missing_v2} heading={heading_ok}",
         )
     )
     return checks
