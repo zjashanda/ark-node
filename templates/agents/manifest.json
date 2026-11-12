@@ -1,20 +1,20 @@
 {
   "schema": "ark.agent-template.manifest.v1",
   "name": "noahsark-agent-template",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "channel": "immutable",
-  "source_version": "1.0.1",
-  "published_at": "2026-11-11 16:37:17",
+  "source_version": "1.1.0",
+  "published_at": "2026-11-12 11:37:01",
   "template_schema": "ark.agent-template.v1",
   "git": {
     "repo": "zjashanda/ark-node",
-    "commit": "3d807e06a2fb6fbe17b53765d65cc9a82ee9ea02",
+    "commit": "475e120feddac3e8c943c77031eba755bc049467",
     "path": "templates/agents",
-    "dirty": false,
+    "dirty": true,
     "tracked": true
   },
   "oss": {
-    "bucket": "listenai-test-internal",
+    "bucket": "ark-public",
     "prefix": "noahsark/agent-template",
     "visibility": "public-read"
   },
@@ -26,29 +26,29 @@
   "files": [
     {
       "path": "noahsark-agent-template.md",
-      "object": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+      "object": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
       "role": "template",
-      "sha256": "5c7169c387efd72fa6456d7bcd3aea0cecd2a4468d29ca662a614715f1aa0e75",
-      "bytes": 24506
+      "sha256": "0bbc8813323363ae93a426506debd934684b1d44feae79abc98e926c83e189b1",
+      "bytes": 29332
     },
     {
       "path": "agent-profile.v1.json",
-      "object": "noahsark/agent-template/v1.0.1/agent-profile.v1.json",
+      "object": "noahsark/agent-template/v1.1.0/agent-profile.v1.json",
       "role": "profile",
-      "sha256": "966d783e14530e2b9fd50b1e939d9e61872731be21e35a554f69ec3c1dee7fcb",
-      "bytes": 9693
+      "sha256": "f4b6500b1cb6b214cd4db904ffaad2e6dd14fd8dc54e47dcdd07acdee05c8a84",
+      "bytes": 11219
     },
     {
       "path": "verify-template.py",
-      "object": "noahsark/agent-template/v1.0.1/verify-template.py",
+      "object": "noahsark/agent-template/v1.1.0/verify-template.py",
       "role": "verifier",
-      "sha256": "521d6247c3186403969901d73a457e155086988f11d2c660c519f7b122b49460",
-      "bytes": 16733
+      "sha256": "aed41359cc0319ce912000d5036c7fd68dd30cd3a14f7b08e0ca1cb14dfe9646",
+      "bytes": 21999
     }
   ],
   "checks": {
     "secret_scan": "pass",
     "time_lint": "pass"
   },
-  "notes": "对象路径不可变；latest 是稳定别名，内容与 v1.0.1 完全一致。校验下载内容用同目录 verify-template.py。"
+  "notes": "对象路径不可变；latest 是稳定别名，内容与 v1.1.0 完全一致。校验下载内容用同目录 verify-template.py。"
 }

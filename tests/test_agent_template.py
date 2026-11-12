@@ -244,6 +244,107 @@ class SupervisionTests(unittest.TestCase):
             self.assertIn(f"`{rule}`", self.text)
 
 
+
+def load_verifier_module():
+    """把 verify-template.py 作为模块导入，复用其中的通道校验函数。"""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("ark_verify_template", VERIFIER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+class ExecutionChannelTests(unittest.TestCase):
+    """执行通道：Windows 无可见窗口、Linux 非交互、输出一律落任务目录 logs/。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.verifier = load_verifier_module()
+        cls.profile = load_profile()
+        cls.text = read_template()
+
+    def _reasons(self, platform: str, command: str) -> list:
+        return self.verifier.validate_channel_command(platform, command)
+
+    def test_profile_declares_channel_contract(self) -> None:
+        channel = self.profile["default"]["execution_channel"]
+        self.assertEqual(channel["mode"], "hidden-background")
+        self.assertIs(channel["no_visible_terminal"], True)
+        self.assertIs(channel["non_interactive"], True)
+        self.assertEqual(channel["stdout_redirect"], "logs/")
+        self.assertEqual(channel["stderr_redirect"], "logs/")
+        self.assertIs(channel["require_batch_mode"], True)
+        self.assertEqual(channel["unverifiable_action"], "BLOCKED_EXECUTION_CHANNEL")
+        self.assertEqual(channel["background_and_yield"], "forbidden")
+        for launcher in ("Start-Process", "Win32_Process.Create"):
+            self.assertIn(launcher, channel["forbidden_launchers"])
+
+    def test_template_documents_channel(self) -> None:
+        for token in ("execution_channel", "no_visible_terminal", "non_interactive"):
+            self.assertIn(token, self.text)
+        self.assertIn("## 11. 执行通道与窗口", self.text)
+        self.assertIn("BLOCKED_EXECUTION_CHANNEL", self.text)
+        self.assertIn("background_and_yield", self.text)
+
+    def test_template_forbids_popup_and_interactive_channels(self) -> None:
+        for token in ("Start-Process", "Win32_Process.Create", "conhost", "BatchMode=yes", "logs/"):
+            self.assertIn(token, self.text)
+        self.assertIn("后台运行」不等于「隐藏窗口", self.text)
+        self.assertIn("不得先执行再观察", self.text)
+
+    def test_windows_positive_examples_pass(self) -> None:
+        commands = [
+            'hostname > D:\\zhsh\\workspace\\tasks\\NOAH-64\\logs\\hostname.log 2>&1',
+            'powershell -NoProfile -NonInteractive -Command "Get-Process" > D:\\zhsh\\workspace\\tasks\\NOAH-64\\logs\\proc.log 2>&1',
+            'ssh -T -o BatchMode=yes -p 22 administrator@win-node.example hostname > D:\\zhsh\\workspace\\tasks\\NOAH-64\\logs\\win.log 2>&1',
+        ]
+        for command in commands:
+            self.assertEqual(self._reasons("windows", command), [], command)
+
+    def test_windows_negative_examples_fail(self) -> None:
+        cases = {
+            "Start-Process powershell -ArgumentList '-NoProfile'": "Start-Process",
+            "Start-Process -FilePath cmd.exe": "Start-Process",
+            "powershell -NoExit": "powershell -NoExit",
+            "cmd /k hostname": "cmd /k",
+            "conhost.exe": "conhost",
+            "wt.exe new-tab powershell": "wt.exe",
+        }
+        for command, token in cases.items():
+            reasons = self._reasons("windows", command)
+            self.assertTrue(reasons, command)
+            self.assertTrue(any(token.lower() in reason.lower() for reason in reasons), reasons)
+        # 即使通道干净，没有落 logs/ 也不算通过
+        self.assertTrue(self._reasons("windows", "hostname"))
+
+    def test_linux_positive_examples_pass(self) -> None:
+        commands = [
+            "ssh -T -o BatchMode=yes bszheng@linux-node.example 'hostname' > /home/zhsh/workspace/tasks/NOAH-64/logs/bsz.log 2>&1",
+            "ssh -T -o BatchMode=yes -p 10023 administrator@win-node-b.example whoami > /home/zhsh/workspace/tasks/NOAH-64/logs/pvm.log 2>&1",
+            "bash -c 'hostname' > /home/zhsh/workspace/tasks/NOAH-64/logs/local.log 2>&1",
+        ]
+        for command in commands:
+            self.assertEqual(self._reasons("linux", command), [], command)
+
+    def test_linux_negative_examples_fail(self) -> None:
+        cases = {
+            "ssh bszheng@linux-node.example hostname > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "-T",
+            "ssh -T bszheng@linux-node.example hostname > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "BatchMode=yes",
+            "bash -i > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "bash -i",
+            "sshpass -p x ssh host hostname > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "sshpass -p",
+        }
+        for command, token in cases.items():
+            reasons = self._reasons("linux", command)
+            self.assertTrue(reasons, command)
+            self.assertTrue(any(token.lower() in reason.lower() for reason in reasons), reasons)
+        self.assertTrue(self._reasons("linux", "ssh -T -o BatchMode=yes host hostname"))
+
+    def test_unknown_platform_rejected(self) -> None:
+        self.assertTrue(self._reasons("solaris", "hostname > logs/a.log"))
+        self.assertTrue(self._reasons("linux", "   "))
+
+
 class ProfileSchemaTests(unittest.TestCase):
     """profile 是机器可读契约，字段必须自洽。"""
 
@@ -252,7 +353,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.0.1")
+        self.assertEqual(self.profile["template_version"], "1.1.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -408,7 +509,7 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.0.1")
+        self.assertEqual(manifest["version"], "1.1.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
@@ -450,7 +551,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.0.1/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.1.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -473,7 +574,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.0.1", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.1.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,

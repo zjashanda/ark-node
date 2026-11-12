@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v1",
   "name": "noahsark-index",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -34,6 +34,7 @@
         "root.index-md",
         "agent-template.latest",
         "agent-template.template",
+        "rule.execution_channel",
         "rule.workdir"
       ],
       "optional": [
@@ -49,6 +50,7 @@
       "must_read": [
         "root.index-md",
         "agent-template.template",
+        "rule.execution_channel",
         "rule.supervision",
         "rule.approval",
         "rule.credentials",
@@ -69,6 +71,7 @@
       "must_read": [
         "root.index-md",
         "agent-template.template",
+        "rule.execution_channel",
         "rule.workdir",
         "rule.credentials",
         "rule.time",
@@ -88,6 +91,7 @@
       "must_read": [
         "root.index-md",
         "agent-template.template",
+        "rule.execution_channel",
         "rule.workdir",
         "rule.supervision",
         "git.lstest",
@@ -131,7 +135,7 @@
           "kind": "entry",
           "title": "总览（人读入口）",
           "status": "available",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -148,7 +152,7 @@
           "kind": "entry",
           "title": "总览（机器读入口）",
           "status": "available",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -166,7 +170,7 @@
           "kind": "entry",
           "title": "根清单",
           "status": "available",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -190,7 +194,7 @@
           "kind": "entry",
           "title": "创建入口（latest 清单）",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -200,14 +204,14 @@
           ],
           "requires": [],
           "oss": "noahsark/agent-template/latest/manifest.json",
-          "summary": "当前推荐版本清单（v1.0.1）。latest 只做指向，内容与 v1.0.1 逐字节一致，长期留存请改用版本目录。"
+          "summary": "当前推荐版本清单（v1.1.0）。latest 只做指向，内容与 v1.1.0 逐字节一致，长期留存请改用版本目录。"
         },
         {
           "id": "agent-template.manifest",
           "kind": "entry",
-          "title": "模板清单 v1.0.1（不可变）",
+          "title": "模板清单 v1.1.0（不可变）",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -217,16 +221,16 @@
           "requires": [
             "agent-template.latest"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/manifest.json",
+          "oss": "noahsark/agent-template/v1.1.0/manifest.json",
           "sha256": "71518f4eaea5f4baf68f4e2314728da676e42bf55c800a0ac9456e5ff1049238",
           "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
         },
         {
           "id": "agent-template.template",
           "kind": "entry",
-          "title": "智能体模板正文 v1.0.1",
+          "title": "智能体模板正文 v1.1.0",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -237,7 +241,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。"
         },
@@ -246,7 +250,7 @@
           "kind": "entry",
           "title": "Agent Profile v1 结构定义",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -255,7 +259,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/agent-profile.v1.json",
+          "oss": "noahsark/agent-template/v1.1.0/agent-profile.v1.json",
           "local": "templates/agents/agent-profile.v1.json",
           "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。"
         },
@@ -264,7 +268,7 @@
           "kind": "entry",
           "title": "模板自检脚本",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -273,7 +277,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/verify-template.py",
+          "oss": "noahsark/agent-template/v1.1.0/verify-template.py",
           "local": "templates/agents/verify-template.py",
           "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。"
         }
@@ -601,7 +605,7 @@
           "kind": "rule",
           "title": "唯一任务目录",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -611,7 +615,7 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 工作目录",
           "summary": "每个任务一个目录：Windows 为 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 为 /home/zhsh/workspace/tasks/<tasks-id>/；<tasks-id> 用任务编号，不用时间戳；不得用 C 盘、系统临时目录、/tmp 或运行时工作目录代替。"
@@ -621,7 +625,7 @@
           "kind": "rule",
           "title": "存储与归档布局",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "node-executor",
             "knowledge-curator"
@@ -629,7 +633,7 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "6. 资产、结果与 1006",
           "summary": "结果与回执按 节点/项目/批次 三级归档；1006 资产必须同时记录文件名、大小、校验值，本机不可达时先记原因再委派可达节点取件，禁止直接结论「资产不存在」。"
@@ -639,7 +643,7 @@
           "kind": "rule",
           "title": "时间口径",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -650,7 +654,7 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "8. 时间口径",
           "summary": "唯一形态「年-月-日 时:分:秒」，文件名为紧凑无分隔形式；禁止字母分隔符、末尾时区字母、数字时区偏移与毫秒，禁止节点本地时区。"
@@ -660,7 +664,7 @@
           "kind": "rule",
           "title": "凭据与安全",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -670,7 +674,7 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9. 凭据与安全",
           "summary": "凭据只来自进程环境变量或权限 600 的受控密钥文件，共十个变量名；任何凭据值不得出现在模板、日志、回执、评论、提交或对外对象里。本总览不复制任何凭据。"
@@ -680,7 +684,7 @@
           "kind": "rule",
           "title": "监督契约",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -690,17 +694,38 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "10. 监督契约",
           "summary": "开工先报执行检查字段，长任务每五分钟报进度，状态漂移与无证据运行都要显式暴露；禁止起后台任务后直接结束。"
+        },
+        {
+          "id": "rule.execution_channel",
+          "kind": "rule",
+          "title": "执行通道与窗口",
+          "status": "available",
+          "version": "1.1.0",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.template"
+          ],
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "11. 执行通道与窗口",
+          "summary": "终端、脚本与 SSH 一律走无可见窗口、非交互、可观测的后台通道：Windows 不得弹出 PowerShell、cmd、Windows Terminal 或 conhost，不得用 Start-Process 或 Win32_Process.Create 包装；Linux 与 macOS 用 ssh -T -o BatchMode=yes；输出统一重定向到任务目录 logs/。后台运行不等于隐藏窗口，不得先执行再观察是否弹窗；无法确认隐藏时报 BLOCKED_EXECUTION_CHANNEL。"
         },
         {
           "id": "rule.approval",
           "kind": "rule",
           "title": "审批边界",
           "status": "available",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -709,7 +734,7 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9.4 审批边界",
           "summary": "推送代码、对外发布、真机操作、删除文件、改权限或 ACL 五类必须先获批；没有明确同意字样即视为未批准；只读巡检免审，写操作默认 dry-run。"

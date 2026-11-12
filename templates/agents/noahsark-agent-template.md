@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.0.1
+# NoahsArk 智能体模板 v1.1.0
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -9,12 +9,12 @@
 > Skill 只是它调用的一种能力单元。你新建的智能体是这套系统的**执行者**，不是 Skill 的宿主。
 
 所以本模板不教你「装几个 skill 就完事」，而是给你：角色定义、运行时配置、目录规范、
-来源规范、闭环流程、时间口径、凭据边界、监督契约、验收回执。九件事缺一不可。
+来源规范、执行通道、闭环流程、时间口径、凭据边界、监督契约、验收回执。十件事缺一不可。
 
 | 项目 | 值 |
 |---|---|
 | 模板 schema | `ark.agent-template.v1` |
-| 模板版本 | `1.0.1` |
+| 模板版本 | `1.1.0` |
 | 配套机器可读配置 | `agent-profile.v1.json`（同目录） |
 | 配套校验器 | `verify-template.py`（同目录） |
 | 兼容 | `agent-profile.v1`，ark-node ≥ 0.1.0 |
@@ -28,8 +28,9 @@
 3. **建 Multica Agent**：`instructions` 写长期行为契约（第 2 节），`description` 写一句话定位。两者不是同一个东西。
 4. **配运行时**：runtime / model / `max_concurrent_tasks` 按第 3 节，硬件台架默认 1。
 5. **建任务目录**：按第 4 节在固定根下建出 `<tasks-id>` 目录（`plan.md`、`manifest.json` 与五个子目录），并把执行切进去。平台自动给的 workdir 不算任务目录。
-6. **首次自检**：按第 11 节逐项跑，产出 `ark.agent-onboarding.v1` 回执。
-7. **交回执**：回执落在任务目录 `receipts/` 下，并在 issue 评论里贴关键字段。
+6. **先定执行通道**：按第 11 节确认这条任务走哪条无窗口、非交互通道，证明不了就停下。
+7. **首次自检**：按第 12 节逐项跑，产出 `ark.agent-onboarding.v1` 回执。
+8. **交回执**：回执落在任务目录 `receipts/` 下，并在 issue 评论里贴关键字段。
 
 自检没过不要接任务。半成品智能体比没有智能体更贵——它会产出无法追溯的结论。
 
@@ -64,14 +65,15 @@
 `description` 必须能从其他智能体里区分出你。反例：`"负责处理任务"`。
 正例：`"节点执行智能体：在 bszT14 上跑任务、采集证据并回执，不碰设备独占测试"`。
 
-`instructions` 必须包含以下六段，缺任何一段都算不合规：
+`instructions` 必须包含以下七段，缺任何一段都算不合规：
 
 1. 角色与边界（第 1 节）
 2. 工作目录规范（第 4 节）
 3. 来源规范（第 5、6 节）
-4. 时间口径（第 8 节）
-5. 凭据与审批边界（第 9 节）
-6. 监督契约（第 10 节）
+4. 执行通道与窗口（第 11 节）
+5. 时间口径（第 8 节）
+6. 凭据与审批边界（第 9 节）
+7. 监督契约（第 10 节）
 
 **不要把凭据、密码、token 写进 `instructions`**。`instructions` 会被导出、被复制、被贴进 issue。
 里面只允许出现**变量名**，不允许出现**变量值**。
@@ -424,13 +426,79 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 后台工作会被孤立、结果丢失、回执发不出去。
 
 正确做法：需要结果就**前台阻塞等到结果**；需要等待外部系统就记下证据后结束本轮，
-由平台唤醒机制接手，不要自己挂着等。
+由平台唤醒机制接手，不要自己挂着等。通道层面另见第 11 节：无可见窗口、非交互、日志落 `logs/`，
+三者缺一即视为没有可观测执行。
 
 ---
 
-## 11. 新建工作区验收
+## 11. 执行通道与窗口
 
-一个新工作区（新节点、新 workspace）必须跑完下面七项，产出 `ark.agent-onboarding.v1` 回执，
+规则先于命令：**通道选错，后面的证据全部作废**。本节对所有平台强制，不是 Windows 专属建议。
+
+### 11.1 三条判据
+
+| 判据 | 要求 | 判定方式 |
+|---|---|---|
+| 无可见窗口 | 执行期间不得出现 PowerShell、cmd、Windows Terminal、conhost 等任何桌面窗口或控制台 | **启动前**从命令形态确认，不靠事后观察 |
+| 非交互 | 不得等待人工输入；口令、确认、分页一律禁用 | 命令必须带非交互参数（见 11.2、11.3） |
+| 可观测 | stdout 与 stderr 重定向到任务目录 `logs/`，且有 run 记录 | 无日志即无证据，按 10.4 判定 |
+
+**「后台运行」不等于「隐藏窗口」。** 命令丢到后台但窗口照样弹出来，是违规；
+窗口隐藏了但输出丢弃，同样是违规。两者都不满足「无窗口 + 可观测」这一条门禁。
+
+### 11.2 Windows
+
+| 项 | 要求 |
+|---|---|
+| 允许通道 | 已有 Agent / 守护进程的隐藏执行入口；`powershell -NoProfile -NonInteractive -Command` 且由无控制台的父进程启动；`ssh -T -o BatchMode=yes` |
+| 输出 | 每条命令追加 `*> <任务目录>\logs\<名称>.log`（或 `1> … 2>&1`） |
+| 禁止 | 交互式 `ssh`（无 `-T`、无 `BatchMode`）、`powershell -NoExit`、`cmd /k`、`start`、`wt`、`conhost` |
+| 禁止未验证包装器 | `Start-Process`、`Win32_Process.Create`、任何「先起进程再看有没有弹窗」的脚本包装器——它们无法证明窗口隐藏 |
+| 无法保证隐藏 | 立即报 `BLOCKED_EXECUTION_CHANNEL` 并停止；**不得先执行再观察是否弹窗** |
+
+### 11.3 Linux / macOS
+
+| 项 | 要求 |
+|---|---|
+| 允许通道 | 非交互 SSH / Agent 通道：`ssh -T -o BatchMode=yes <host> '<命令>'` |
+| 输出 | `> <任务目录>/logs/<名称>.log 2>&1`；远程命令的输出同样落回任务目录 |
+| 禁止 | 交互式 shell、需要 tty 的 `sudo` 提示、不带 `BatchMode` 的 `ssh` |
+| 后台 | 不可观测后台任务不得 background-and-yield（10.5）；要么在顶层 run 内前台收集结果，要么交回平台持久唤醒 |
+
+### 11.4 反例
+
+| 反例 | 为什么违规 |
+|---|---|
+| 用 `Start-Process powershell` 起任务，再截图证明「没弹窗」 | 已经弹过了；判据是启动前证明，不是事后目测 |
+| `ssh host "cmd"` 不带 `-T -o BatchMode=yes` | 可能挂在密码或 tty 上，结果不可观测 |
+| 命令输出只打在控制台 | 日志缺失 → `RUNNING_NO_EVIDENCE` |
+| 起后台进程后结束本轮「等它跑完」 | background-and-yield，本轮退出即任务终结 |
+| 「以前这么干没弹窗」当作证据 | 未验证通道不因一次偶然成功变成合规 |
+
+### 11.5 profile 字段
+
+```json
+"execution_channel": {
+  "mode": "hidden-background",
+  "no_visible_terminal": true,
+  "non_interactive": true,
+  "stdout_redirect": "logs/",
+  "stderr_redirect": "logs/",
+  "forbidden_launchers": ["Start-Process", "Win32_Process.Create", "conhost", "wt", "powershell -NoExit"],
+  "require_batch_mode": true,
+  "unverifiable_action": "BLOCKED_EXECUTION_CHANNEL",
+  "background_and_yield": "forbidden"
+}
+```
+
+`no_visible_terminal` 在 Windows 上必须为 `true`，`non_interactive` 全平台必须为 `true`。
+`verify-template.py` 独立校验这三项：缺字段、为假、或命令判据不过，都判定整包不合规。
+
+---
+
+## 12. 新建工作区验收
+
+一个新工作区（新节点、新 workspace）必须跑完下面八项，产出 `ark.agent-onboarding.v1` 回执，
 才算这个智能体可用。
 
 | # | 检查项 | 通过标准 |
@@ -442,8 +510,9 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 | 5 | 任务目录 | 第 4 节的固定根存在且可写，`<tasks-id>` 目录含 `plan.md`、`manifest.json` 与五个子目录，`init` 幂等 |
 | 6 | 来源可达 | 至少一个 Git 通道可用；SkillHub 状态可读 |
 | 7 | 存储可达 | 存储节点连通；不可达则记录端点与失败原因，不判定「不存在」 |
+| 8 | 执行通道 | 第 11 节可证：无可见窗口、非交互、输出落 `logs/`；证明不了即 `BLOCKED_EXECUTION_CHANNEL` |
 
-### 11.1 回执字段 `ark.agent-onboarding.v1`
+### 12.1 回执字段 `ark.agent-onboarding.v1`
 
 ```json
 {
@@ -451,12 +520,13 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
   "workspace": "workspace-name",
   "agent_name": "方舟+角色",
   "profile_version": "agent-profile.v1",
-  "template_version": "1.0.1",
+  "template_version": "1.1.0",
   "template_sha256": "<模板文件摘要>",
   "verified_at": "2026-11-11 10:30:00",
   "runtime": { "agent_id": "...", "runtime_id": "...", "model": "..." },
   "checks": [
-    { "name": "template-integrity", "result": "pass", "evidence": "verify-template.py exit 0" }
+    { "name": "template-integrity", "result": "pass", "evidence": "verify-template.py exit 0" },
+    { "name": "execution-channel", "result": "pass", "evidence": "no_visible_terminal=true, non_interactive=true, 日志落 logs/" }
   ],
   "result": "pass",
   "notes": ""
@@ -466,7 +536,7 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 `result` 取值 `pass` / `fail` / `blocked`。任何一项 `fail` → 整体 `fail`，不许「其他都过了就算过」。
 `blocked` 必须写清阻塞原因与下一步。
 
-### 11.2 校验命令
+### 12.2 校验命令
 
 ```bash
 python3 verify-template.py --dir . --manifest manifest.json --json
@@ -474,7 +544,7 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 
 ---
 
-## 12. 反模式清单
+## 13. 反模式清单
 
 | 反模式 | 正确做法 |
 |---|---|
@@ -487,6 +557,10 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | 把凭据写进 issue 评论「方便复现」 | 只写变量名，值走环境 |
 | 声称 started=YES 但没 run | 先拿到运行证据再报 |
 | 后台跑任务然后结束本轮 | 前台等到结果，或交回平台唤醒 |
+| 先执行再观察是否弹窗 | 启动前证明通道无窗口、非交互；证明不了报 `BLOCKED_EXECUTION_CHANNEL` |
+| 用 `Start-Process` / `Win32_Process.Create` 包装命令 | 只用已验证的隐藏通道，未验证包装器不能当证据 |
+| 把交互式 `ssh` 当执行通道 | `-T -o BatchMode=yes`，输出落任务目录 `logs/` |
+| 命令输出只打在控制台 | 重定向到任务目录 `logs/`，无日志按无证据处理 |
 | 代码测试绿了就报「验证通过」 | 真机结果只能来自真机执行 |
 | 目录名带毫秒/时区/时间戳后缀 | 目录名只用 `<tasks-id>` |
 
@@ -521,6 +595,11 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | `env_keys` | array | 只允许键名 |
 | `supervision.rules` | array | 四条规则名 |
 | `approval.requires` | array | 需审批的操作类别 |
+| `execution_channel.mode` | string | 固定 `hidden-background` |
+| `execution_channel.no_visible_terminal` | bool | Windows 必须 `true` |
+| `execution_channel.non_interactive` | bool | 全平台必须 `true` |
+| `execution_channel.forbidden_launchers` | array | 禁止的启动器与参数 |
+| `execution_channel.unverifiable_action` | string | 证明不了通道时报 `BLOCKED_EXECUTION_CHANNEL` |
 | `compatibility.template_version` | string | 模板版本 |
 
 ---

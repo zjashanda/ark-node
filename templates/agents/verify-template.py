@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 PROFILE_SCHEMA = "ark.agent-profile.v1"
 REQUIRED_ROLES = ("template", "profile", "verifier")
@@ -98,6 +98,10 @@ PROFILE_REQUIRED = (
     "loop",
     "supervision.rules",
     "approval.requires",
+    "execution_channel",
+    "execution_channel.mode",
+    "execution_channel.no_visible_terminal",
+    "execution_channel.non_interactive",
 )
 PROFILE_ROLES = ("coordinator", "node-executor", "hardware-bench", "knowledge-curator")
 EXPECTED_LOOP = ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"]
@@ -109,6 +113,26 @@ EXPECTED_TASK_ROOTS = {
     "task_root_linux": "/home/zhsh/workspace/tasks",
 }
 EXPECTED_WORKDIR_VIOLATION = "BLOCKED_WORKDIR_POLICY"
+EXPECTED_CHANNEL_VIOLATION = "BLOCKED_EXECUTION_CHANNEL"
+EXPECTED_EXECUTION_CHANNEL = {
+    "mode": "hidden-background",
+    "no_visible_terminal": True,
+    "non_interactive": True,
+    "stdout_redirect": "logs/",
+    "stderr_redirect": "logs/",
+    "require_batch_mode": True,
+    "unverifiable_action": EXPECTED_CHANNEL_VIOLATION,
+    "background_and_yield": "forbidden",
+}
+EXPECTED_FORBIDDEN_LAUNCHERS = (
+    "Start-Process",
+    "Win32_Process.Create",
+    "conhost",
+    "wt",
+    "powershell -NoExit",
+)
+EXECUTION_CHANNEL_TOKENS = ("execution_channel", "no_visible_terminal", "non_interactive")
+EXECUTION_CHANNEL_HEADING = "## 11. 执行通道与窗口"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -386,6 +410,110 @@ def check_profile(manifest: Dict[str, Any], base: Path) -> List[Check]:
     return checks
 
 
+
+def validate_channel_command(platform: str, command: str) -> List[str]:
+    """校验一条命令是否符合执行通道规则。返回违规原因列表，空列表表示通过。
+
+    windows: 隐藏、非交互、无桌面窗口；禁止 Start-Process / Win32_Process.Create
+             等未经验证的启动器，禁止一切会弹出控制台的写法。
+    linux/macos: 非交互 SSH/Agent 通道，ssh 必须带 -T 与 BatchMode=yes。
+    所有平台: 输出必须重定向到任务目录 logs/。
+    """
+    normalized = (platform or "").strip().lower()
+    if normalized == "darwin":
+        normalized = "macos"
+    if normalized not in ("windows", "linux", "macos"):
+        return [f"未知平台: {platform}"]
+
+    text = (command or "").strip()
+    if not text:
+        return ["命令为空"]
+    lowered = text.lower()
+
+    reasons: List[str] = []
+    if normalized == "windows":
+        for token in EXPECTED_FORBIDDEN_LAUNCHERS:
+            if token.lower() in lowered:
+                reasons.append(f"出现被禁止的启动器: {token}")
+        for token in ("cmd /k", "cmd.exe /k", "start ", "wt.exe", "conhost.exe"):
+            if token in lowered:
+                reasons.append(f"会弹出可见终端: {token}")
+    else:
+        if lowered.startswith("ssh") or " ssh " in lowered:
+            if " -t " not in f" {lowered} ":
+                reasons.append("ssh 缺少 -T：可能分配伪终端")
+            if "batchmode=yes" not in lowered:
+                reasons.append("ssh 缺少 -o BatchMode=yes：可能等待交互输入")
+        for token in ("bash -i", "sh -i", "zsh -i", "sshpass -p", "read -p"):
+            if token in lowered:
+                reasons.append(f"交互式或明文口令通道: {token}")
+
+    if ">" not in text or "logs" not in lowered:
+        reasons.append("输出未重定向到任务目录 logs/")
+    return reasons
+
+
+def check_execution_channel(manifest: Dict[str, Any], base: Path) -> List[Check]:
+    checks: List[Check] = []
+    entries = manifest.get("files") or []
+    profile_entry = next((entry for entry in entries if entry.get("role") == "profile"), None)
+    template_entry = next((entry for entry in entries if entry.get("role") == "template"), None)
+
+    channel: Any = None
+    if profile_entry is not None:
+        path = base / str(profile_entry.get("path", ""))
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+            default = profile.get("default") if isinstance(profile.get("default"), dict) else {}
+            channel = default.get("execution_channel")
+        except (OSError, json.JSONDecodeError):
+            channel = None
+
+    if not isinstance(channel, dict):
+        checks.append(Check("profile-execution-channel", False, "profile 缺少 execution_channel 段"))
+    else:
+        mismatched = {
+            key: channel.get(key)
+            for key, expected in EXPECTED_EXECUTION_CHANNEL.items()
+            if channel.get(key) != expected
+        }
+        launchers = channel.get("forbidden_launchers")
+        launchers_ok = isinstance(launchers, list) and sorted(launchers) == sorted(EXPECTED_FORBIDDEN_LAUNCHERS)
+        ok = not mismatched and launchers_ok
+        detail = (
+            "通道三判据齐备"
+            if ok
+            else f"不符: {sorted(mismatched)}" + ("" if launchers_ok else " forbidden_launchers 不全")
+        )
+        checks.append(Check("profile-execution-channel", ok, detail))
+        checks.append(
+            Check(
+                "profile-channel-gate",
+                channel.get("unverifiable_action") == EXPECTED_CHANNEL_VIOLATION,
+                f"unverifiable_action={channel.get('unverifiable_action')}",
+            )
+        )
+
+    text = ""
+    if template_entry is not None:
+        path = base / str(template_entry.get("path", ""))
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+    missing_tokens = [token for token in EXECUTION_CHANNEL_TOKENS if token not in text]
+    heading_ok = EXECUTION_CHANNEL_HEADING in text
+    checks.append(
+        Check(
+            "template-execution-channel",
+            not missing_tokens and heading_ok,
+            "字段与章节齐备"
+            if not missing_tokens and heading_ok
+            else f"缺少: {missing_tokens} heading={heading_ok}",
+        )
+    )
+    return checks
+
 def verify(base: Path, manifest_path: Optional[Path] = None) -> Tuple[List[Check], Optional[Dict[str, Any]]]:
     target = manifest_path or (base / "manifest.json")
     if not target.exists():
@@ -399,6 +527,7 @@ def verify(base: Path, manifest_path: Optional[Path] = None) -> Tuple[List[Check
     checks.extend(check_files(manifest, base))
     checks.extend(check_secrets(manifest, base))
     checks.extend(check_profile(manifest, base))
+    checks.extend(check_execution_channel(manifest, base))
     return checks, manifest
 
 

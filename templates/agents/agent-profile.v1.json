@@ -1,7 +1,7 @@
 {
   "schema": "ark.agent-profile.v1",
-  "profile_version": "1.0.1",
-  "template_version": "1.0.1",
+  "profile_version": "1.1.0",
+  "template_version": "1.1.0",
   "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
   "default": {
     "schema": "ark.agent-profile.v1",
@@ -71,6 +71,23 @@
       "progress_interval_minutes": 5,
       "background_and_yield": "forbidden"
     },
+    "execution_channel": {
+      "mode": "hidden-background",
+      "no_visible_terminal": true,
+      "non_interactive": true,
+      "stdout_redirect": "logs/",
+      "stderr_redirect": "logs/",
+      "forbidden_launchers": [
+        "Start-Process",
+        "Win32_Process.Create",
+        "conhost",
+        "wt",
+        "powershell -NoExit"
+      ],
+      "require_batch_mode": true,
+      "unverifiable_action": "BLOCKED_EXECUTION_CHANNEL",
+      "background_and_yield": "forbidden"
+    },
     "approval": {
       "requires": ["git-push", "external-publish", "real-device-action", "file-deletion", "permission-change"],
       "default_mode": "dry-run"
@@ -80,7 +97,7 @@
       "onboarding": "ark.agent-onboarding.v1"
     },
     "compatibility": {
-      "template_version": "1.0.1",
+      "template_version": "1.1.0",
       "ark_node": ">=0.1.0",
       "skillhub_sync": ">=1.0.0",
       "asset_tools": ">=0.1.0"
@@ -215,6 +232,19 @@
     },
     "supervision.progress_interval_minutes": { "type": "integer", "required": true, "const": 5 },
     "supervision.background_and_yield": { "type": "string", "required": true, "const": "forbidden" },
+    "execution_channel.mode": { "type": "string", "required": true, "const": "hidden-background" },
+    "execution_channel.no_visible_terminal": { "type": "boolean", "required": true, "const": true },
+    "execution_channel.non_interactive": { "type": "boolean", "required": true, "const": true },
+    "execution_channel.stdout_redirect": { "type": "string", "required": true, "const": "logs/" },
+    "execution_channel.stderr_redirect": { "type": "string", "required": true, "const": "logs/" },
+    "execution_channel.forbidden_launchers": {
+      "type": "array",
+      "required": true,
+      "items_const": ["Start-Process", "Win32_Process.Create", "conhost", "wt", "powershell -NoExit"]
+    },
+    "execution_channel.require_batch_mode": { "type": "boolean", "required": true, "const": true },
+    "execution_channel.unverifiable_action": { "type": "string", "required": true, "const": "BLOCKED_EXECUTION_CHANNEL" },
+    "execution_channel.background_and_yield": { "type": "string", "required": true, "const": "forbidden" },
     "approval.requires": {
       "type": "array",
       "required": true,
