@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 PROFILE_SCHEMA = "ark.agent-profile.v1"
 REQUIRED_ROLES = ("template", "profile", "verifier")
@@ -657,6 +657,47 @@ KB_SYNC_TOKENS = (
     "receipts/evidence-gaps/",
 ) + KB_V2_TEMPLATE_TOKENS
 
+TTS_LIBRARY_HEADING = "## 17. 1006 TTS 音频库"
+TTS_LIBRARY_TOKENS = (
+    TTS_LIBRARY_HEADING,
+    "lookup_before_synth",
+    "assets/tts/original",
+    "work/audio",
+    "derived_from_asset_id",
+    "receipts/outbox",
+    "BLOCKED_TTS_LIBRARY_UNREACHABLE",
+    "asset-tools tts-library",
+)
+EXPECTED_TTS_LIBRARY = {
+    "root": "/srv/storage/ark/artifacts/audio/tts-library",
+    "index": "index.json",
+    "canonical_tool": "asset-tools",
+    "lookup_command": "asset-tools tts-library lookup --spec <spec.json>",
+    "fetch_command": (
+        "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir ."
+    ),
+    "publish_command": "asset-tools tts-library publish --staging <dir> --task-dir .",
+    "synth_tool": "tts-runtime",
+    "synth_engine": "lstts",
+    "lookup_before_synth": True,
+    "reuse_requires": [
+        "quality=formal",
+        "status=active",
+        "shareable=true",
+        "full_cache_key_match",
+        "sha256_verified",
+        "acl_allowed",
+    ],
+    "original_dir": "assets/tts/original",
+    "derived_dir": "work/audio",
+    "hardlink_forbidden": True,
+    "derived_requires_asset_id": True,
+    "outbox_dir": "receipts/outbox",
+    "unreachable_action": "BLOCKED_TTS_LIBRARY_UNREACHABLE",
+    "sensitive_default_shareable": False,
+    "gc_requires_approval": True,
+}
+
 SAMPLE_EXECUTION_CHECK = {
     "schema": RUN_STATE_SCHEMA,
     "event": "EXECUTION_CHECK",
@@ -1113,6 +1154,65 @@ def check_kb_sync(manifest: Dict[str, Any], base: Path) -> List[Check]:
     return checks
 
 
+def check_tts_library(manifest: Dict[str, Any], base: Path) -> List[Check]:
+    """TTS 音频库优先：profile 的 tts_library 段与模板第 17 节双向对齐。"""
+    checks: List[Check] = []
+    entries = manifest.get("files") or []
+    profile_entry = next((item for item in entries if str(item.get("role", "")) == "profile"), None)
+    block: Dict[str, Any] = {}
+    profile_error: Optional[str] = None
+    if profile_entry is None:
+        profile_error = "发布包里没有 profile"
+    else:
+        path = base / str(profile_entry.get("path", ""))
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+            default = profile.get("default") if isinstance(profile.get("default"), dict) else {}
+            value = default.get("tts_library")
+            if isinstance(value, dict):
+                block = value
+            else:
+                profile_error = "profile 缺少 tts_library 段"
+        except (OSError, json.JSONDecodeError) as exc:
+            profile_error = f"profile 读取失败: {exc}"
+
+    if profile_error is not None:
+        checks.append(Check("profile-tts-library", False, profile_error))
+    else:
+        mismatched = {
+            key: block.get(key)
+            for key, expected in EXPECTED_TTS_LIBRARY.items()
+            if block.get(key) != expected
+        }
+        checks.append(
+            Check(
+                "profile-tts-library",
+                not mismatched,
+                "tts_library 段自洽" if not mismatched else f"不符: {sorted(mismatched)}",
+            )
+        )
+
+    text = ""
+    template_entry = next((item for item in entries if str(item.get("role", "")) == "template"), None)
+    if template_entry is not None:
+        try:
+            text = (base / str(template_entry.get("path", ""))).read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+    missing_tokens = [token for token in TTS_LIBRARY_TOKENS if token not in text]
+    heading_ok = TTS_LIBRARY_HEADING in text
+    checks.append(
+        Check(
+            "template-tts-library",
+            not missing_tokens and heading_ok,
+            "TTS 音频库章节齐备"
+            if not missing_tokens and heading_ok
+            else f"缺少: {missing_tokens} heading={heading_ok}",
+        )
+    )
+    return checks
+
+
 def verify(base: Path, manifest_path: Optional[Path] = None) -> Tuple[List[Check], Optional[Dict[str, Any]]]:
     target = manifest_path or (base / "manifest.json")
     if not target.exists():
@@ -1129,6 +1229,7 @@ def verify(base: Path, manifest_path: Optional[Path] = None) -> Tuple[List[Check
     checks.extend(check_execution_channel(manifest, base))
     checks.extend(check_run_state(manifest, base))
     checks.extend(check_kb_sync(manifest, base))
+    checks.extend(check_tts_library(manifest, base))
     return checks, manifest
 
 

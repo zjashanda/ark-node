@@ -353,7 +353,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.5.0")
+        self.assertEqual(self.profile["template_version"], "1.6.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -514,7 +514,7 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.5.0")
+        self.assertEqual(manifest["version"], "1.6.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
@@ -557,7 +557,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.5.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.6.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -580,7 +580,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.5.0", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.6.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
@@ -1160,6 +1160,90 @@ class KbSyncV2Tests(unittest.TestCase):
         for name in ("kb-sync-profile", "kb-sync-triggers", "kb-sync-template"):
             self.assertEqual(results.get(name), "pass", name)
 
+
+class TtsLibraryContractTests(unittest.TestCase):
+    """v1.6.0 1006 TTS 音频库：profile 契约、模板章节、校验器三处一致。"""
+
+    TOKENS = (
+        "lookup_before_synth",
+        "assets/tts/original",
+        "work/audio",
+        "BLOCKED_TTS_LIBRARY_UNREACHABLE",
+        "receipts/outbox",
+        "derived_from_asset_id",
+    )
+    REUSE_REQUIRES = [
+        "quality=formal",
+        "status=active",
+        "shareable=true",
+        "full_cache_key_match",
+        "sha256_verified",
+        "acl_allowed",
+    ]
+
+    def setUp(self) -> None:
+        self.profile = load_profile()
+        self.template = read_template()
+        self.block = self.profile["default"]["tts_library"]
+
+    def test_profile_tts_library_block(self) -> None:
+        self.assertEqual(
+            self.block["root"], "/srv/storage/ark/artifacts/audio/tts-library"
+        )
+        self.assertEqual(self.block["index"], "index.json")
+        self.assertEqual(self.block["canonical_tool"], "asset-tools")
+        self.assertEqual(
+            self.block["lookup_command"],
+            "asset-tools tts-library lookup --spec <spec.json>",
+        )
+        self.assertEqual(
+            self.block["fetch_command"],
+            "asset-tools tts-library fetch --spec <spec.json> "
+            "--dest assets/tts/original --task-dir .",
+        )
+        self.assertEqual(
+            self.block["publish_command"],
+            "asset-tools tts-library publish --staging <dir> --task-dir .",
+        )
+        self.assertEqual(self.block["synth_tool"], "tts-runtime")
+        self.assertEqual(self.block["synth_engine"], "lstts")
+        self.assertIs(self.block["lookup_before_synth"], True)
+        self.assertEqual(self.block["reuse_requires"], self.REUSE_REQUIRES)
+        self.assertEqual(self.block["original_dir"], "assets/tts/original")
+        self.assertEqual(self.block["derived_dir"], "work/audio")
+        self.assertIs(self.block["hardlink_forbidden"], True)
+        self.assertIs(self.block["derived_requires_asset_id"], True)
+        self.assertEqual(self.block["outbox_dir"], "receipts/outbox")
+        self.assertEqual(
+            self.block["unreachable_action"], "BLOCKED_TTS_LIBRARY_UNREACHABLE"
+        )
+        self.assertIs(self.block["sensitive_default_shareable"], False)
+        self.assertIs(self.block["gc_requires_approval"], True)
+
+    def test_template_section_and_tokens(self) -> None:
+        self.assertIn("## 17. 1006 TTS 音频库", self.template)
+        missing = [token for token in self.TOKENS if token not in self.template]
+        self.assertEqual(missing, [], f"模板缺少 TTS 库要素: {missing}")
+        for heading in (
+            "### 17.4 任务流程（唯一顺序）",
+            "### 17.6 退出码映射（沿用全平台跨契约口径）",
+            "### 17.7 正例 / 反例",
+            "### 17.8 1006 不可达：只记不可达，不说「库里没有」",
+        ):
+            self.assertIn(heading, self.template)
+
+    def test_verifier_reports_tts_checks(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        results = {check["name"]: check["result"] for check in payload["checks"]}
+        for name in ("profile-tts-library", "template-tts-library"):
+            self.assertEqual(results.get(name), "pass", name)
 
 
 if __name__ == "__main__":

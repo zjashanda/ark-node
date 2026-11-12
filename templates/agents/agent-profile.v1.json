@@ -1,7 +1,7 @@
 {
   "schema": "ark.agent-profile.v1",
-  "profile_version": "1.5.0",
-  "template_version": "1.5.0",
+  "profile_version": "1.6.0",
+  "template_version": "1.6.0",
   "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
   "default": {
     "schema": "ark.agent-profile.v1",
@@ -287,8 +287,35 @@
       "recovery_scan_when": "run-start",
       "query_back_per_checkpoint": true
     },
+    "tts_library": {
+      "root": "/srv/storage/ark/artifacts/audio/tts-library",
+      "index": "index.json",
+      "canonical_tool": "asset-tools",
+      "lookup_command": "asset-tools tts-library lookup --spec <spec.json>",
+      "fetch_command": "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir .",
+      "publish_command": "asset-tools tts-library publish --staging <dir> --task-dir .",
+      "synth_tool": "tts-runtime",
+      "synth_engine": "lstts",
+      "lookup_before_synth": true,
+      "reuse_requires": [
+        "quality=formal",
+        "status=active",
+        "shareable=true",
+        "full_cache_key_match",
+        "sha256_verified",
+        "acl_allowed"
+      ],
+      "original_dir": "assets/tts/original",
+      "derived_dir": "work/audio",
+      "hardlink_forbidden": true,
+      "derived_requires_asset_id": true,
+      "outbox_dir": "receipts/outbox",
+      "unreachable_action": "BLOCKED_TTS_LIBRARY_UNREACHABLE",
+      "sensitive_default_shareable": false,
+      "gc_requires_approval": true
+    },
     "compatibility": {
-      "template_version": "1.5.0",
+      "template_version": "1.6.0",
       "ark_node": ">=0.1.0",
       "skillhub_sync": ">=1.0.0",
       "asset_tools": ">=0.1.0"
@@ -851,6 +878,28 @@
     "kb_sync.recovery_scan": {"type": "boolean", "required": true, "const": true},
     "kb_sync.recovery_scan_when": {"type": "string", "required": true, "const": "run-start"},
     "kb_sync.query_back_per_checkpoint": {"type": "boolean", "required": true, "const": true},
+    "tts_library.root": {"type": "string", "required": true, "const": "/srv/storage/ark/artifacts/audio/tts-library"},
+    "tts_library.index": {"type": "string", "required": true, "const": "index.json"},
+    "tts_library.canonical_tool": {"type": "string", "required": true, "const": "asset-tools"},
+    "tts_library.lookup_command": {"type": "string", "required": true, "const": "asset-tools tts-library lookup --spec <spec.json>"},
+    "tts_library.fetch_command": {"type": "string", "required": true, "const": "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir ."},
+    "tts_library.publish_command": {"type": "string", "required": true, "const": "asset-tools tts-library publish --staging <dir> --task-dir ."},
+    "tts_library.synth_tool": {"type": "string", "required": true, "const": "tts-runtime"},
+    "tts_library.synth_engine": {"type": "string", "required": true, "const": "lstts"},
+    "tts_library.lookup_before_synth": {"type": "boolean", "required": true, "const": true},
+    "tts_library.reuse_requires": {
+      "type": "array",
+      "required": true,
+      "items_const": ["quality=formal", "status=active", "shareable=true", "full_cache_key_match", "sha256_verified", "acl_allowed"]
+    },
+    "tts_library.original_dir": {"type": "string", "required": true, "const": "assets/tts/original"},
+    "tts_library.derived_dir": {"type": "string", "required": true, "const": "work/audio"},
+    "tts_library.hardlink_forbidden": {"type": "boolean", "required": true, "const": true},
+    "tts_library.derived_requires_asset_id": {"type": "boolean", "required": true, "const": true},
+    "tts_library.outbox_dir": {"type": "string", "required": true, "const": "receipts/outbox"},
+    "tts_library.unreachable_action": {"type": "string", "required": true, "const": "BLOCKED_TTS_LIBRARY_UNREACHABLE"},
+    "tts_library.sensitive_default_shareable": {"type": "boolean", "required": true, "const": false},
+    "tts_library.gc_requires_approval": {"type": "boolean", "required": true, "const": true},
     "compatibility.template_version": {
       "type": "string",
       "required": true

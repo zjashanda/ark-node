@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.5.0
+# NoahsArk 智能体模板 v1.6.0
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -14,7 +14,7 @@
 | 项目 | 值 |
 |---|---|
 | 模板 schema | `ark.agent-template.v1` |
-| 模板版本 | `1.5.0` |
+| 模板版本 | `1.6.0` |
 | 配套机器可读配置 | `agent-profile.v1.json`（同目录） |
 | 配套校验器 | `verify-template.py`（同目录） |
 | 兼容 | `agent-profile.v1`，ark-node ≥ 0.1.0 |
@@ -619,6 +619,8 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | 同一事实在多个项目各存一份 | 一条 canonical 条目 + `derived_from` 引用，不复制孤岛 |
 | 项目条目覆盖全局事实 | 项目层只加 `exceptions` / `applies_to` 并写 `reason` |
 | 只跑本地结果就报 PASS / 无知识价值静默跳过 | 补齐 outbox 与 delivery 状态位；无知识价值必须 `NO_KB_REQUIRED` 并给出原因 |
+| 任务直接对 1006 原件做重采样/增益 | 只在任务副本上派生：原件留在 `assets/tts/original/`，结果写 `work/audio/` 或 `result/audio/` |
+| 只按文本命中就复用、忽略音色/模型/参数 | 按完整 cache key 命中，六项复用条件全满足才算命中 |
 
 ---
 
@@ -906,6 +908,144 @@ outbox 关闭条件（全部满足才可关闭）：
 | 4 | 两个项目引用同一事实 | 只有一条 canonical 条目，其余用 `derived_from` 引用，不复制正文 |
 | 5 | promotion 候选 | 至少两个项目验证 + 审核通过才提升到 `capability` / `global` |
 
+## 17. 1006 TTS 音频库（先查库，miss 才合成）
+
+任何需要语音的任务，第一个动作都不是调 TTS，而是**先查 1006 的公共 TTS 音频库**。
+库里有满足完整规格的 `formal` 资产就取件复用；只有 cache miss 才允许合成，合成成功后再回填库。
+库里的音频原件发布后不可变，任务内的二次处理只碰任务副本。
+
+### 17.1 边界：谁负责哪一段
+
+| 角色 | 职责 | 明确不做 |
+|---|---|---|
+| 1006 TTS 库 | 存放 `ark.tts-asset.v1` 原件与 `index.json`，发布后只读 | 不合成、不做派生处理 |
+| `asset-tools tts-library` | canonical 实现：`key` / `lookup` / `fetch` / `publish` / `verify` / `index`；缓存键、ACL、锁、outbox、query-back 都在这里 | 不合成、不烧录、不存凭据 |
+| `tts-runtime` | 唯一合成入口（`synth` / `batch` / `inspect`），引擎 `lstts`（云端 IndexTTS）/ `melotts` / `mock` | 不写 1006、不建库、不做复用判断 |
+| `audio-runtime` | 派生处理：重采样、增益、降噪、裁剪、播放、录制 | 只处理任务副本，不改库原件 |
+| `ark-kb` | 只索引可搜索资产元数据（asset ID、SHA、作用域、受控位置） | 不存音频本体、不存敏感全文 |
+| `lstest` | 测试域，消费任务目录副本 | 不直接读写共享库、不绕过 `tts-runtime` 回填公共库 |
+
+`lstts` 是 `tts-runtime` 的引擎名，不是独立 skill；不得新增 `lstts` skill 名或入口。
+
+### 17.2 目录与不可变
+
+```text
+/srv/storage/ark/artifacts/audio/tts-library/
+├── index.json                 # 可搜索索引，临时文件 + rename 原子重写
+├── locks/tts-<key16>.lock     # 每个 asset_id 一把锁
+├── _incoming/tts-<key16>/     # 上传暂存，发布成功才 rename
+└── tts-<key16>/
+    ├── manifest.json          # ark.tts-asset.v1
+    └── <audio_sha256>.wav     # 文件名由内容哈希决定
+```
+
+- 资产目录**发布后只读**：禁止原地修改。换模型、换参数、换音色都会得到新 cache key ⇒ 新 asset_id。
+- 同一 asset_id 若出现不同 SHA，发布为 `tts-<key16>-v2`，`supersedes` 指向旧 ID，旧目录保留。
+- 库根只允许 `asset-tools tts-library` 写；业务任务、`tts-runtime`、`lstest` 只能读库或写自己的任务目录。
+- 任何删除（GC / 配额 / 保留策略）都必须单独审批（`gc_requires_approval=true`），任务侧不得删除共享资产。
+- 敏感文本默认 `shareable=false`（`sensitive_default_shareable=false`），不进入公共库共享；强行发布会退出码 4。
+
+### 17.3 缓存键：完整规格才算命中
+
+参与计算的字段（缺省显式写 `null`，不允许省略）：
+
+```text
+normalized_text, language, voice{speaker|voice_ref_sha256}, engine, model, model_version,
+synthesis_params{rate,pitch,style,emotion,speed}, output{container,codec,sample_rate,channels,bit_depth},
+normalization_profile
+```
+
+- `normalize_text`：Unicode NFKC → 去零宽字符 → 去首尾空白 → 连续空白折叠为单个半角空格。
+- `language` 大写（`ZH` / `EN`）；`voice` 只允许 `speaker` 或 `voice_ref_sha256`，禁止把绝对路径写进键。
+- `synthesis_params` / `output` 按固定键集输出，未设置的键写 `null`，数值保持 JSON number。
+- 确定性序列化：`json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))`，UTF-8。
+- `cache_key = sha256(canonical_json)`；`asset_id = "tts-" + cache_key[:16]`。
+- **禁止只按文本命中**：文本相同但音色、模型、模型版本、采样率任一不同，就是不同资产，必须重新计算 cache key。
+
+### 17.4 任务流程（唯一顺序）
+
+1. 生成 cache key（完整规格，不省略字段）。
+2. `asset-tools tts-library lookup --spec <spec.json>` 查 1006 索引；本地任务缓存次之。
+   这一步由 `lookup_before_synth=true` 强制：**没有查库结果，不允许开始合成**。
+3. 命中且 `quality=formal`、`status=active`、`shareable=true`、完整 cache key 相等、SHA 校验通过、ACL 允许 →
+   用 `fetch --dest assets/tts/original --task-dir .` **复制**到 `assets/tts/original/<asset_id>/`。
+4. 未命中 → `tts-runtime synth` 到 `work/tts/<asset_id>/`（唯一合成入口，engine 固定 `lstts`）。
+5. `inspect` / 质检（可读、非静音、时长合理）。
+6. `publish --staging <dir> --task-dir .`：暂存 → 加锁 → compare-and-create → 原子 rename → 重建 index → query-back。
+7. 发布失败 → 写 `receipts/outbox/`（pending）；任务继续用本地结果，但**不得声称公共库已更新**。
+8. 任务内二次处理 → 只写 `work/audio/` 或 `result/audio/`，并记录 `derived_from_asset_id` 与 `processing_chain`。
+
+- `fetch` 只允许**复制**：禁止硬链接（`hardlink_forbidden=true`）、符号链接、共享可写挂载；落盘后默认置只读。
+- `assets/tts/original/` 只放库副本；重采样 / 增益 / 降噪 / 裁剪一律不得写这里。
+- 派生资产必须带 `derived_from_asset_id`（`derived_requires_asset_id=true`）；派生资产默认不发布到库，确需登记要单独审批。
+- `publish` 必须带 `--task-dir`，用于 outbox 与审计；临时文件不得落在任务目录之外。
+- 合成失败不发布；质检失败默认不发布，`--allow-quality-candidate` 可降级为 `candidate` 并留证据。
+
+### 17.5 拒绝矩阵
+
+| 情形 | 处置 | 退出码 |
+|---|---|---|
+| 命中且六项复用条件全部满足 | 允许取件复用 | 0 |
+| `candidate` / `evidence_gap` | 默认拒绝自动复用；`--allow-candidate --confirm` 才可作为任务输入，并在计划与回执注明 | 3 |
+| `stale` / `superseded` | 拒绝自动复用；`--include-stale` 仅供人工核查，不进入任务输入 | 3 |
+| 损坏（SHA 不符 / 不可读） | 拒绝并隔离记录，重新合成后可发布；不得冒充命中 | 1 |
+| 参数缺失 / 键字段不完整 / 缺 `--task-dir` | 用法错误，补齐后重跑 | 2 |
+| 敏感文本 `shareable=false` 发布 / ACL 越权 / 路径越界 | 拒绝，outbox 记 `SENSITIVE_DENIED`，库不得新增 | 4 |
+| 1006 或远端传输失败（含超时） | 记录不可达，本地合成 + outbox 待重放 | 5 |
+
+自动复用条件是一个整体：`quality=formal` 且 `status=active` 且 `shareable=true` 且完整 cache key 相等
+且 SHA 校验通过且 ACL 允许，缺一项就不算命中。
+
+### 17.6 退出码映射（沿用全平台跨契约口径）
+
+| 码 | 含义 | TTS 库场景 | 任务侧动作 |
+|---|---|---|---|
+| 0 | OK | 命中取件、发布、校验、幂等发布成功 | 继续任务 |
+| 1 | FAIL | SHA 不符、query-back 失败、损坏对象 | 隔离对象；重新合成后按新规格发布 |
+| 2 | USAGE | 参数缺失、键字段不完整、缺 `--task-dir` | 补齐参数重跑，不降级 |
+| 3 | NO_SOURCE | 未命中、资产不存在、`candidate` / `stale` 被拒绝 | 走 cache miss 合成；或按 §17.8 区别不可达 |
+| 4 | FORBIDDEN | 敏感文本发布、ACL 越权、路径越界、只读库写入 | 停止发布，outbox 记原因，不绕过 |
+| 5 | NETWORK | 1006 / 远端传输失败（含超时） | 按不可达处理，写 outbox 待重放 |
+| 6 | NEEDS_ELEVATION | 需要提权 | 本轮不触发；出现即上报，不自行提权 |
+
+### 17.7 正例 / 反例
+
+正例（先查后合成，命中即复制）：
+
+```text
+任务需要一段中文旁白 → 生成完整 cache key（文本/音色/engine=lstts/model/参数/输出格式）
+→ asset-tools tts-library lookup --spec spec.json → 命中 tts-1a2b3c4d5e6f7788
+→ 校验 manifest + sha256 → fetch --dest assets/tts/original --task-dir .
+→ 得到 assets/tts/original/tts-1a2b3c4d5e6f7788/<sha>.wav（复制，不硬链接）
+→ 后续重采样写 work/audio/<name>.wav，并记 derived_from_asset_id=tts-1a2b3c4d5e6f7788
+```
+
+反例（跳过查库、直接对库原件加工）：
+
+```text
+任务需要一段中文旁白 → 直接调用 tts-runtime synth，不生成 cache key、不 lookup
+→ 合成完成后没有 publish，公共库无新增，别的任务下次还要重合成
+→ 或者把库里原件硬链接到任务目录并原地改采样率，导致库对象 SHA 变化
+→ 两者都违规：前者违反 lookup_before_synth，后者违反 hardlink_forbidden 与「库原件不可变」
+```
+
+### 17.8 1006 不可达：只记不可达，不说「库里没有」
+
+- `lookup` 返回 `unreachable=true`、退出码 3 时，计划与回执只能写「1006 不可达」，
+  **禁止**写「库里没有」「无此类资产」——不可达不等于不存在。
+- 任务继续：本地合成结果留在任务目录，发布请求写 `receipts/outbox/`（pending）。
+- 恢复后按 `idempotency_key = sha256(asset_id|audio.sha256)` 幂等重放；重放前先清理同键 `_incoming` 残留。
+- 无法记录不可达时按 `BLOCKED_TTS_LIBRARY_UNREACHABLE` 处理，不静默降级为「无库模式」。
+
+### 17.9 平台字段与校验
+
+`agent-profile.v1.json` 的 `default.tts_library` 是机器可读契约：根目录、索引、canonical 工具、lookup / fetch / publish 命令、
+合成工具与引擎、复用条件、任务副本与派生目录、outbox、不可达动作、敏感默认与 GC 审批。
+`verify-template.py` 的 `check_tts_library()` 会独立校验该段与本节标题、关键 token 是否一致；
+模板与 profile 任一方改动，都必须同步另一方并重跑校验。
+
+---
+
 ## 附录 A：字段速查
 
 机器可读版本见同目录 `agent-profile.v1.json`。核心字段：
@@ -1004,6 +1144,24 @@ outbox 关闭条件（全部满足才可关闭）：
 | `kb_sync.outbox_close_when` | string | outbox 关闭三条件 |
 | `kb_sync.recovery_scan` / `recovery_scan_when` | bool / string | run 启动时扫 WAL 补发 |
 | `kb_sync.query_back_per_checkpoint` | bool | 固定 `true`，每个检查点单独 query-back |
+| `tts_library.root` | string | `/srv/storage/ark/artifacts/audio/tts-library`（1006 公共库根，发布后只读） |
+| `tts_library.index` | string | 可搜索索引 `index.json`，临时文件 + rename 原子重写 |
+| `tts_library.canonical_tool` | string | 固定 `asset-tools`，库的唯一写入方 |
+| `tts_library.lookup_command` | string | `asset-tools tts-library lookup --spec <spec.json>` |
+| `tts_library.fetch_command` | string | `asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir .` |
+| `tts_library.publish_command` | string | `asset-tools tts-library publish --staging <dir> --task-dir .` |
+| `tts_library.synth_tool` | string | 唯一合成入口 `tts-runtime`（只在 cache miss 时调用） |
+| `tts_library.synth_engine` | string | 固定 `lstts`（云端 IndexTTS），不是独立 skill |
+| `tts_library.lookup_before_synth` | bool | 固定 `true`，先查库再合成 |
+| `tts_library.reuse_requires` | array | 六项复用条件：`quality=formal` / `status=active` / `shareable=true` / 完整 cache key / SHA 校验 / ACL |
+| `tts_library.original_dir` | string | 库副本目录 `assets/tts/original`，只读、禁止原地加工 |
+| `tts_library.derived_dir` | string | 派生处理落 `work/audio`（正式结果可写 `result/audio`） |
+| `tts_library.hardlink_forbidden` | bool | 固定 `true`，取件只复制，禁止硬链接/符号链接/共享可写挂载 |
+| `tts_library.derived_requires_asset_id` | bool | 固定 `true`，派生资产必须记 `derived_from_asset_id` |
+| `tts_library.outbox_dir` | string | 发布失败与不可达重放写 `receipts/outbox` |
+| `tts_library.unreachable_action` | string | 1006 不可达报 `BLOCKED_TTS_LIBRARY_UNREACHABLE`，不得说「库里没有」 |
+| `tts_library.sensitive_default_shareable` | bool | 固定 `false`，敏感文本默认不共享 |
+| `tts_library.gc_requires_approval` | bool | 固定 `true`，GC/配额/保留策略必须单独审批 |
 | `compatibility.template_version` | string | 模板版本 |
 
 ---
