@@ -4,11 +4,11 @@
   "version": "1.2.0",
   "channel": "immutable",
   "source_version": "1.2.0",
-  "published_at": "2026-11-12 15:10:26",
+  "published_at": "2026-11-12 15:14:14",
   "template_schema": "ark.agent-template.v1",
   "git": {
     "repo": "zjashanda/ark-node",
-    "commit": "2402effb567f1c0e2e7a88fdbed29f4d37e65879",
+    "commit": "dca3c69b2fe3a8f1dca7f0acbbb34a5755a62805",
     "path": "templates/agents",
     "dirty": false,
     "tracked": true
@@ -28,8 +28,8 @@
       "path": "noahsark-agent-template.md",
       "object": "noahsark/agent-template/v1.2.0/noahsark-agent-template.md",
       "role": "template",
-      "sha256": "5e298cd78783c9f7d6a3aa161b09fbf733b148b49a74f77efe99ab68a4965485",
-      "bytes": 38050
+      "sha256": "8564d540ba3c464b70312e382dcf2236c4f41c93858735b9dd6bc400df1d001c",
+      "bytes": 38049
     },
     {
       "path": "agent-profile.v1.json",
@@ -42,15 +42,15 @@
       "path": "verify-template.py",
       "object": "noahsark/agent-template/v1.2.0/verify-template.py",
       "role": "verifier",
-      "sha256": "4502cce404fef83e8a906104fe4980183e2ea7afe9994b638d806f3af5e72d6a",
-      "bytes": 36412
+      "sha256": "ac0d87278fbb51ca124adc2032ab19b3944c014b95be9ecfc62f04f8460ec5c6",
+      "bytes": 36416
     },
     {
       "path": "run-state.v1.json",
       "object": "noahsark/agent-template/v1.2.0/run-state.v1.json",
       "role": "schema",
-      "sha256": "b6ddff9f1917a83e7ee1d8a7bdd2279ff763d0690592950734cae4dbc434ba99",
-      "bytes": 6322
+      "sha256": "f1827b67f6a8cac03f6bcbcfbec2c5828d665993b35fd38c206a6b1444e5fe4f",
+      "bytes": 6404
     }
   ],
   "checks": {
