@@ -4,17 +4,17 @@
   "version": "1.6.0",
   "channel": "immutable",
   "source_version": "1.6.0",
-  "published_at": "2026-11-12 17:07:03",
+  "published_at": "2026-11-12 19:11:26",
   "template_schema": "ark.agent-template.v1",
   "git": {
     "repo": "zjashanda/ark-node",
-    "commit": "997695621fd757ef25f1bd28005319174b8b2339",
+    "commit": "e7765233f46926f3512008a93e45c2aa6c2e59e3",
     "path": "templates/agents",
     "dirty": false,
     "tracked": true
   },
   "oss": {
-    "bucket": "ark-public",
+    "bucket": "listenai-test-internal",
     "prefix": "noahsark/agent-template",
     "visibility": "public-read"
   },
