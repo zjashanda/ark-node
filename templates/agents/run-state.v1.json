@@ -149,7 +149,7 @@
     },
     "final_receipt": {
       "type": "object",
-      "description": "正式回执落地后的收尾事件。receipt_path 指向 receipts/ 下的正式回执；evidence_sha256 必须与回执一致。",
+      "description": "正式回执落地后的收尾事件。receipt_path 指向 receipts/ 下的正式回执；receipt_sha256 是该回执文件自身的 sha256（不要与 ark-archive 回执里数组型的 evidence_sha256 混用）。",
       "required": [
         "schema",
         "event",
@@ -159,7 +159,7 @@
         "at",
         "result",
         "receipt_path",
-        "evidence_sha256",
+        "receipt_sha256",
         "archive_path"
       ],
       "allOf": [{ "$ref": "#/$defs/envelope" }],
@@ -167,7 +167,7 @@
         "event": { "const": "FINAL_RECEIPT" },
         "result": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "NEEDS_REVIEW"] },
         "receipt_path": { "type": "string", "pattern": "^receipts/" },
-        "evidence_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "receipt_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "archive_path": { "type": "string", "minLength": 1 }
       }
     }

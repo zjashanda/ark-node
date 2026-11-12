@@ -580,7 +580,7 @@ SAMPLE_FINAL_RECEIPT = {
     "at": "2026-11-12 15:05:00",
     "result": "PASS",
     "receipt_path": "receipts/run.receipt.json",
-    "evidence_sha256": "0" * 64,
+    "receipt_sha256": "0" * 64,
     "archive_path": "<results-root>/bszT14/NOAH-66/<run_id>",
 }
 INVALID_SAMPLES = (
@@ -592,8 +592,8 @@ INVALID_SAMPLES = (
     dict(SAMPLE_FINAL_RECEIPT, event="EXECUTION_CHECK"),
     # stage 必须是正整数
     dict(SAMPLE_EXECUTION_CHECK, stage=0),
-    # 证据哈希必须是 64 位小写十六进制
-    dict(SAMPLE_FINAL_RECEIPT, evidence_sha256="deadbeef"),
+    # 回执文件哈希必须是 64 位小写十六进制
+    dict(SAMPLE_FINAL_RECEIPT, receipt_sha256="deadbeef"),
 )
 
 

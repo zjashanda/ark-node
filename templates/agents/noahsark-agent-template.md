@@ -623,7 +623,7 @@ agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题
 | `PROGRESS_5M` | `schema` `event` `run_id` `issue_id` `stage` `at` `status` `last_5m_action` `artifacts_state` `artifacts` `next_step` | 每 5 分钟 |
 | `STAGE_FINISHED` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `evidence` `rollback` `next_stage` | 一个 stage 收尾 |
 | `BLOCKED` | `schema` `event` `run_id` `issue_id` `stage` `at` `code` `reason` `needs` `next_step` | 一发现缺条件就写 |
-| `FINAL_RECEIPT` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `receipt_path` `evidence_sha256` `archive_path` | 正式回执落地后 |
+| `FINAL_RECEIPT` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `receipt_path` `receipt_sha256` `archive_path` | 正式回执落地后 |
 
 约束：
 
