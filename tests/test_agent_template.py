@@ -75,6 +75,15 @@ class TemplateContentTests(unittest.TestCase):
         self.assertIn("`hardware-bench` | **1**", self.text)
         self.assertIn("设备独占", self.text)
 
+    def test_jinyiwei_is_node_bound_executor(self) -> None:
+        for token in ("`jinyiwei`", "锦衣卫·节点名", "listenai/deepseek-flash", "runtime.node_binding"):
+            self.assertIn(token, self.text)
+        self.assertIn("禁止承担规划、协调、跨节点执行或通用工作", self.text)
+
+    def test_role_icons_are_stable(self) -> None:
+        self.assertIn("不得依赖平台随机图标", self.text)
+        self.assertIn("节点名与数字后缀不改变图标", self.text)
+
     def test_instructions_vs_description_distinguished(self) -> None:
         self.assertIn("长期行为契约", self.text)
         self.assertIn("一句话定位", self.text)
@@ -353,7 +362,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.6.0")
+        self.assertEqual(self.profile["template_version"], "1.7.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -372,7 +381,7 @@ class ProfileSchemaTests(unittest.TestCase):
     def test_roles_complete(self) -> None:
         roles = self.profile["roles"]
         self.assertEqual(
-            sorted(roles), ["coordinator", "hardware-bench", "knowledge-curator", "node-executor"]
+            sorted(roles), ["coordinator", "hardware-bench", "jinyiwei", "knowledge-curator", "node-executor"]
         )
         for name, spec in roles.items():
             for key in ("label", "purpose", "max_concurrent_tasks", "default_description"):
@@ -382,6 +391,34 @@ class ProfileSchemaTests(unittest.TestCase):
     def test_hardware_bench_concurrency_is_one(self) -> None:
         self.assertEqual(self.profile["roles"]["hardware-bench"]["max_concurrent_tasks"], 1)
         self.assertEqual(self.profile["default"]["runtime"]["max_concurrent_tasks"], 2)
+
+    def test_jinyiwei_profile_contract(self) -> None:
+        role = self.profile["roles"]["jinyiwei"]
+        self.assertEqual(role["role_family"], "node-executor")
+        self.assertEqual(role["default_model"], "listenai/deepseek-flash")
+        self.assertEqual(role["max_concurrent_tasks"], 1)
+        self.assertEqual(role["runtime_binding"], "required-exact")
+        self.assertEqual(role["accepted_dispatchers"], ["Mika", "Issue"])
+        self.assertEqual(role["forbidden_scopes"], ["planning", "coordination", "cross-node", "general-purpose"])
+
+    def test_role_icon_mapping(self) -> None:
+        expected = {"coordinator": "🧭", "node-executor": "⚙️", "jinyiwei": "🛡️", "hardware-bench": "🔧", "knowledge-curator": "📚"}
+        self.assertEqual(self.profile["role_icons"], expected)
+        for name, icon in expected.items():
+            self.assertEqual(self.profile["roles"][name]["avatar_icon"], icon)
+
+    def test_jinyiwei_sample_and_negative_validation(self) -> None:
+        verifier = load_verifier_module()
+        sample = json.loads((REPO_ROOT / "examples" / "jinyiwei-agent-profile.v1.json").read_text(encoding="utf-8"))["profile"]
+        checks = verifier.check_profile_identity(sample, self.profile["roles"], self.profile["role_icons"], "sample")
+        self.assertTrue(all(check.ok for check in checks), [check.detail for check in checks])
+
+        invalid = json.loads(json.dumps(sample))
+        invalid["agent_name"] = "锦衣卫·deepseek"
+        invalid["runtime"]["node_binding"] = "other-node"
+        invalid["runtime"]["max_concurrent_tasks"] = 2
+        checks = verifier.check_profile_identity(invalid, self.profile["roles"], self.profile["role_icons"], "invalid")
+        self.assertTrue(any(not check.ok for check in checks))
 
     def test_env_keys_match_ark_node_contract(self) -> None:
         canonical = json.loads((REPO_ROOT / "config" / "env-keys.json").read_text(encoding="utf-8"))
@@ -514,7 +551,7 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.6.0")
+        self.assertEqual(manifest["version"], "1.7.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
@@ -557,7 +594,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.6.0/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.7.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -580,7 +617,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.6.0", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.7.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
