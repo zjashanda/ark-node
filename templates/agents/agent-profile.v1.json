@@ -373,7 +373,7 @@
       "label": "锦衣卫",
       "purpose": "只在绑定节点执行 Mika/Issue 派发的具体执行、测试、调试和验证任务",
       "role_family": "node-executor",
-      "avatar_icon": "🛡️",
+      "avatar_icon": "🥷",
       "name_pattern": "^锦衣卫·\\S+(?:·[1-9]\\d*)?$",
       "default_model": "listenai/deepseek-flash",
       "max_concurrent_tasks": 1,
@@ -402,8 +402,8 @@
     "agent_name": {
       "type": "string",
       "required": true,
-      "pattern": "^(?:方舟\\S+|锦衣卫·\\S+(?:·[1-9]\\d*)?)$",
-      "description": "方舟+角色，或锦衣卫·节点名（同节点多 runtime 用稳定数字后缀）；不含任务名、时间戳、provider 或模型名"
+      "pattern": "^(?:Mika|(?:吏部|户部|礼部|兵部|刑部|工部)(?:尚书|侍郎(?:·\\S+)?)|锦衣卫·\\S+(?:·[1-9]\\d*)?|方舟\\S+)$",
+      "description": "长期创建使用 Mika、<部>尚书、<部>侍郎[·专业] 或锦衣卫·节点名；旧方舟名称仅兼容；不含任务名、时间戳、provider 或模型名"
     },
     "role": {
       "type": "string",
@@ -1259,13 +1259,278 @@
       "type": "string",
       "required": true,
       "description": "节点执行角色必须与 runtime_id 完全一致；锦衣卫禁止跨节点"
+    },
+    "official_system.name": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "六部 + 锦衣卫"
+    },
+    "official_system.mika.name": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "Mika"
+    },
+    "official_system.mika.position": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "workspace-chief-of-staff"
+    },
+    "official_system.mika.department": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "null",
+      "const": null
+    },
+    "official_system.mika.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🇨🇳"
+    },
+    "official_system.mika.outside_six_ministries": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "boolean",
+      "const": true
+    },
+    "official_system.mika.default_model_exception": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "boolean",
+      "const": true
+    },
+    "official_system.ministries.吏部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "人员、智能体组织与任用治理"
+    },
+    "official_system.ministries.吏部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "👥"
+    },
+    "official_system.ministries.户部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "资产、预算、资源与台账治理"
+    },
+    "official_system.ministries.户部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🧾"
+    },
+    "official_system.ministries.礼部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "文档、规范、对外表达与礼仪治理"
+    },
+    "official_system.ministries.礼部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "📜"
+    },
+    "official_system.ministries.兵部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "任务执行、调度、节点与设备作战治理"
+    },
+    "official_system.ministries.兵部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🛡️"
+    },
+    "official_system.ministries.刑部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "合规、审计、风险与事故裁定"
+    },
+    "official_system.ministries.刑部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "⚖️"
+    },
+    "official_system.ministries.工部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "工程、代码、工具与基础设施建设"
+    },
+    "official_system.ministries.工部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🛠️"
+    },
+    "official_system.levels.尚书.purpose": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "领域统筹、规则、风险和分派"
+    },
+    "official_system.levels.尚书.name_pattern": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "^(吏部|户部|礼部|兵部|刑部|工部)尚书$"
+    },
+    "official_system.levels.侍郎.purpose": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "领域专业执行"
+    },
+    "official_system.levels.侍郎.name_pattern": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "^(吏部|户部|礼部|兵部|刑部|工部)侍郎(?:·\\S+)?$"
+    },
+    "official_system.jinyiwei.purpose": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "绑定单一节点的专属执行"
+    },
+    "official_system.jinyiwei.name_pattern": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "^锦衣卫·\\S+(?:·[1-9]\\d*)?$"
+    },
+    "official_system.jinyiwei.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🥷"
+    },
+    "official_system.default_model": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "listenai/deepseek-flash"
+    },
+    "official_system.preview_required": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "array",
+      "items_const": [
+        "名称",
+        "部门/层级",
+        "职责",
+        "禁区",
+        "runtime",
+        "模型",
+        "并发",
+        "图标",
+        "固定目录",
+        "验收"
+      ]
+    },
+    "official_system.random_avatar": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "forbidden"
+    },
+    "official_system.rename_requires_icon_review": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "boolean",
+      "const": true
     }
   },
   "role_icons": {
+    "mika": "🇨🇳",
+    "吏部": "👥",
+    "户部": "🧾",
+    "礼部": "📜",
+    "兵部": "🛡️",
+    "刑部": "⚖️",
+    "工部": "🛠️",
+    "jinyiwei": "🥷",
     "coordinator": "🧭",
     "node-executor": "⚙️",
-    "jinyiwei": "🛡️",
     "hardware-bench": "🔧",
     "knowledge-curator": "📚"
+  },
+  "official_system": {
+    "name": "六部 + 锦衣卫",
+    "mika": {
+      "name": "Mika",
+      "position": "workspace-chief-of-staff",
+      "department": null,
+      "avatar_icon": "🇨🇳",
+      "outside_six_ministries": true,
+      "default_model_exception": true
+    },
+    "ministries": {
+      "吏部": {
+        "domain": "人员、智能体组织与任用治理",
+        "avatar_icon": "👥"
+      },
+      "户部": {
+        "domain": "资产、预算、资源与台账治理",
+        "avatar_icon": "🧾"
+      },
+      "礼部": {
+        "domain": "文档、规范、对外表达与礼仪治理",
+        "avatar_icon": "📜"
+      },
+      "兵部": {
+        "domain": "任务执行、调度、节点与设备作战治理",
+        "avatar_icon": "🛡️"
+      },
+      "刑部": {
+        "domain": "合规、审计、风险与事故裁定",
+        "avatar_icon": "⚖️"
+      },
+      "工部": {
+        "domain": "工程、代码、工具与基础设施建设",
+        "avatar_icon": "🛠️"
+      }
+    },
+    "levels": {
+      "尚书": {
+        "purpose": "领域统筹、规则、风险和分派",
+        "name_pattern": "^(吏部|户部|礼部|兵部|刑部|工部)尚书$"
+      },
+      "侍郎": {
+        "purpose": "领域专业执行",
+        "name_pattern": "^(吏部|户部|礼部|兵部|刑部|工部)侍郎(?:·\\S+)?$"
+      }
+    },
+    "jinyiwei": {
+      "purpose": "绑定单一节点的专属执行",
+      "name_pattern": "^锦衣卫·\\S+(?:·[1-9]\\d*)?$",
+      "avatar_icon": "🥷"
+    },
+    "default_model": "listenai/deepseek-flash",
+    "preview_required": [
+      "名称",
+      "部门/层级",
+      "职责",
+      "禁区",
+      "runtime",
+      "模型",
+      "并发",
+      "图标",
+      "固定目录",
+      "验收"
+    ],
+    "random_avatar": "forbidden",
+    "rename_requires_icon_review": true
   }
 }

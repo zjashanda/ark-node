@@ -114,10 +114,21 @@ PROFILE_ROLES = ("coordinator", "node-executor", "jinyiwei", "hardware-bench", "
 EXPECTED_ROLE_ICONS = {
     "coordinator": "🧭",
     "node-executor": "⚙️",
-    "jinyiwei": "🛡️",
+    "jinyiwei": "🥷",
     "hardware-bench": "🔧",
     "knowledge-curator": "📚",
 }
+EXPECTED_OFFICIAL_ICONS = {
+    "mika": "🇨🇳",
+    "吏部": "👥",
+    "户部": "🧾",
+    "礼部": "📜",
+    "兵部": "🛡️",
+    "刑部": "⚖️",
+    "工部": "🛠️",
+    "jinyiwei": "🥷",
+}
+EXPECTED_PREVIEW_FIELDS = ["名称", "部门/层级", "职责", "禁区", "runtime", "模型", "并发", "图标", "固定目录", "验收"]
 JINYIWEI_NAME = re.compile(r"^锦衣卫·\S+(?:·[1-9]\d*)?$")
 JINYIWEI_FORBIDDEN_NAME_TOKENS = ("listenai", "deepseek", "gpt", "claude", "gemini")
 JINYIWEI_MODEL = "listenai/deepseek-flash"
@@ -360,11 +371,26 @@ def check_profile(manifest: Dict[str, Any], base: Path) -> List[Check]:
 
     role_icons = profile.get("role_icons") if isinstance(profile.get("role_icons"), dict) else {}
     roles = profile.get("roles") if isinstance(profile.get("roles"), dict) else {}
-    icon_map_ok = role_icons == EXPECTED_ROLE_ICONS and all(
+    icon_map_ok = all(role_icons.get(name) == icon for name, icon in EXPECTED_ROLE_ICONS.items()) and all(
         isinstance(roles.get(name), dict) and roles[name].get("avatar_icon") == icon
         for name, icon in EXPECTED_ROLE_ICONS.items()
     )
     checks.append(Check("profile-role-icons", icon_map_ok, "稳定图标映射正确" if icon_map_ok else "角色图标映射缺失或漂移"))
+
+    official = profile.get("official_system") if isinstance(profile.get("official_system"), dict) else {}
+    ministries = official.get("ministries") if isinstance(official.get("ministries"), dict) else {}
+    official_icons = {"mika": _dig(official, "mika.avatar_icon"), "jinyiwei": _dig(official, "jinyiwei.avatar_icon")}
+    official_icons.update({name: spec.get("avatar_icon") for name, spec in ministries.items() if isinstance(spec, dict)})
+    official_ok = (
+        official_icons == EXPECTED_OFFICIAL_ICONS
+        and _dig(official, "mika.outside_six_ministries") is True
+        and set(ministries) == {"吏部", "户部", "礼部", "兵部", "刑部", "工部"}
+        and official.get("default_model") == JINYIWEI_MODEL
+        and official.get("preview_required") == EXPECTED_PREVIEW_FIELDS
+        and official.get("random_avatar") == "forbidden"
+        and official.get("rename_requires_icon_review") is True
+    )
+    checks.append(Check("profile-official-system", official_ok, "Mika + 六部 + 锦衣卫体系正确" if official_ok else "官职、部徽或创建预览契约漂移"))
 
     checks.extend(check_profile_identity(default, roles, role_icons, "default"))
     jinyiwei = roles.get("jinyiwei") if isinstance(roles.get("jinyiwei"), dict) else {}

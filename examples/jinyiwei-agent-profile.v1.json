@@ -322,7 +322,7 @@
     "identity": {
       "role_family": "node-executor",
       "official_role": "jinyiwei",
-      "avatar_icon": "🛡️",
+      "avatar_icon": "🥷",
       "avatar_policy": "stable-role-mapping"
     }
   }

@@ -402,10 +402,27 @@ class ProfileSchemaTests(unittest.TestCase):
         self.assertEqual(role["forbidden_scopes"], ["planning", "coordination", "cross-node", "general-purpose"])
 
     def test_role_icon_mapping(self) -> None:
-        expected = {"coordinator": "🧭", "node-executor": "⚙️", "jinyiwei": "🛡️", "hardware-bench": "🔧", "knowledge-curator": "📚"}
-        self.assertEqual(self.profile["role_icons"], expected)
+        expected = {"coordinator": "🧭", "node-executor": "⚙️", "jinyiwei": "🥷", "hardware-bench": "🔧", "knowledge-curator": "📚"}
         for name, icon in expected.items():
+            self.assertEqual(self.profile["role_icons"][name], icon)
             self.assertEqual(self.profile["roles"][name]["avatar_icon"], icon)
+
+    def test_official_system_and_ministry_icons(self) -> None:
+        official = self.profile["official_system"]
+        self.assertTrue(official["mika"]["outside_six_ministries"])
+        self.assertEqual(official["mika"]["avatar_icon"], "🇨🇳")
+        expected = {"吏部": "👥", "户部": "🧾", "礼部": "📜", "兵部": "🛡️", "刑部": "⚖️", "工部": "🛠️"}
+        self.assertEqual({name: spec["avatar_icon"] for name, spec in official["ministries"].items()}, expected)
+        self.assertEqual(official["jinyiwei"]["avatar_icon"], "🥷")
+        self.assertEqual(official["default_model"], "listenai/deepseek-flash")
+        self.assertEqual(official["preview_required"], ["名称", "部门/层级", "职责", "禁区", "runtime", "模型", "并发", "图标", "固定目录", "验收"])
+
+    def test_template_documents_official_system(self) -> None:
+        text = read_template()
+        for token in ("Mika + 六部 + 锦衣卫", "<部>尚书", "<部>侍郎[·专业]", "🇨🇳", "👥", "🧾", "📜", "🛡️", "⚖️", "🛠️", "🥷"):
+            self.assertIn(token, text)
+        self.assertIn("不归入六部", text)
+        self.assertIn("创建、复制或重配任何智能体前", text)
 
     def test_jinyiwei_sample_and_negative_validation(self) -> None:
         verifier = load_verifier_module()
