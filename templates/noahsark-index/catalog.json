@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v1",
   "name": "noahsark-index",
-  "version": "1.1.0",
+  "version": "1.6.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -135,7 +135,7 @@
           "kind": "entry",
           "title": "总览（人读入口）",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -152,7 +152,7 @@
           "kind": "entry",
           "title": "总览（机器读入口）",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -170,7 +170,7 @@
           "kind": "entry",
           "title": "根清单",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -194,7 +194,7 @@
           "kind": "entry",
           "title": "创建入口（latest 清单）",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -204,14 +204,15 @@
           ],
           "requires": [],
           "oss": "noahsark/agent-template/latest/manifest.json",
-          "summary": "当前推荐版本清单（v1.1.0）。latest 只做指向，内容与 v1.1.0 逐字节一致，长期留存请改用版本目录。"
+          "summary": "当前推荐版本清单（v1.1.0）。latest 只做指向，内容与 v1.1.0 逐字节一致，长期留存请改用版本目录。",
+          "sha256": "b3ee1cce0fed2992c779c46c50d9e752ad5f93f21335a26796f5750cd23b5ce2"
         },
         {
           "id": "agent-template.manifest",
           "kind": "entry",
           "title": "模板清单 v1.1.0（不可变）",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -221,8 +222,8 @@
           "requires": [
             "agent-template.latest"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/manifest.json",
-          "sha256": "0bdf7a504ad7b8c2d8289b24bb0f51af437bc025d5a4c60f5afe9d18cdfdfd1e",
+          "oss": "noahsark/agent-template/v1.6.0/manifest.json",
+          "sha256": "fc9b02f0d44b7ae2d23459f8b17a9695d1b924b55e1d70e320643d33130886cd",
           "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
         },
         {
@@ -230,7 +231,7 @@
           "kind": "entry",
           "title": "智能体模板正文 v1.1.0",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -241,16 +242,17 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
-          "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。"
+          "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         },
         {
           "id": "agent-template.profile",
           "kind": "entry",
           "title": "Agent Profile v1 结构定义",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -259,16 +261,17 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/agent-profile.v1.json",
+          "oss": "noahsark/agent-template/v1.6.0/agent-profile.v1.json",
           "local": "templates/agents/agent-profile.v1.json",
-          "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。"
+          "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。",
+          "sha256": "d681dcf4534324d3fc212f3798784e7ae951c672c086eecaabef1353cc41171e"
         },
         {
           "id": "agent-template.verifier",
           "kind": "entry",
           "title": "模板自检脚本",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -277,9 +280,27 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/verify-template.py",
+          "oss": "noahsark/agent-template/v1.6.0/verify-template.py",
           "local": "templates/agents/verify-template.py",
-          "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。"
+          "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。",
+          "sha256": "3d66ab203591caebee50fab5bf027af0e4f58373541e51b4b04b3c41070dd534"
+        },
+        {
+          "id": "agent-template.schema",
+          "kind": "entry",
+          "title": "Agent Template 状态机 schema v1.6.0",
+          "status": "available",
+          "version": "1.6.0",
+          "roles": [
+            "coordinator",
+            "node-executor"
+          ],
+          "requires": [
+            "agent-template.manifest"
+          ],
+          "oss": "noahsark/agent-template/v1.6.0/run-state.v1.json",
+          "sha256": "d9633c2277fc5017f925166867a98e0e903d67a44146355202ad7bdca43eaa07",
+          "summary": "ark.run-state.v1 门禁事件 schema（EXECUTION_CHECK/PROGRESS_5M/STAGE_FINISHED/BLOCKED/FINAL_RECEIPT）。"
         }
       ]
     },
@@ -310,7 +331,7 @@
           "kind": "git",
           "title": "知识账本",
           "status": "available",
-          "version": "main@cd34cfd78502",
+          "version": "main@75a11dcc0d5e",
           "roles": [
             "coordinator",
             "knowledge-curator"
@@ -318,7 +339,7 @@
           "requires": [],
           "git": "zjashanda/ark-kb",
           "file": "registry/skills.json",
-          "commit": "cd34cfd78502761002328913555b507c19f069f5",
+          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
           "summary": "全部仓库与技能条目账本（含内部/项目级技能），是检索入口而非发布集。"
         },
         {
@@ -326,7 +347,7 @@
           "kind": "git",
           "title": "派发路由表",
           "status": "available",
-          "version": "main@334f1dfbbbcb",
+          "version": "main@57511e358338",
           "roles": [
             "coordinator",
             "node-executor"
@@ -336,7 +357,7 @@
           ],
           "git": "zjashanda/ark-dispatch",
           "file": "scripts/routing.json",
-          "commit": "334f1dfbbbcbb90687bf7c55f9b5d04754f5d9e6",
+          "commit": "57511e3583385cab486b3ce3b14cc99b3070496c",
           "summary": "按任务类型给出调用模板与端口角色（port_map、playback、synth、voice_test、burn、record、evidence）；只做决策不执行。"
         },
         {
@@ -344,7 +365,7 @@
           "kind": "git",
           "title": "节点命令行入口",
           "status": "available",
-          "version": "main@eaca2aa64f84",
+          "version": "main@1b12c41ccd3e",
           "roles": [
             "node-executor",
             "hardware-bench"
@@ -354,7 +375,7 @@
           ],
           "git": "zjashanda/ark-node",
           "file": "bin/ark-node",
-          "commit": "eaca2aa64f8476a41e57636e4e1ecadb4f140c2f",
+          "commit": "1b12c41ccd3e9b87e8d88b170568db81bed442f9",
           "summary": "节点侧统一入口命令：环境同步、目录初始化、身份与探测、取件；Windows 用 bin/ark-node.ps1。"
         }
       ]
@@ -383,13 +404,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@0185e121939a",
+          "version": "main@ae2a4457e815",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "0185e121939a3d65c2c9e8c15e0111c515127c98",
+          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
           "summary": "唯一的测试与语音验证实现，已吸收 Polaris；派发中的 polaris 槽位改指向本仓库加 device-io。"
         },
         {
@@ -468,13 +489,13 @@
           "kind": "git",
           "title": "audio-runtime · 音频运行时",
           "status": "available",
-          "version": "main@384031cb7e6b",
+          "version": "main@1be224061a20",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/audio-runtime",
-          "commit": "384031cb7e6bd321eae59cf478e18ec4b16d8963",
+          "commit": "1be224061a209f6e342474272955682d0e631a41",
           "summary": "音频采集与播放运行时。"
         },
         {
@@ -482,13 +503,13 @@
           "kind": "git",
           "title": "tts-runtime · 语音合成运行时",
           "status": "available",
-          "version": "main@4b01f3688375",
+          "version": "main@4a052815c231",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/tts-runtime",
-          "commit": "4b01f36883751178379c2a248772dd45d8bca5ef",
+          "commit": "4a052815c23108354ddbf867e9e8dea18f788d08",
           "summary": "合成能力，凭据取自环境变量，不在文件里落盘。"
         },
         {
@@ -511,13 +532,13 @@
           "kind": "git",
           "title": "ark-dispatch · 方舟调度",
           "status": "available",
-          "version": "main@334f1dfbbbcb",
+          "version": "main@57511e358338",
           "roles": [
             "coordinator"
           ],
           "requires": [],
           "git": "zjashanda/ark-dispatch",
-          "commit": "334f1dfbbbcbb90687bf7c55f9b5d04754f5d9e6",
+          "commit": "57511e3583385cab486b3ce3b14cc99b3070496c",
           "summary": "只做决策不执行的调度 Skill：输入任务特征，给出调用模板与端口角色。"
         },
         {
@@ -525,13 +546,13 @@
           "kind": "git",
           "title": "ark-kb · 知识库",
           "status": "available",
-          "version": "main@cd34cfd78502",
+          "version": "main@75a11dcc0d5e",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-kb",
-          "commit": "cd34cfd78502761002328913555b507c19f069f5",
+          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
           "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
         },
         {
@@ -539,14 +560,14 @@
           "kind": "git",
           "title": "ark-node · 节点运行时",
           "status": "available",
-          "version": "main@eaca2aa64f84",
+          "version": "main@1b12c41ccd3e",
           "roles": [
             "coordinator",
             "node-executor"
           ],
           "requires": [],
           "git": "zjashanda/ark-node",
-          "commit": "eaca2aa64f8476a41e57636e4e1ecadb4f140c2f",
+          "commit": "1b12c41ccd3e9b87e8d88b170568db81bed442f9",
           "summary": "节点侧能力：环境同步、目录初始化、身份与探测、取件；本总览的源文件也在本仓库。"
         },
         {
@@ -554,14 +575,14 @@
           "kind": "git",
           "title": "asset-tools · 多来源取件",
           "status": "available",
-          "version": "main@aee3a33f7066",
+          "version": "main@535a986e7d4f",
           "roles": [
             "node-executor",
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/asset-tools",
-          "commit": "aee3a33f706638a24b180edcbcf58c3fca1a395b",
+          "commit": "535a986e7d4f76762c506f6d8a360d406f6edbf8",
           "summary": "六来源统一取件（本地、HTTP、OSS、节点存储、邮件、NAS），默认 dry-run，校验值不符进隔离区。"
         },
         {
@@ -569,13 +590,13 @@
           "kind": "git",
           "title": "ark-archive · 归档",
           "status": "available",
-          "version": "main@6560a459f033",
+          "version": "main@1a265ebd3bd6",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-archive",
-          "commit": "6560a459f033785381fe6d2ba019aaa6bb079e5f",
+          "commit": "1a265ebd3bd60fe448d51b8d321ce5a6dee63c6d",
           "summary": "把执行产物归档到节点存储并生成回执；不在发布集内，属基础设施。"
         },
         {
@@ -605,7 +626,7 @@
           "kind": "rule",
           "title": "唯一任务目录",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -615,17 +636,18 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 工作目录",
-          "summary": "每个任务一个目录：Windows 为 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 为 /home/zhsh/workspace/tasks/<tasks-id>/；<tasks-id> 用任务编号，不用时间戳；不得用 C 盘、系统临时目录、/tmp 或运行时工作目录代替。"
+          "summary": "每个任务一个目录：Windows 为 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 为 /home/zhsh/workspace/tasks/<tasks-id>/；<tasks-id> 用任务编号，不用时间戳；不得用 C 盘、系统临时目录、/tmp 或运行时工作目录代替。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         },
         {
           "id": "rule.storage",
           "kind": "rule",
           "title": "存储与归档布局",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "node-executor",
             "knowledge-curator"
@@ -633,17 +655,18 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "6. 资产、结果与 1006",
-          "summary": "结果与回执按 节点/项目/批次 三级归档；1006 资产必须同时记录文件名、大小、校验值，本机不可达时先记原因再委派可达节点取件，禁止直接结论「资产不存在」。"
+          "summary": "结果与回执按 节点/项目/批次 三级归档；1006 资产必须同时记录文件名、大小、校验值，本机不可达时先记原因再委派可达节点取件，禁止直接结论「资产不存在」。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         },
         {
           "id": "rule.time",
           "kind": "rule",
           "title": "时间口径",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -654,17 +677,18 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "8. 时间口径",
-          "summary": "唯一形态「年-月-日 时:分:秒」，文件名为紧凑无分隔形式；禁止字母分隔符、末尾时区字母、数字时区偏移与毫秒，禁止节点本地时区。"
+          "summary": "唯一形态「年-月-日 时:分:秒」，文件名为紧凑无分隔形式；禁止字母分隔符、末尾时区字母、数字时区偏移与毫秒，禁止节点本地时区。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         },
         {
           "id": "rule.credentials",
           "kind": "rule",
           "title": "凭据与安全",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -674,17 +698,18 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9. 凭据与安全",
-          "summary": "凭据只来自进程环境变量或权限 600 的受控密钥文件，共十个变量名；任何凭据值不得出现在模板、日志、回执、评论、提交或对外对象里。本总览不复制任何凭据。"
+          "summary": "凭据只来自进程环境变量或权限 600 的受控密钥文件，共十个变量名；任何凭据值不得出现在模板、日志、回执、评论、提交或对外对象里。本总览不复制任何凭据。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         },
         {
           "id": "rule.supervision",
           "kind": "rule",
           "title": "监督契约",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -694,17 +719,18 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "10. 监督契约",
-          "summary": "开工先报执行检查字段，长任务每五分钟报进度，状态漂移与无证据运行都要显式暴露；禁止起后台任务后直接结束。"
+          "summary": "开工先报执行检查字段，长任务每五分钟报进度，状态漂移与无证据运行都要显式暴露；禁止起后台任务后直接结束。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         },
         {
           "id": "rule.execution_channel",
           "kind": "rule",
           "title": "执行通道与窗口",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -715,17 +741,18 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "11. 执行通道与窗口",
-          "summary": "终端、脚本与 SSH 一律走无可见窗口、非交互、可观测的后台通道：Windows 不得弹出 PowerShell、cmd、Windows Terminal 或 conhost，不得用 Start-Process 或 Win32_Process.Create 包装；Linux 与 macOS 用 ssh -T -o BatchMode=yes；输出统一重定向到任务目录 logs/。后台运行不等于隐藏窗口，不得先执行再观察是否弹窗；无法确认隐藏时报 BLOCKED_EXECUTION_CHANNEL。"
+          "summary": "终端、脚本与 SSH 一律走无可见窗口、非交互、可观测的后台通道：Windows 不得弹出 PowerShell、cmd、Windows Terminal 或 conhost，不得用 Start-Process 或 Win32_Process.Create 包装；Linux 与 macOS 用 ssh -T -o BatchMode=yes；输出统一重定向到任务目录 logs/。后台运行不等于隐藏窗口，不得先执行再观察是否弹窗；无法确认隐藏时报 BLOCKED_EXECUTION_CHANNEL。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         },
         {
           "id": "rule.approval",
           "kind": "rule",
           "title": "审批边界",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.6.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -734,10 +761,11 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9.4 审批边界",
-          "summary": "推送代码、对外发布、真机操作、删除文件、改权限或 ACL 五类必须先获批；没有明确同意字样即视为未批准；只读巡检免审，写操作默认 dry-run。"
+          "summary": "推送代码、对外发布、真机操作、删除文件、改权限或 ACL 五类必须先获批；没有明确同意字样即视为未批准；只读巡检免审，写操作默认 dry-run。",
+          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
         }
       ]
     },
@@ -858,6 +886,295 @@
           "sha256": "76fe34431505d9dc676d5d8c5579c930d9846747ee49f6d4120f3e05a3c2a673",
           "size": 185754459,
           "summary": "1006 节点只读盘点得到的审计工具包，现存于节点存储的 artifacts 目录，尚未发布到对外目录；使用前按存储规则先取件校验。"
+        }
+      ]
+    },
+    {
+      "id": "knowledge-reflow",
+      "label": "知识回流与检查点",
+      "summary": "事件驱动知识回流的契约、检查点与回流准入。",
+      "entries": [
+        {
+          "id": "kb.reflow",
+          "kind": "git",
+          "title": "知识同步契约",
+          "status": "available",
+          "version": "main@75a11dcc0d5e",
+          "roles": [
+            "knowledge-curator",
+            "coordinator"
+          ],
+          "requires": [
+            "git.ark-kb"
+          ],
+          "git": "zjashanda/ark-kb",
+          "file": "docs/kb-sync.md",
+          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "summary": "知识查询留痕、交付位与回流顺序。"
+        },
+        {
+          "id": "kb.checkpoint",
+          "kind": "git",
+          "title": "检查点契约",
+          "status": "available",
+          "version": "main@75a11dcc0d5e",
+          "roles": [
+            "knowledge-curator"
+          ],
+          "requires": [
+            "kb.reflow"
+          ],
+          "git": "zjashanda/ark-kb",
+          "file": "schema/checkpoint.v1.json",
+          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "summary": "ark.checkpoint.v1：事件驱动检查点。"
+        },
+        {
+          "id": "kb.delivery",
+          "kind": "git",
+          "title": "交付位契约",
+          "status": "available",
+          "version": "main@75a11dcc0d5e",
+          "roles": [
+            "knowledge-curator"
+          ],
+          "requires": [
+            "kb.reflow"
+          ],
+          "git": "zjashanda/ark-kb",
+          "file": "schema/delivery.v1.json",
+          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "summary": "ark.delivery.v1：归档/回流/回查三状态位。"
+        },
+        {
+          "id": "kb.reflow-gate",
+          "kind": "git",
+          "title": "回流门禁",
+          "status": "available",
+          "version": "main@75a11dcc0d5e",
+          "roles": [
+            "knowledge-curator"
+          ],
+          "requires": [
+            "kb.reflow"
+          ],
+          "git": "zjashanda/ark-kb",
+          "file": "docs/reflow-gate.md",
+          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "summary": "只允许 formal 回执回流，按 run_id 幂等。"
+        }
+      ]
+    },
+    {
+      "id": "tts-library",
+      "label": "1006 TTS 音频库",
+      "summary": "共享音频库的契约、索引与编排；先查库，miss 才合成。",
+      "entries": [
+        {
+          "id": "tts.library",
+          "kind": "git",
+          "title": "TTS 库核心",
+          "status": "available",
+          "version": "main@535a986e7d4f",
+          "roles": [
+            "node-executor",
+            "coordinator"
+          ],
+          "requires": [
+            "git.asset-tools"
+          ],
+          "git": "zjashanda/asset-tools",
+          "file": "docs/tts-library.md",
+          "commit": "535a986e7d4f76762c506f6d8a360d406f6edbf8",
+          "summary": "缓存键、lookup/fetch/publish/verify、锁与 outbox。"
+        },
+        {
+          "id": "tts.spec",
+          "kind": "git",
+          "title": "合成规格契约",
+          "status": "available",
+          "version": "main@535a986e7d4f",
+          "roles": [
+            "node-executor"
+          ],
+          "requires": [
+            "tts.library"
+          ],
+          "git": "zjashanda/asset-tools",
+          "file": "schemas/tts-spec.v1.json",
+          "commit": "535a986e7d4f76762c506f6d8a360d406f6edbf8",
+          "summary": "ark.tts-spec.v1：规范化合成参数。"
+        },
+        {
+          "id": "tts.asset",
+          "kind": "git",
+          "title": "资产清单契约",
+          "status": "available",
+          "version": "main@535a986e7d4f",
+          "roles": [
+            "node-executor"
+          ],
+          "requires": [
+            "tts.library"
+          ],
+          "git": "zjashanda/asset-tools",
+          "file": "schemas/tts-asset.v1.json",
+          "commit": "535a986e7d4f76762c506f6d8a360d406f6edbf8",
+          "summary": "ark.tts-asset.v1：不可变资产清单。"
+        },
+        {
+          "id": "tts.index",
+          "kind": "git",
+          "title": "库索引契约",
+          "status": "available",
+          "version": "main@535a986e7d4f",
+          "roles": [
+            "node-executor"
+          ],
+          "requires": [
+            "tts.library"
+          ],
+          "git": "zjashanda/asset-tools",
+          "file": "schemas/tts-library-index.v1.json",
+          "commit": "535a986e7d4f76762c506f6d8a360d406f6edbf8",
+          "summary": "ark.tts-library-index.v1。"
+        },
+        {
+          "id": "tts.kb-index",
+          "kind": "git",
+          "title": "资产搜索索引",
+          "status": "available",
+          "version": "main@75a11dcc0d5e",
+          "roles": [
+            "knowledge-curator"
+          ],
+          "requires": [
+            "tts.asset",
+            "git.ark-kb"
+          ],
+          "git": "zjashanda/ark-kb",
+          "file": "docs/tts-library-index.md",
+          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "summary": "只存 ID/键/SHA/作用域，不存音频本体。"
+        },
+        {
+          "id": "tts.orchestration",
+          "kind": "git",
+          "title": "派发编排",
+          "status": "available",
+          "version": "main@57511e358338",
+          "roles": [
+            "coordinator"
+          ],
+          "requires": [
+            "tts.library",
+            "canonical.routing"
+          ],
+          "git": "zjashanda/ark-dispatch",
+          "file": "references/tts-library-orchestration.md",
+          "commit": "57511e3583385cab486b3ce3b14cc99b3070496c",
+          "summary": "计划中表达 lookup→合成→发布→回查。"
+        }
+      ]
+    },
+    {
+      "id": "requirements",
+      "label": "需求与用例库",
+      "summary": "需求受理、用例索引与验证包。",
+      "entries": [
+        {
+          "id": "req.intake",
+          "kind": "git",
+          "title": "需求受理",
+          "status": "available",
+          "version": "main@ae2a4457e815",
+          "roles": [
+            "coordinator",
+            "hardware-bench"
+          ],
+          "requires": [
+            "git.lstest"
+          ],
+          "git": "zjashanda/lstest",
+          "file": "docs/voice-validation/new-project-feature-intake.md",
+          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "summary": "新项目/新特性需求如何转成可验证用例。"
+        },
+        {
+          "id": "req.intake-readme",
+          "kind": "git",
+          "title": "受理模板说明",
+          "status": "available",
+          "version": "main@ae2a4457e815",
+          "roles": [
+            "coordinator"
+          ],
+          "requires": [
+            "req.intake"
+          ],
+          "git": "zjashanda/lstest",
+          "file": "docs/voice-validation/intake/README.md",
+          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "summary": "受理模板与字段说明。"
+        },
+        {
+          "id": "req.packs",
+          "kind": "git",
+          "title": "验证包索引",
+          "status": "available",
+          "version": "main@ae2a4457e815",
+          "roles": [
+            "hardware-bench"
+          ],
+          "requires": [
+            "req.intake"
+          ],
+          "git": "zjashanda/lstest",
+          "file": "docs/voice-validation/packs",
+          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "summary": "按项目/能力组织的验证包。"
+        }
+      ]
+    },
+    {
+      "id": "lstest-observability",
+      "label": "lstest 日志与状态",
+      "summary": "运行方式、日志与结果统计入口。",
+      "entries": [
+        {
+          "id": "lstest.log-status",
+          "kind": "git",
+          "title": "运行与状态",
+          "status": "available",
+          "version": "main@ae2a4457e815",
+          "roles": [
+            "coordinator",
+            "hardware-bench"
+          ],
+          "requires": [
+            "git.lstest"
+          ],
+          "git": "zjashanda/lstest",
+          "file": "README.md",
+          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "summary": "运行命令、日志位置与状态口径。"
+        },
+        {
+          "id": "lstest.result-stats",
+          "kind": "git",
+          "title": "结果统计",
+          "status": "available",
+          "version": "main@ae2a4457e815",
+          "roles": [
+            "coordinator"
+          ],
+          "requires": [
+            "lstest.log-status"
+          ],
+          "git": "zjashanda/lstest",
+          "file": "scripts/result_stats.py",
+          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "summary": "从结果目录汇总轮次与通过率。"
         }
       ]
     }
