@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.0.1
+# NoahsArk 智能体模板 v1.6.0
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
@@ -9,12 +9,12 @@
 > Skill 只是它调用的一种能力单元。你新建的智能体是这套系统的**执行者**，不是 Skill 的宿主。
 
 所以本模板不教你「装几个 skill 就完事」，而是给你：角色定义、运行时配置、目录规范、
-来源规范、闭环流程、时间口径、凭据边界、监督契约、验收回执。九件事缺一不可。
+来源规范、执行通道、闭环流程、时间口径、凭据边界、监督契约、验收回执。十件事缺一不可。
 
 | 项目 | 值 |
 |---|---|
 | 模板 schema | `ark.agent-template.v1` |
-| 模板版本 | `1.0.1` |
+| 模板版本 | `1.6.0` |
 | 配套机器可读配置 | `agent-profile.v1.json`（同目录） |
 | 配套校验器 | `verify-template.py`（同目录） |
 | 兼容 | `agent-profile.v1`，ark-node ≥ 0.1.0 |
@@ -28,8 +28,9 @@
 3. **建 Multica Agent**：`instructions` 写长期行为契约（第 2 节），`description` 写一句话定位。两者不是同一个东西。
 4. **配运行时**：runtime / model / `max_concurrent_tasks` 按第 3 节，硬件台架默认 1。
 5. **建任务目录**：按第 4 节在固定根下建出 `<tasks-id>` 目录（`plan.md`、`manifest.json` 与五个子目录），并把执行切进去。平台自动给的 workdir 不算任务目录。
-6. **首次自检**：按第 11 节逐项跑，产出 `ark.agent-onboarding.v1` 回执。
-7. **交回执**：回执落在任务目录 `receipts/` 下，并在 issue 评论里贴关键字段。
+6. **先定执行通道**：按第 11 节确认这条任务走哪条无窗口、非交互通道，证明不了就停下。
+7. **首次自检**：按第 12 节逐项跑，产出 `ark.agent-onboarding.v1` 回执。
+8. **交回执**：回执落在任务目录 `receipts/` 下，并在 issue 评论里贴关键字段。
 
 自检没过不要接任务。半成品智能体比没有智能体更贵——它会产出无法追溯的结论。
 
@@ -64,14 +65,15 @@
 `description` 必须能从其他智能体里区分出你。反例：`"负责处理任务"`。
 正例：`"节点执行智能体：在 bszT14 上跑任务、采集证据并回执，不碰设备独占测试"`。
 
-`instructions` 必须包含以下六段，缺任何一段都算不合规：
+`instructions` 必须包含以下七段，缺任何一段都算不合规：
 
 1. 角色与边界（第 1 节）
 2. 工作目录规范（第 4 节）
 3. 来源规范（第 5、6 节）
-4. 时间口径（第 8 节）
-5. 凭据与审批边界（第 9 节）
-6. 监督契约（第 10 节）
+4. 执行通道与窗口（第 11 节）
+5. 时间口径（第 8 节）
+6. 凭据与审批边界（第 9 节）
+7. 监督契约（第 10 节）
 
 **不要把凭据、密码、token 写进 `instructions`**。`instructions` 会被导出、被复制、被贴进 issue。
 里面只允许出现**变量名**，不允许出现**变量值**。
@@ -115,6 +117,17 @@
 
 平台自动给的运行时 workdir **不是**任务目录。它不在上表路径内时，先按上表建出真实任务目录，
 把执行切过去再干活；建不出来或不允许建，直接报 `BLOCKED_WORKDIR_POLICY` 并停下，不要就地凑合。
+
+`plan.md` 与目录骨架的初始化同样有独立错误码，不要把它们混进 `BLOCKED_WORKDIR_POLICY`：
+
+| 情形 | 码 | 处置 |
+|---|---|---|
+| 目录建不出来或路径不在 `task_root` 下 | `BLOCKED_WORKDIR_POLICY` | 停下，切换正确路径后重来 |
+| 目录建好但 `plan.md` 写不进去 | `BLOCKED_PLAN_INIT` | 查权限/磁盘，不换目录 |
+| `plan.md` 不存在就开工 | `BLOCKED_PLAN_MISSING` | 先补 `plan.md`，再链 `EXECUTION_CHECK` |
+| `plan.md` 为空、无目标、无当前阶段，或明显是别的任务的计划 | `BLOCKED_PLAN_INVALID` | 重写本任务的计划 |
+
+平台没有 daemon 钩子时，**由 agent 幂等创建**目录与 `plan.md` 骨架（已存在则只读取，不覆盖）；这是过渡实现，不改变「未通过 `EXECUTION_CHECK` 不得开跑」的结论。
 
 以下位置**永远不能当任务根**：Windows 的 C 盘（含 `%TEMP%`）、Linux 的 `/tmp`、以及任何个人主目录下的
 临时工作区。它们只能当短时临时区：产物与证据必须及时复制回任务目录，本任务的临时文件用完即清。
@@ -237,12 +250,15 @@
 
 ## 7. 任务闭环
 
-一个任务在系统里走六步，**每一步都有产物，缺一步闭环就断**：
+一个任务在系统里走七步，**每一步都有产物，缺一步闭环就断**：
 
 ```
-ark-dispatch  →  执行  →  ark-archive  →  receipt  →  ark-kb  →  下一轮 dispatch
-   选能力         干活        归档          回执        沉淀          复用
+ark-dispatch  →  执行  →  检查点 WAL  →  ark-archive  →  receipt  →  ark-kb  →  下一轮 dispatch
+   选能力         干活     逐事件追加        归档          回执       沉淀          复用
 ```
+
+检查点不是「收工才写」：从 `EXECUTION_CHECK` 起，每个生命周期事件都先落一份 append-only 检查点，
+失败、中断、崩溃同样留痕，收工只做聚合与关闭 outbox（见第 16 节）。
 
 ### 7.1 派发：`ark-dispatch`（只决策，不执行）
 
@@ -282,13 +298,15 @@ python scripts/dispatch.py check --plan plan.json
 
 ### 7.4 沉淀：`ark-kb`
 
-回执回流知识库，四类条目：`bug` / `knowledge` / `method` / `run`。
+沉淀在任务生命周期内逐事件发生，不是收工一次性动作：每个 `EXECUTION_CHECK` / `STAGE_FINISHED` /
+`BLOCKED` / `FAIL` / `NEEDS_REVIEW` / `WATCHDOG_*` / `MANUAL_CANCEL` / `RUNTIME_CRASH` 都先写检查点，
+再由 outbox 异步归档、入库并 query-back。四类条目仍是 `bug` / `knowledge` / `method` / `run`。
 每条都能被 `ark-dispatch` 引用为证据，形成「上次这么干有效/无效」的记忆。
 
 ### 7.5 下一轮
 
-下一轮 dispatch 读 KB 与 registry 决定怎么走。**闭环的标志是下一轮能引用上一轮**，
-不是「这次跑完了」。
+下一轮 dispatch 读 KB 与 registry 决定怎么走；run 启动时先扫一遍 WAL，把上一次中断未关闭的
+outbox 用 `RECOVERY_REPLAY` 补发，再开始新知识。**闭环的标志是下一轮能引用上一轮**，不是「这次跑完了」。
 
 ### 7.6 代码测试通过 ≠ 真机验证通过
 
@@ -391,7 +409,7 @@ STORAGE_PASSWORD      # 存储节点口令
 
 ## 10. 监督契约
 
-没有监督的执行 = 无法区分「在跑」和「卡住」。四条规则，全部强制执行。
+没有监督的执行 = 无法区分「在跑」和「卡住」。五条规则，全部强制执行。
 
 ### 10.1 `EXECUTION_CHECK`（开跑第一句）
 
@@ -424,13 +442,112 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 后台工作会被孤立、结果丢失、回执发不出去。
 
 正确做法：需要结果就**前台阻塞等到结果**；需要等待外部系统就记下证据后结束本轮，
-由平台唤醒机制接手，不要自己挂着等。
+由平台唤醒机制接手，不要自己挂着等。通道层面另见第 11 节：无可见窗口、非交互、日志落 `logs/`，
+三者缺一即视为没有可观测执行。
+
+### 10.6 检查点先落盘（`ark.checkpoint.v1`）
+
+`EXECUTION_CHECK` / `STAGE_FINISHED` / `BLOCKED` / `NEEDS_REVIEW` 以及 watchdog、取消、崩溃判定，
+在写事件流**之后、做别的动作之前**追加一条检查点到 `receipts/outbox/checkpoints-<YYYYMMDD>.jsonl`。
+先落盘再归档/入库：归档失败、知识库不可达、进程被杀，检查点都还在，下一次 run 可恢复重放。
+只写检查点不写事件流，或反过来，都算证据链断裂。
 
 ---
 
-## 11. 新建工作区验收
+## 11. 执行通道与窗口
 
-一个新工作区（新节点、新 workspace）必须跑完下面七项，产出 `ark.agent-onboarding.v1` 回执，
+规则先于命令：**通道选错，后面的证据全部作废**。本节对所有平台强制，不是 Windows 专属建议。
+
+### 11.1 三条判据
+
+| 判据 | 要求 | 判定方式 |
+|---|---|---|
+| 无可见窗口 | 执行期间不得出现 PowerShell、cmd、Windows Terminal、conhost 等任何桌面窗口或控制台 | **启动前**从命令形态确认，不靠事后观察 |
+| 非交互 | 不得等待人工输入；口令、确认、分页一律禁用 | 命令必须带非交互参数（见 11.2、11.3） |
+| 可观测 | stdout 与 stderr 重定向到任务目录 `logs/`，且有 run 记录 | 无日志即无证据，按 10.4 判定 |
+
+**「后台运行」不等于「隐藏窗口」。** 命令丢到后台但窗口照样弹出来，是违规；
+窗口隐藏了但输出丢弃，同样是违规。两者都不满足「无窗口 + 可观测」这一条门禁。
+
+### 11.2 Windows
+
+| 项 | 要求 |
+|---|---|
+| 允许通道 | 已有 Agent / 守护进程的隐藏执行入口；`powershell -NoProfile -NonInteractive -Command` 且由无控制台的父进程启动；`ssh -T -o BatchMode=yes` |
+| 输出 | 每条命令追加 `*> <任务目录>\logs\<名称>.log`（或 `1> … 2>&1`） |
+| 禁止 | 交互式 `ssh`（无 `-T`、无 `BatchMode`）、`powershell -NoExit`、`cmd /k`、`start`、`wt`、`conhost` |
+| 禁止未验证包装器 | `Start-Process`、`Win32_Process.Create`、任何「先起进程再看有没有弹窗」的脚本包装器——它们无法证明窗口隐藏 |
+| 无法保证隐藏 | 立即报 `BLOCKED_EXECUTION_CHANNEL` 并停止；**不得先执行再观察是否弹窗** |
+
+### 11.3 Linux / macOS
+
+| 项 | 要求 |
+|---|---|
+| 允许通道 | 非交互 SSH / Agent 通道：`ssh -T -o BatchMode=yes <host> '<命令>'` |
+| 输出 | `> <任务目录>/logs/<名称>.log 2>&1`；远程命令的输出同样落回任务目录 |
+| 禁止 | 交互式 shell、需要 tty 的 `sudo` 提示、不带 `BatchMode` 的 `ssh` |
+| 后台 | 不可观测后台任务不得 background-and-yield（10.5）；要么在顶层 run 内前台收集结果，要么交回平台持久唤醒 |
+
+### 11.4 反例
+
+| 反例 | 为什么违规 |
+|---|---|
+| 用 `Start-Process powershell` 起任务，再截图证明「没弹窗」 | 已经弹过了；判据是启动前证明，不是事后目测 |
+| `ssh host "cmd"` 不带 `-T -o BatchMode=yes` | 可能挂在密码或 tty 上，结果不可观测 |
+| 命令输出只打在控制台 | 日志缺失 → `RUNNING_NO_EVIDENCE` |
+| 起后台进程后结束本轮「等它跑完」 | background-and-yield，本轮退出即任务终结 |
+| 「以前这么干没弹窗」当作证据 | 未验证通道不因一次偶然成功变成合规 |
+
+### 11.5 profile 字段
+
+```json
+"execution_channel": {
+  "mode": "hidden-background",
+  "no_visible_terminal": true,
+  "non_interactive": true,
+  "stdout_redirect": "logs/",
+  "stderr_redirect": "logs/",
+  "forbidden_launchers": ["Start-Process", "Win32_Process.Create", "conhost", "wt", "powershell -NoExit"],
+  "require_batch_mode": true,
+  "launch_record": "logs/launch.json",
+  "unverifiable_action": "BLOCKED_EXECUTION_CHANNEL",
+  "background_and_yield": "forbidden"
+}
+```
+
+### 11.6 启动记录：`logs/launch.json`
+
+启动器（或降级时的 agent 自身）必须在进程创建后立刻写 `logs/launch.json`，字段固定：
+
+```json
+{
+  "task_id": "NOAH-63",
+  "pid": 8524,
+  "parent_pid": 16660,
+  "cwd": "<任务目录>",
+  "stdin": "NUL",
+  "stdout": "logs/stdout.log",
+  "stderr": "logs/stderr.log",
+  "window_count": 0,
+  "main_window_handle": 0,
+  "launcher": "noahsark-task-launcher-v1",
+  "hidden_verified": true,
+  "exit_code": null,
+  "created_at": "2026-11-12 10:00:10"
+}
+```
+
+- `hidden_verified` 只能来自可复现证据（`MainWindowHandle == 0`、EnumWindows 无该 PID 顶层窗口、无交互 stdin），**不能**由「看起来没弹窗」推断。
+- 没有启动器可用时，`launcher` 写 `none`、`hidden_verified` 写 `false`，并按 `BLOCKED_EXECUTION_CHANNEL` 处理；不得把 `false` 当成「大概率没事」继续跑。
+
+`no_visible_terminal` 在 Windows 上必须为 `true`，`non_interactive` 全平台必须为 `true`。
+`verify-template.py` 独立校验这三项：缺字段、为假、或命令判据不过，都判定整包不合规。
+
+---
+
+## 12. 新建工作区验收
+
+一个新工作区（新节点、新 workspace）必须跑完下面八项，产出 `ark.agent-onboarding.v1` 回执，
 才算这个智能体可用。
 
 | # | 检查项 | 通过标准 |
@@ -442,8 +559,9 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 | 5 | 任务目录 | 第 4 节的固定根存在且可写，`<tasks-id>` 目录含 `plan.md`、`manifest.json` 与五个子目录，`init` 幂等 |
 | 6 | 来源可达 | 至少一个 Git 通道可用；SkillHub 状态可读 |
 | 7 | 存储可达 | 存储节点连通；不可达则记录端点与失败原因，不判定「不存在」 |
+| 8 | 执行通道 | 第 11 节可证：无可见窗口、非交互、输出落 `logs/`；证明不了即 `BLOCKED_EXECUTION_CHANNEL` |
 
-### 11.1 回执字段 `ark.agent-onboarding.v1`
+### 12.1 回执字段 `ark.agent-onboarding.v1`
 
 ```json
 {
@@ -451,12 +569,13 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
   "workspace": "workspace-name",
   "agent_name": "方舟+角色",
   "profile_version": "agent-profile.v1",
-  "template_version": "1.0.1",
+  "template_version": "1.1.0",
   "template_sha256": "<模板文件摘要>",
   "verified_at": "2026-11-11 10:30:00",
   "runtime": { "agent_id": "...", "runtime_id": "...", "model": "..." },
   "checks": [
-    { "name": "template-integrity", "result": "pass", "evidence": "verify-template.py exit 0" }
+    { "name": "template-integrity", "result": "pass", "evidence": "verify-template.py exit 0" },
+    { "name": "execution-channel", "result": "pass", "evidence": "no_visible_terminal=true, non_interactive=true, 日志落 logs/" }
   ],
   "result": "pass",
   "notes": ""
@@ -466,7 +585,7 @@ issue 状态说 `in_progress`，但实际没有活跃运行 → 就是漂移。
 `result` 取值 `pass` / `fail` / `blocked`。任何一项 `fail` → 整体 `fail`，不许「其他都过了就算过」。
 `blocked` 必须写清阻塞原因与下一步。
 
-### 11.2 校验命令
+### 12.2 校验命令
 
 ```bash
 python3 verify-template.py --dir . --manifest manifest.json --json
@@ -474,7 +593,7 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 
 ---
 
-## 12. 反模式清单
+## 13. 反模式清单
 
 | 反模式 | 正确做法 |
 |---|---|
@@ -487,8 +606,443 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | 把凭据写进 issue 评论「方便复现」 | 只写变量名，值走环境 |
 | 声称 started=YES 但没 run | 先拿到运行证据再报 |
 | 后台跑任务然后结束本轮 | 前台等到结果，或交回平台唤醒 |
+| 先执行再观察是否弹窗 | 启动前证明通道无窗口、非交互；证明不了报 `BLOCKED_EXECUTION_CHANNEL` |
+| 用 `Start-Process` / `Win32_Process.Create` 包装命令 | 只用已验证的隐藏通道，未验证包装器不能当证据 |
+| 把交互式 `ssh` 当执行通道 | `-T -o BatchMode=yes`，输出落任务目录 `logs/` |
+| 命令输出只打在控制台 | 重定向到任务目录 `logs/`，无日志按无证据处理 |
 | 代码测试绿了就报「验证通过」 | 真机结果只能来自真机执行 |
 | 目录名带毫秒/时区/时间戳后缀 | 目录名只用 `<tasks-id>` |
+| 没有 run 记录就报 `started=YES`，或缺 `EXECUTION_CHECK` 直接开工 | 先落事件流再动手，没 run 只能 `started=false` |
+| 把候选回执当正式证据驱动 `ark-kb` 消费 | 只允许 `formal` + active 驱动 preflight / recovery / stop_rules，`candidate` 仅作提示 |
+| 任务结束才写知识，失败/中断就不写 | 每个生命周期事件先落检查点，失败、取消、崩溃同样留痕 |
+| 直接写 ark-kb 再补本地 | 先写 append-only WAL，再归档/入库；失败由 outbox 重放 |
+| 同一事实在多个项目各存一份 | 一条 canonical 条目 + `derived_from` 引用，不复制孤岛 |
+| 项目条目覆盖全局事实 | 项目层只加 `exceptions` / `applies_to` 并写 `reason` |
+| 只跑本地结果就报 PASS / 无知识价值静默跳过 | 补齐 outbox 与 delivery 状态位；无知识价值必须 `NO_KB_REQUIRED` 并给出原因 |
+| 任务直接对 1006 原件做重采样/增益 | 只在任务副本上派生：原件留在 `assets/tts/original/`，结果写 `work/audio/` 或 `result/audio/` |
+| 只按文本命中就复用、忽略音色/模型/参数 | 按完整 cache key 命中，六项复用条件全满足才算命中 |
+
+---
+
+## 14. 状态机与阶段门禁
+
+平台只提供 Issue 与 Run 两个状态机，门禁必须落在这两个状态机之上，不能假设平台有服务端门禁、没有的能力用事件流和唤醒补齐。
+
+### 14.1 Issue 状态机（人看的那条线）
+
+| 状态 | 含义 | 谁能写 |
+|---|---|---|
+| `todo` / `backlog` | 待开工 / 暂存 | 人、调度方 |
+| `in_progress` | 正在做，本轮产出属于本 issue | agent 开工即写 |
+| `in_review` | agent 已交付，等验收 | agent 交付后写 |
+| `done` | 验收通过 | **只有人能写**，agent 不得自己置 done |
+| `blocked` | 缺外部条件，已写明需要谁做什么 | agent 或人 |
+| `cancelled` | 作废（重复单用 `--duplicate-of` 关联原件） | 人、调度方 |
+
+agent 只写 `in_progress` / `in_review` / `blocked` 三个值。仅回答问题、没有产出本 issue 交付物时，**不改状态**。
+
+### 14.2 Run 状态机（机器那条线）
+
+| 状态 | 含义 |
+|---|---|
+| `queued` | 已入队，尚未派发 |
+| `dispatched` | 已派发，等待 runtime 接单 |
+| `waiting_local_directory` | 等待本地工作目录就绪 |
+| `running` | 正在执行 |
+| `completed` / `failed` / `cancelled` | 终态 |
+
+判定「有没有在跑」只看 run 记录：`multica issue runs <issue-id> --output json` 的 `status` / `started_at` / `completed_at` / `attempt`。
+**没有 run 记录就不许写 `started=YES`。** 终态 run 而 issue 仍 `in_progress`，就是 `STATE_DRIFT`。
+
+### 14.3 stage：整数，不是里程碑对象
+
+`stage` 是 issue 上的整数字段，平台**没有** milestone 对象；不要把 stage 写成里程碑、标签或目录名的一部分。
+
+- 顺序推进用 stage 编号表达，子 issue 用 `--stage N` 归组。
+- 阶段 barrier 用 `multica issue wakeup create --until-children-done --stage N`；它只表达「子 issue 都结束了」，**不表达「都验收通过」**，后者仍要人判。
+- stage 与 run 的关联键是 `run_id`，不是标题、不是时间。
+
+### 14.4 门禁事件流：`run-state.v1`
+
+四个门禁事件的机器可读真源是任务目录下的事件流，一行一个 JSON：
+
+```text
+<任务目录>/receipts/events/gates-<YYYYMMDD>.jsonl
+<任务目录>/receipts/stage-index.json     # run_id / stage / 事件序号索引
+```
+
+行格式由同目录 `run-state.v1.json` 定义（`ark.run-state.v1`），**五个事件**：
+
+| 事件 | 必填字段 | 时机 |
+|---|---|---|
+| `EXECUTION_CHECK` | `schema` `event` `run_id` `issue_id` `agent_id` `runtime_id` `started` `stage` `at` `first_action` `first_artifact`；可选 `workdir` `preflight` | 开工前，第一个动作之前 |
+| `PROGRESS_5M` | `schema` `event` `run_id` `issue_id` `stage` `at` `status` `last_5m_action` `artifacts_state` `artifacts` `next_step` | 每 5 分钟 |
+| `STAGE_FINISHED` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `evidence` `rollback` `next_stage` | 一个 stage 收尾 |
+| `BLOCKED` | `schema` `event` `run_id` `issue_id` `stage` `at` `code` `reason` `needs` `next_step` | 一发现缺条件就写 |
+| `FINAL_RECEIPT` | `schema` `event` `run_id` `issue_id` `stage` `at` `result` `receipt_path` `receipt_sha256` `archive_path` | 正式回执落地后 |
+
+约束：
+
+- `at` 用北京时间、秒级、无时区标记（`YYYY-MM-DD HH:MM:SS`）。
+- `PROGRESS_5M.status` 枚举 `RUNNING` / `QUEUED` / `BLOCKED` / `NEEDS_REVIEW`；`artifacts_state=NONE` 时 `artifacts` 必须为空并写 `no_artifact_reason`，**编造路径视为失败**。
+- `EXECUTION_CHECK.preflight` 是预检**结果**，与事件本身（开工**声明**）不是一回事。写了 `preflight` 就必须写满 7 项布尔检查，顺序固定：`runtime_online` `agent_runtime_match` `workdir_policy` `plan_present` `launcher_available` `hidden_execution_capable` `device_preflight`，另带 `status`（`passed` / `blocked`）、`checked_at`、`checker_version`。任一为 `false` 时 `status` 必须是 `blocked`，并且紧接着写一条 `BLOCKED` 事件。
+- `BLOCKED.code` 枚举：`BLOCKED_SOURCE_MISSING` / `BLOCKED_EXECUTION_CHANNEL` / `BLOCKED_WORKDIR_POLICY` / `BLOCKED_APPROVAL_REQUIRED` / `BLOCKED_PLAN_INCOMPLETE`。项目 profile 层的专有码（串口、声卡、存储、运行器退出/卡死等）不扩展枚举，写进 `reason` 前缀，由下述映射表归一：
+
+| 项目层说法 | 归一到 | 说明 |
+|---|---|---|
+| `BLOCKED_HIDDEN_EXECUTION` | `BLOCKED_EXECUTION_CHANNEL` | 同一件事，平台层用后者 |
+| `BLOCKED_PLAN_INIT` / `BLOCKED_PLAN_MISSING` / `BLOCKED_PLAN_INVALID` | `BLOCKED_PLAN_INCOMPLETE` | 细节写进 `reason` |
+| `BLOCKED_SERIAL` / `BLOCKED_AUDIO` / `BLOCKED_STORAGE` | `BLOCKED_EXECUTION_CHANNEL` 之外的**项目 profile 阻断** | 归为项目层，仍要发 `BLOCKED` 事件并在 `reason` 写明 `project:<code>` |
+| `RUNNER_EXITED` / `RUNNER_STALLED` / `RESULT_INCOMPLETE` | 症状码 `WATCH_*` | 是 watchdog 症状，不是阻断码 |
+- 事件流缺 `EXECUTION_CHECK` 就开工，按「无证据」处理，直接置 `BLOCKED`。
+- 每条门禁事件写入事件流后，立刻追加一条 `ark.checkpoint.v1` 检查点（第 16 节）。watchdog 的四条症状对应 `WATCHDOG_*` 触发；取消与进程崩溃分别补 `MANUAL_CANCEL` / `RUNTIME_CRASH`，由下一次 run 的 `RECOVERY_REPLAY` 扫描补发。
+- `plan.md` 的同名块与 issue 评论是同一事实的投影，三者不一致时以事件流为准，并立刻补一条修正事件。
+
+### 14.5 阶段推进与回滚
+
+- 每个 stage 必须能**独立回滚**：`STAGE_FINISHED.rollback` 写清回滚动作（改回哪个 commit、停哪个服务、删哪个新产物）。
+- 回滚**不删除旧证据**：旧日志、旧回执、旧事件流一律保留，覆盖写入视为破坏证据。
+- 阶段产物没落地、验收没通过，`result` 只能写 `FAIL` / `BLOCKED` / `NEEDS_REVIEW`，不许写 `PASS`。
+
+### 14.6 Watchdog：三通道交叉验证
+
+Watchdog 的**采样**节奏是 10–30 秒（进程、`status.json`、`rounds.jsonl` 行数、日志与 PCM mtime、设备链路、磁盘、milestone 文件、`runner_exit.log`）；**上报**节奏仍是每 5 分钟的 `PROGRESS_5M`。采样快、上报慢，两者不要混为一谈。
+
+单看一个通道会误判，三个通道同时看：
+
+| 通道 | 观察对象 | 判据 |
+|---|---|---|
+| C1 评论 | 最近一条 `EXECUTION_CHECK` / `PROGRESS_5M` 时间 | 超过 5 分钟无新事件 → 可疑；超过 15 分钟 → `STATE_DRIFT` |
+| C2 run 记录 | `status` / `started_at` / `completed_at` | 无 run 却声称在跑 → `RUNNING_NO_EVIDENCE`；终态 run 而 issue 仍 `in_progress` → `STATE_DRIFT` |
+| C3 产物 | `receipts/events/` 与 `result/` 的 mtime | 有 run 但无新产物 → `RUNNING_NO_EVIDENCE`，置 `blocked` |
+
+症状码：`WATCH_QUEUED_STALE` / `WATCH_RUNNING_NO_EVIDENCE` / `WATCH_STATE_DRIFT` / `WATCH_DELIVERY_INCOMPLETE` / `WATCH_CHANNEL_UNVERIFIABLE`。
+
+`delivered_comment_ids` 为空**不能**证明没交付（历史 run 存在已交付但列表为空的情况），必须回看评论正文。
+优先用平台唤醒（`multica issue wakeup create`，事件/条件/定时三种）代替自建轮询；唤醒规则只在本 issue 上生效，不支持跨 issue 订阅。
+
+---
+
+## 15. 回执分层与闭环
+
+### 15.1 三层回执
+
+| 层 | 路径 | 检查点质量 | 说明 |
+|---|---|---|---|
+| 正式 | `receipts/run.receipt.json` | `formal` | 字段满足 `run.receipt.v1`，证据哈希可复算 |
+| 候选 | `receipts/candidates/` | `candidate` | 结论待确认、证据不全、或只跑了部分设备 |
+| 证据缺口 | `receipts/evidence-gaps/` | `evidence_gap` | 明确记录缺什么证据、为什么缺 |
+
+三层都产生检查点，区别只在 `quality`：`formal` 可驱动 dispatch，`candidate` 仅提示，`evidence_gap` 不消费。
+三层用 `run_id` 关联，**不新增 schema 字段**：`run.receipt.v1` 与 `manifest.v1.json` 都是 `additionalProperties: false`，加字段会破坏既有校验与 1142 条测试。
+`receipt_layers.reflow_source=formal-only` 约束的是归档回执本身；检查点 WAL 覆盖三层，两者不冲突。
+
+### 15.2 闭环顺序
+
+```text
+执行 → 证据落 result/ 与 logs/ → 逐事件写检查点 WAL（receipts/outbox/）
+     → ark-archive 归档 + manifest.v1.json
+     → 每个 checkpoint 归档/入库 + query-back → outbox 关闭
+     → FINAL_RECEIPT 只做聚合 → 下一轮 ark-dispatch 派发
+```
+
+- 归档只复制、不搬走；`source_dir` 原样保留。
+- 检查点先落盘再归档/入库；归档或入库失败重试，事件本身不丢。
+- 同一 `checkpoint_id` 重复 append 直接跳过，不新建条目、不重复入库。
+- 没有任何检查点就声称交付，按无证据处理，不得判 PASS。
+
+### 15.3 验收与审批
+
+- 每个 stage 验收要有：证据路径、复现命令、失败项清单；缺一即 `NEEDS_REVIEW`。
+- 四类动作分开审批：**代码**（推分支/开 PR）、**配置**（节点环境变量、凭据落盘）、**模板**（发布新版本）、**OSS 对外发布**。一类批准不能顶另一类。
+- 默认 `dry-run`：先出清单和 diff，拿到明确「同意/可以/批准」再执行。
+
+---
+
+## 16. 知识同步（事件驱动检查点）
+
+知识同步不是收工才做的一次动作，而是贯穿任务生命周期的**逐事件检查点**。
+每次预检、阶段收尾、阻断、失败、待审、看门狗判定、取消、崩溃都先落一份 `ark.checkpoint.v1` 到任务目录 WAL，
+再异步归档、入库、query-back；`FINAL_RECEIPT` 只做聚合与关闭 outbox。
+
+### 16.1 为什么不是 end-only
+
+end-only 只覆盖「任务正常结束」，代价是把最贵的失败经验丢在死路上：任务被阻断、阶段失败、人工取消、进程崩溃。
+v2 把回流绑定到**生命周期事件**，而不是「结束」。中断来源分七类：
+
+| # | 中断来源 | 典型表现 | 谁写检查点 |
+|---|---|---|---|
+| 1 | 执行阻断 | 缺源 / 缺通道 / 缺审批，已发 `BLOCKED` | 执行者立即写 |
+| 2 | 阶段失败 | `STAGE_FINISHED.result=FAIL` | 执行者立即写 |
+| 3 | 待审 | 验收缺证据，转 `NEEDS_REVIEW` | 执行者立即写 |
+| 4 | watchdog 判定 | 无证据 / 状态漂移 / 超时 / 心跳丢失 | watchdog 判定即写 |
+| 5 | 人工取消 | 平台取消 run，执行者来不及收尾 | 恢复器或下一次 run 扫 WAL 补写 |
+| 6 | 运行时崩溃 | 进程被杀、节点掉线 | 下一次 run 扫描 WAL 补写 |
+| 7 | 恢复重放 | 上一次 outbox 未关闭 | 下一次 run 启动时补发 |
+
+失败同样是有价值的知识：`BLOCKED` / `FAIL` 只要有现象、attempts、证据，就可以是 `formal` 的 bug 或 method 条目，
+但 `outcome` 永远不得写 `PASS`。
+
+### 16.2 检查点事件与 WAL
+
+路径固定，全部在任务目录内：
+
+| 用途 | 路径 | 规则 |
+|---|---|---|
+| WAL | `receipts/outbox/checkpoints-<YYYYMMDD>.jsonl` | 一行一个 JSON，只追加，永不改写、永不删除 |
+| outbox 索引 | `receipts/outbox/outbox.json` | 每个 checkpoint 一行状态，可从 WAL 重建 |
+| 归档副本 | `receipts/outbox/archived/<checkpoint_id>.json` | 归档成功后写入，重试不丢事件 |
+
+必填字段：`schema`、`checkpoint_id`、`issue_id`、`run_id`、`stage`、`event_seq`、`trigger`、`at`、
+`quality`、`scope`、`summary`、`evidence`、`outbox`。
+
+- `schema` 固定 `ark.checkpoint.v1`；`at` 用北京时间秒级、无时区标记。
+- `summary` 至少写清现象、attempts、排除项与恢复建议；没有证据就写空数组，**编造路径视为失败**。
+- **先落盘再归档/入库**：检查点成功写入磁盘之前，不许宣称该事件已交付。
+
+### 16.3 12 个触发器
+
+`trigger` 是封闭枚举，顺序固定；`FINAL_RECEIPT` 不是触发器，只做聚合（见 16.9）。
+
+| # | trigger | 何时写 | quality | 是否 formal |
+|---|---|---|---|---|
+| 1 | `EXECUTION_CHECK` | 预检完成后立即 | 环境 / 能力 / 输入版本 / kb 基线 | 是（仅元数据） |
+| 2 | `STAGE_FINISHED` | 每个阶段结束，含 PASS 与 FAIL | 证据完整即 `formal` | 是 |
+| 3 | `BLOCKED` | 一发现缺条件就写，不等结束 | 现象 + attempts + 证据齐全则 `formal` | 是（type=bug/method） |
+| 4 | `FAIL` | 执行失败立即写 | 同上 | 是（outcome 不得 `PASS`） |
+| 5 | `NEEDS_REVIEW` | 验收缺证据转待审时 | 同上 | 是（结论待确认） |
+| 6 | `WATCHDOG_RUNNING_NO_EVIDENCE` | watchdog 判定即写 | 从最后已落盘事件构建 | 否，`candidate` |
+| 7 | `WATCHDOG_STATE_DRIFT` | 同上 | 从最后已落盘事件构建 | 否，`candidate` |
+| 8 | `WATCHDOG_TIMEOUT` | 同上 | 从最后已落盘事件构建 | 否，`candidate` |
+| 9 | `WATCHDOG_HEARTBEAT_LOST` | 同上 | 从最后已落盘事件构建 | 否，`candidate` |
+| 10 | `MANUAL_CANCEL` | 恢复器或下一次 run 扫 WAL 补写 | 证据不完整 `candidate`，完全无证据 `evidence_gap` | 否 |
+| 11 | `RUNTIME_CRASH` | 恢复器或下一次 run 扫 WAL 补写 | 同上 | 否 |
+| 12 | `RECOVERY_REPLAY` | 下一次 run 启动时 | 补发未完成 outbox，不新建语义条目 | 继承原条目 |
+
+### 16.4 幂等键与重放
+
+```text
+checkpoint_id    = sha256(issue_id + run_id + stage + event_seq + evidence_digest)
+evidence_digest  = sha256(排序后拼接所有 evidence[].sha256)；无证据时用空串哈希
+```
+
+- 同一个 `checkpoint_id` 重复 append → 直接跳过并返回已有状态，不新建条目、不重复入库。
+- `event_seq` 在单个 run 内单调递增，重放按原序号复现，不重新编号。
+- `RECOVERY_REPLAY` 在下一次 run 启动时扫描 WAL 与 `outbox.json`，补发未完成的归档/入库，
+  但**不新建语义条目**：它恢复的是既有检查点的 outbox 状态。
+- 恢复扫描是 run 启动的第一步；扫描完成前不开始新阶段。
+
+### 16.5 质量分层与提升
+
+| 情形 | quality | 可驱动 dispatch |
+|---|---|---|
+| 正常阶段、证据完整 | `formal`（evidence-complete） | 是 |
+| `BLOCKED` / `FAIL` / `NEEDS_REVIEW` 且现象、attempts、证据完整 | `formal`（bug / method） | 是（作为恢复建议与 stop rule） |
+| 进程崩溃、证据不完整 | `candidate`（evidence-incomplete） | 否，仅作提示 |
+| 只有推测、无证据 | `evidence_gap`（no-evidence） | 否 |
+
+- 失败可以为 `formal`（`failure_can_be_formal=true`），但 `outcome` 禁止写 `PASS`。
+- 后续 run 补齐证据 ⇒ `candidate → formal`；旧条目 `status=superseded`，`superseded_by` 指向新条目，
+  `lineage[]` 保留追溯链。**永不删除历史**。
+- 提升只改质量与状态，不改写历史条目的正文。
+
+### 16.6 多作用域与引用
+
+作用域层级由近到远：`run → node → project → device_family → platform → capability → global`。
+查询时 `scope_inherit=near-to-far`：先取精确命中，再逐层继承，按 canonical id 去重并保留 `source_level` 与优先级。
+
+- 每条知识必须带 `scope: {level, key, parent}`。
+- 项目层只能以「约束 / 例外」影响更广层事实：`project_may_override_global=false`。
+- 跨作用域引用固定三种：`derived_from`（来源）、`applies_to`（适用范围）、`exceptions`（例外与理由）。
+- **不复制孤岛**：共同内容只存一条 canonical 条目，项目条目引用它，不复制正文。
+- 查询结果每条都写来源 `kb:<entry_id>@<commit>`，供 dispatch 写入 `sources[]`。
+
+### 16.7 promotion / demotion（提升与降级）
+
+- 至少两个项目验证通过、且无项目专属字段 ⇒ 生成 promotion candidate，`promote_to` 只能是 `capability` 或 `global`。
+- 提升必须经证据与审核（`requires_review=true`），审核前不改变任何 dispatch 消费集合。
+- 发现反例 ⇒ 降级：加 `applies_to` 限定或写 `exceptions`（附 `reason`），**不删除历史**。
+- 已提升条目被降级时保留原条目并标 `superseded`，`lineage[]` 记录来龙去脉。
+
+### 16.8 查询与消费边界
+
+开工前（第一个动作之前，有派发时由 ark-dispatch 在生成计划前完成）查询 ark-kb，
+按 `capability` / `project` / `device` / `firmware` / `profile` 五个维度调用 `query_command`，不新增查询引擎。
+结果写 `plan.md` 的 `## 知识查询` 段（人读）与 `run.receipt.json` 顶层 `kb_context`
+（机读契约 `ark.kb-context.v1`，含 `queried_at`、`registry_commit`、`hits`、`no_hit`）。
+
+- 只有 `formal` + 非 `stale` / `superseded` + 适用范围匹配的知识可驱动 `preflight` / `recovery` / `stop_rules`。
+- `candidate` 只能作为提示，消费方必须标 `needs_confirmation`。
+- 每个 checkpoint 入库后单独 query-back（`query_back_per_checkpoint=true`），写 `kb_query_back_status`；
+  跨节点暂不可见记 `deferred-with-reason`，不伪造 `pass`。
+- 刷新点保留四个：阶段边界（`STAGE_FINISHED` 落盘前）、长任务每 30 分钟、每 100 轮（与 30 分钟取先到者）、
+  `registry_commit` 变化；新命中追加到 `refresh_log`，不覆盖首次查询。
+
+### 16.9 outbox 关闭条件与 FINAL_RECEIPT
+
+`receipts/delivery.json` 按 `ark.delivery.v1` 落地，`run.receipt.json` 可选顶层 `delivery` 复制一份。
+每个 checkpoint 的 outbox 状态：`archive_status` / `kb_ingest_status` / `kb_query_back_status` / `kb_entry_ids` / `retry`。
+
+outbox 关闭条件（全部满足才可关闭）：
+
+1. 所有 checkpoint 的 `archive_status=ok`；
+2. `kb_ingest_status` ∈ {`recorded`, `skipped_no_kb`}；
+3. `kb_query_back_status` ∈ {`pass`, `deferred-with-reason`}。
+
+- 任一不满足 → `DELIVERY_INCOMPLETE`，`FINAL_RECEIPT` 只能 `NEEDS_REVIEW`，不许判 `PASS`。
+- `FINAL_RECEIPT` 的角色是 `aggregate-close-only`：不产生新知识，只聚合已写检查点、提升质量、关闭 outbox。
+  聚合结果就是正式回执 `receipts/run.receipt.json`。
+- 无知识价值时禁止静默跳过：写 `kb_ingest_status=skipped_no_kb` 并给 `no_kb_reason`，
+  原因只允许 `no-new-knowledge` / `pure-inventory` / `duplicate-of-existing:<entry_id>` / `sensitive-not-indexable`；
+  缺失或越界即用法错误（`NO_KB_REQUIRED`），不许判 `PASS`。
+- 失败重试最多 3 次，指数退避 1 / 2 / 4 分钟，每次写 `retry.attempts` 与 `last_error`。
+- 禁止入库：凭据、原始敏感日志、大文件正文；超过 1 MiB 只登记路径与 sha256。
+
+### 16.10 跨项目共享自测清单
+
+| # | 检查 | 期望 |
+|---|---|---|
+| 1 | 项目 A 产生 capability 知识，项目 B 同维度查询 | B 命中 A 的 canonical 条目，结果带来源 `kb:<entry_id>@<commit>` |
+| 2 | A 写入项目例外后再查 B | B 的结果里没有 A 的 `exceptions` |
+| 3 | dispatch 消费集合 | `candidate` / `evidence_gap` 只出现在提示，不进 `preflight` / `stop_rules` |
+| 4 | 两个项目引用同一事实 | 只有一条 canonical 条目，其余用 `derived_from` 引用，不复制正文 |
+| 5 | promotion 候选 | 至少两个项目验证 + 审核通过才提升到 `capability` / `global` |
+
+## 17. 1006 TTS 音频库（先查库，miss 才合成）
+
+任何需要语音的任务，第一个动作都不是调 TTS，而是**先查 1006 的公共 TTS 音频库**。
+库里有满足完整规格的 `formal` 资产就取件复用；只有 cache miss 才允许合成，合成成功后再回填库。
+库里的音频原件发布后不可变，任务内的二次处理只碰任务副本。
+
+### 17.1 边界：谁负责哪一段
+
+| 角色 | 职责 | 明确不做 |
+|---|---|---|
+| 1006 TTS 库 | 存放 `ark.tts-asset.v1` 原件与 `index.json`，发布后只读 | 不合成、不做派生处理 |
+| `asset-tools tts-library` | canonical 实现：`key` / `lookup` / `fetch` / `publish` / `verify` / `index`；缓存键、ACL、锁、outbox、query-back 都在这里 | 不合成、不烧录、不存凭据 |
+| `tts-runtime` | 唯一合成入口（`synth` / `batch` / `inspect`），引擎 `lstts`（云端 IndexTTS）/ `melotts` / `mock` | 不写 1006、不建库、不做复用判断 |
+| `audio-runtime` | 派生处理：重采样、增益、降噪、裁剪、播放、录制 | 只处理任务副本，不改库原件 |
+| `ark-kb` | 只索引可搜索资产元数据（asset ID、SHA、作用域、受控位置） | 不存音频本体、不存敏感全文 |
+| `lstest` | 测试域，消费任务目录副本 | 不直接读写共享库、不绕过 `tts-runtime` 回填公共库 |
+
+`lstts` 是 `tts-runtime` 的引擎名，不是独立 skill；不得新增 `lstts` skill 名或入口。
+
+### 17.2 目录与不可变
+
+```text
+/srv/storage/ark/artifacts/audio/tts-library/
+├── index.json                 # 可搜索索引，临时文件 + rename 原子重写
+├── locks/tts-<key16>.lock     # 每个 asset_id 一把锁
+├── _incoming/tts-<key16>/     # 上传暂存，发布成功才 rename
+└── tts-<key16>/
+    ├── manifest.json          # ark.tts-asset.v1
+    └── <audio_sha256>.wav     # 文件名由内容哈希决定
+```
+
+- 资产目录**发布后只读**：禁止原地修改。换模型、换参数、换音色都会得到新 cache key ⇒ 新 asset_id。
+- 同一 asset_id 若出现不同 SHA，发布为 `tts-<key16>-v2`，`supersedes` 指向旧 ID，旧目录保留。
+- 库根只允许 `asset-tools tts-library` 写；业务任务、`tts-runtime`、`lstest` 只能读库或写自己的任务目录。
+- 任何删除（GC / 配额 / 保留策略）都必须单独审批（`gc_requires_approval=true`），任务侧不得删除共享资产。
+- 敏感文本默认 `shareable=false`（`sensitive_default_shareable=false`），不进入公共库共享；强行发布会退出码 4。
+
+### 17.3 缓存键：完整规格才算命中
+
+参与计算的字段（缺省显式写 `null`，不允许省略）：
+
+```text
+normalized_text, language, voice{speaker|voice_ref_sha256}, engine, model, model_version,
+synthesis_params{rate,pitch,style,emotion,speed}, output{container,codec,sample_rate,channels,bit_depth},
+normalization_profile
+```
+
+- `normalize_text`：Unicode NFKC → 去零宽字符 → 去首尾空白 → 连续空白折叠为单个半角空格。
+- `language` 大写（`ZH` / `EN`）；`voice` 只允许 `speaker` 或 `voice_ref_sha256`，禁止把绝对路径写进键。
+- `synthesis_params` / `output` 按固定键集输出，未设置的键写 `null`，数值保持 JSON number。
+- 确定性序列化：`json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))`，UTF-8。
+- `cache_key = sha256(canonical_json)`；`asset_id = "tts-" + cache_key[:16]`。
+- **禁止只按文本命中**：文本相同但音色、模型、模型版本、采样率任一不同，就是不同资产，必须重新计算 cache key。
+
+### 17.4 任务流程（唯一顺序）
+
+1. 生成 cache key（完整规格，不省略字段）。
+2. `asset-tools tts-library lookup --spec <spec.json>` 查 1006 索引；本地任务缓存次之。
+   这一步由 `lookup_before_synth=true` 强制：**没有查库结果，不允许开始合成**。
+3. 命中且 `quality=formal`、`status=active`、`shareable=true`、完整 cache key 相等、SHA 校验通过、ACL 允许 →
+   用 `fetch --dest assets/tts/original --task-dir .` **复制**到 `assets/tts/original/<asset_id>/`。
+4. 未命中 → `tts-runtime synth` 到 `work/tts/<asset_id>/`（唯一合成入口，engine 固定 `lstts`）。
+5. `inspect` / 质检（可读、非静音、时长合理）。
+6. `publish --staging <dir> --task-dir .`：暂存 → 加锁 → compare-and-create → 原子 rename → 重建 index → query-back。
+7. 发布失败 → 写 `receipts/outbox/`（pending）；任务继续用本地结果，但**不得声称公共库已更新**。
+8. 任务内二次处理 → 只写 `work/audio/` 或 `result/audio/`，并记录 `derived_from_asset_id` 与 `processing_chain`。
+
+- `fetch` 只允许**复制**：禁止硬链接（`hardlink_forbidden=true`）、符号链接、共享可写挂载；落盘后默认置只读。
+- `assets/tts/original/` 只放库副本；重采样 / 增益 / 降噪 / 裁剪一律不得写这里。
+- 派生资产必须带 `derived_from_asset_id`（`derived_requires_asset_id=true`）；派生资产默认不发布到库，确需登记要单独审批。
+- `publish` 必须带 `--task-dir`，用于 outbox 与审计；临时文件不得落在任务目录之外。
+- 合成失败不发布；质检失败默认不发布，`--allow-quality-candidate` 可降级为 `candidate` 并留证据。
+
+### 17.5 拒绝矩阵
+
+| 情形 | 处置 | 退出码 |
+|---|---|---|
+| 命中且六项复用条件全部满足 | 允许取件复用 | 0 |
+| `candidate` / `evidence_gap` | 默认拒绝自动复用；`--allow-candidate --confirm` 才可作为任务输入，并在计划与回执注明 | 3 |
+| `stale` / `superseded` | 拒绝自动复用；`--include-stale` 仅供人工核查，不进入任务输入 | 3 |
+| 损坏（SHA 不符 / 不可读） | 拒绝并隔离记录，重新合成后可发布；不得冒充命中 | 1 |
+| 参数缺失 / 键字段不完整 / 缺 `--task-dir` | 用法错误，补齐后重跑 | 2 |
+| 敏感文本 `shareable=false` 发布 / ACL 越权 / 路径越界 | 拒绝，outbox 记 `SENSITIVE_DENIED`，库不得新增 | 4 |
+| 1006 或远端传输失败（含超时） | 记录不可达，本地合成 + outbox 待重放 | 5 |
+
+自动复用条件是一个整体：`quality=formal` 且 `status=active` 且 `shareable=true` 且完整 cache key 相等
+且 SHA 校验通过且 ACL 允许，缺一项就不算命中。
+
+### 17.6 退出码映射（沿用全平台跨契约口径）
+
+| 码 | 含义 | TTS 库场景 | 任务侧动作 |
+|---|---|---|---|
+| 0 | OK | 命中取件、发布、校验、幂等发布成功 | 继续任务 |
+| 1 | FAIL | SHA 不符、query-back 失败、损坏对象 | 隔离对象；重新合成后按新规格发布 |
+| 2 | USAGE | 参数缺失、键字段不完整、缺 `--task-dir` | 补齐参数重跑，不降级 |
+| 3 | NO_SOURCE | 未命中、资产不存在、`candidate` / `stale` 被拒绝 | 走 cache miss 合成；或按 §17.8 区别不可达 |
+| 4 | FORBIDDEN | 敏感文本发布、ACL 越权、路径越界、只读库写入 | 停止发布，outbox 记原因，不绕过 |
+| 5 | NETWORK | 1006 / 远端传输失败（含超时） | 按不可达处理，写 outbox 待重放 |
+| 6 | NEEDS_ELEVATION | 需要提权 | 本轮不触发；出现即上报，不自行提权 |
+
+### 17.7 正例 / 反例
+
+正例（先查后合成，命中即复制）：
+
+```text
+任务需要一段中文旁白 → 生成完整 cache key（文本/音色/engine=lstts/model/参数/输出格式）
+→ asset-tools tts-library lookup --spec spec.json → 命中 tts-1a2b3c4d5e6f7788
+→ 校验 manifest + sha256 → fetch --dest assets/tts/original --task-dir .
+→ 得到 assets/tts/original/tts-1a2b3c4d5e6f7788/<sha>.wav（复制，不硬链接）
+→ 后续重采样写 work/audio/<name>.wav，并记 derived_from_asset_id=tts-1a2b3c4d5e6f7788
+```
+
+反例（跳过查库、直接对库原件加工）：
+
+```text
+任务需要一段中文旁白 → 直接调用 tts-runtime synth，不生成 cache key、不 lookup
+→ 合成完成后没有 publish，公共库无新增，别的任务下次还要重合成
+→ 或者把库里原件硬链接到任务目录并原地改采样率，导致库对象 SHA 变化
+→ 两者都违规：前者违反 lookup_before_synth，后者违反 hardlink_forbidden 与「库原件不可变」
+```
+
+### 17.8 1006 不可达：只记不可达，不说「库里没有」
+
+- `lookup` 返回 `unreachable=true`、退出码 3 时，计划与回执只能写「1006 不可达」，
+  **禁止**写「库里没有」「无此类资产」——不可达不等于不存在。
+- 任务继续：本地合成结果留在任务目录，发布请求写 `receipts/outbox/`（pending）。
+- 恢复后按 `idempotency_key = sha256(asset_id|audio.sha256)` 幂等重放；重放前先清理同键 `_incoming` 残留。
+- 无法记录不可达时按 `BLOCKED_TTS_LIBRARY_UNREACHABLE` 处理，不静默降级为「无库模式」。
+
+### 17.9 平台字段与校验
+
+`agent-profile.v1.json` 的 `default.tts_library` 是机器可读契约：根目录、索引、canonical 工具、lookup / fetch / publish 命令、
+合成工具与引擎、复用条件、任务副本与派生目录、outbox、不可达动作、敏感默认与 GC 审批。
+`verify-template.py` 的 `check_tts_library()` 会独立校验该段与本节标题、关键 token 是否一致；
+模板与 profile 任一方改动，都必须同步另一方并重跑校验。
 
 ---
 
@@ -521,6 +1075,93 @@ python3 verify-template.py --dir . --manifest manifest.json --json
 | `env_keys` | array | 只允许键名 |
 | `supervision.rules` | array | 四条规则名 |
 | `approval.requires` | array | 需审批的操作类别 |
+| `execution_channel.mode` | string | 固定 `hidden-background` |
+| `execution_channel.no_visible_terminal` | bool | Windows 必须 `true` |
+| `execution_channel.non_interactive` | bool | 全平台必须 `true` |
+| `execution_channel.forbidden_launchers` | array | 禁止的启动器与参数 |
+| `execution_channel.unverifiable_action` | string | 证明不了通道时报 `BLOCKED_EXECUTION_CHANNEL` |
+| `run_state.schema` | string | 事件流 schema，固定 `ark.run-state.v1` |
+| `run_state.schema_ref` | string | 同目录 `run-state.v1.json` |
+| `run_state.event_log` | string | `receipts/events/gates-<YYYYMMDD>.jsonl` |
+| `run_state.stage_index` | string | `receipts/stage-index.json` |
+| `run_state.events` | array | 五个门禁事件名 |
+| `run_state.blocker_codes` | array | 五个 `BLOCKED_*` 码 |
+| `run_state.preflight_checks` | array | `EXECUTION_CHECK.preflight.checks` 的固定 7 项 |
+| `gate_events.watchdog_sample_seconds_min` / `_max` | integer | watchdog 采样区间 10–30 秒 |
+| `execution_channel.launch_record` | string | 启动记录相对路径 `logs/launch.json` |
+| `run_state.run_statuses` | array | run 状态全集 |
+| `run_state.done_by` | string | 固定 `human-only` |
+| `run_state.landing_status` | string | agent 交付后写 `in_review` |
+| `stage_policy.id_source` | string | stage 来自 issue 整数字段 |
+| `stage_policy.milestone` | string | 固定 `not-supported` |
+| `stage_policy.barrier` | string | `--until-children-done --stage N` |
+| `stage_policy.rollback` | string | 固定 `per-stage` |
+| `stage_policy.delete_evidence` | string | 固定 `forbidden` |
+| `gate_events.write_before_work` | bool | 开工前先写 `EXECUTION_CHECK` |
+| `gate_events.progress_interval_minutes` | int | 固定 5 |
+| `gate_events.missing_event` | string | 缺事件即置 `BLOCKED` |
+| `gate_events.watchdog_channels` | array | 三通道：comment / run_record / artifact_mtime |
+| `receipt_layers.formal` | string | 正式回执路径 |
+| `receipt_layers.candidate` | string | 候选回执目录 |
+| `receipt_layers.evidence_gap` | string | 证据缺口目录 |
+| `receipt_layers.join_key` | string | 固定 `run_id` |
+| `receipt_layers.reflow_source` | string | 固定 `formal-only` |
+| `receipt_layers.schema_change` | string | 固定 `forbidden` |
+| `kb_sync.enabled` | bool | 固定 `true`，知识同步必开 |
+| `kb_sync.context_schema` | string | 查询留痕契约 `ark.kb-context.v1` |
+| `kb_sync.delivery_schema` | string | 回流状态契约 `ark.delivery.v1` |
+| `kb_sync.query_command` | string | `python3 <ark-kb>/tools/kb.py query --json` |
+| `kb_sync.query_dims` | array | 五个查询维度 |
+| `kb_sync.record_first` | bool | 固定 `false`，先查询后记录 |
+| `kb_sync.refresh_points` | array | 四个刷新触发点 |
+| `kb_sync.delivery_path` | string | `receipts/delivery.json` |
+| `kb_sync.order` | array | 每个检查点的归档/入库顺序固定五步 |
+| `kb_sync.query_back_top` | integer | 回流确认默认 top 20 |
+| `kb_sync.no_kb_required_reasons` | array | 四类免回流原因 |
+| `kb_sync.incomplete_code` | string | 缺状态位判 `DELIVERY_INCOMPLETE` |
+| `kb_sync.layers.formal` | string | 正式回执路径 |
+| `kb_sync.layers.candidate` | string | 候选回执目录 |
+| `kb_sync.layers.evidence_gap` | string | 证据缺口目录 |
+| `kb_sync.candidate_may_drive_dispatch` | bool | 固定 `false`，候选不驱动派发 |
+| `kb_sync.checkpoint.event_schema` | string | 检查点契约 `ark.checkpoint.v1` |
+| `kb_sync.checkpoint.wal` | string | 只追加 WAL `receipts/outbox/checkpoints-<YYYYMMDD>.jsonl` |
+| `kb_sync.checkpoint.index` | string | outbox 状态索引 `receipts/outbox/outbox.json` |
+| `kb_sync.checkpoint.append_only` | bool | 固定 `true`，永不改写、永不删除 |
+| `kb_sync.checkpoint.idempotency_key` | string | `sha256(issue_id|run_id|stage|event_seq|evidence_digest)` |
+| `kb_sync.triggers` | array | 12 个检查点触发器，顺序固定 |
+| `kb_sync.final_receipt_role` | string | 固定 `aggregate-close-only`，只聚合不产知识 |
+| `kb_sync.quality_tiers` | object | `formal` / `candidate` / `evidence_gap` 三层判据 |
+| `kb_sync.failure_can_be_formal` | bool | 固定 `true`，失败可为 formal bug/method |
+| `kb_sync.failure_outcome_forbidden` | string | 固定 `PASS`，失败知识不得写 PASS |
+| `kb_sync.scopes` | array | 七级作用域，由近到远 |
+| `kb_sync.scope_inherit` | string | 固定 `near-to-far` |
+| `kb_sync.cross_scope_reference` | string | `derived_from` / `applies_to` / `exceptions` |
+| `kb_sync.project_may_override_global` | bool | 固定 `false`，项目只加例外 |
+| `kb_sync.promotion.min_projects` | integer | 提升门槛固定 2 个项目 |
+| `kb_sync.promotion.promote_to` | array | 只允许 `capability` / `global` |
+| `kb_sync.promotion.requires_review` | bool | 固定 `true`，提升需审核 |
+| `kb_sync.promotion.demotion` | string | 降级用 `applies_to` / `exceptions`，不删除 |
+| `kb_sync.outbox_close_when` | string | outbox 关闭三条件 |
+| `kb_sync.recovery_scan` / `recovery_scan_when` | bool / string | run 启动时扫 WAL 补发 |
+| `kb_sync.query_back_per_checkpoint` | bool | 固定 `true`，每个检查点单独 query-back |
+| `tts_library.root` | string | `/srv/storage/ark/artifacts/audio/tts-library`（1006 公共库根，发布后只读） |
+| `tts_library.index` | string | 可搜索索引 `index.json`，临时文件 + rename 原子重写 |
+| `tts_library.canonical_tool` | string | 固定 `asset-tools`，库的唯一写入方 |
+| `tts_library.lookup_command` | string | `asset-tools tts-library lookup --spec <spec.json>` |
+| `tts_library.fetch_command` | string | `asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir .` |
+| `tts_library.publish_command` | string | `asset-tools tts-library publish --staging <dir> --task-dir .` |
+| `tts_library.synth_tool` | string | 唯一合成入口 `tts-runtime`（只在 cache miss 时调用） |
+| `tts_library.synth_engine` | string | 固定 `lstts`（云端 IndexTTS），不是独立 skill |
+| `tts_library.lookup_before_synth` | bool | 固定 `true`，先查库再合成 |
+| `tts_library.reuse_requires` | array | 六项复用条件：`quality=formal` / `status=active` / `shareable=true` / 完整 cache key / SHA 校验 / ACL |
+| `tts_library.original_dir` | string | 库副本目录 `assets/tts/original`，只读、禁止原地加工 |
+| `tts_library.derived_dir` | string | 派生处理落 `work/audio`（正式结果可写 `result/audio`） |
+| `tts_library.hardlink_forbidden` | bool | 固定 `true`，取件只复制，禁止硬链接/符号链接/共享可写挂载 |
+| `tts_library.derived_requires_asset_id` | bool | 固定 `true`，派生资产必须记 `derived_from_asset_id` |
+| `tts_library.outbox_dir` | string | 发布失败与不可达重放写 `receipts/outbox` |
+| `tts_library.unreachable_action` | string | 1006 不可达报 `BLOCKED_TTS_LIBRARY_UNREACHABLE`，不得说「库里没有」 |
+| `tts_library.sensitive_default_shareable` | bool | 固定 `false`，敏感文本默认不共享 |
+| `tts_library.gc_requires_approval` | bool | 固定 `true`，GC/配额/保留策略必须单独审批 |
 | `compatibility.template_version` | string | 模板版本 |
 
 ---

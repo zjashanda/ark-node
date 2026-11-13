@@ -1,7 +1,7 @@
 {
   "schema": "ark.agent-profile.v1",
-  "profile_version": "1.0.1",
-  "template_version": "1.0.1",
+  "profile_version": "1.6.0",
+  "template_version": "1.6.0",
   "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
   "default": {
     "schema": "ark.agent-profile.v1",
@@ -20,8 +20,17 @@
       "task_root_linux": "/home/zhsh/workspace/tasks",
       "task_dir_pattern": "<tasks-id>",
       "task_id_source": "multica-issue-id-first",
-      "subdirs": ["assets", "work", "logs", "result", "receipts"],
-      "root_files": ["plan.md", "manifest.json"],
+      "subdirs": [
+        "assets",
+        "work",
+        "logs",
+        "result",
+        "receipts"
+      ],
+      "root_files": [
+        "plan.md",
+        "manifest.json"
+      ],
       "on_violation": "BLOCKED_WORKDIR_POLICY"
     },
     "sources": {
@@ -65,22 +74,248 @@
       "STORAGE_USER",
       "STORAGE_PASSWORD"
     ],
-    "loop": ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"],
+    "loop": [
+      "ark-dispatch",
+      "execute",
+      "ark-archive",
+      "receipt",
+      "ark-kb",
+      "next-dispatch"
+    ],
     "supervision": {
-      "rules": ["EXECUTION_CHECK", "PROGRESS_5M", "STATE_DRIFT", "RUNNING_NO_EVIDENCE"],
+      "rules": [
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STATE_DRIFT",
+        "RUNNING_NO_EVIDENCE"
+      ],
       "progress_interval_minutes": 5,
       "background_and_yield": "forbidden"
     },
+    "execution_channel": {
+      "mode": "hidden-background",
+      "no_visible_terminal": true,
+      "non_interactive": true,
+      "stdout_redirect": "logs/",
+      "stderr_redirect": "logs/",
+      "forbidden_launchers": [
+        "Start-Process",
+        "Win32_Process.Create",
+        "conhost",
+        "wt",
+        "powershell -NoExit"
+      ],
+      "require_batch_mode": true,
+      "unverifiable_action": "BLOCKED_EXECUTION_CHANNEL",
+      "background_and_yield": "forbidden",
+      "launch_record": "logs/launch.json"
+    },
     "approval": {
-      "requires": ["git-push", "external-publish", "real-device-action", "file-deletion", "permission-change"],
+      "requires": [
+        "git-push",
+        "external-publish",
+        "real-device-action",
+        "file-deletion",
+        "permission-change"
+      ],
       "default_mode": "dry-run"
     },
     "receipts": {
       "run": "run.receipt.v1",
       "onboarding": "ark.agent-onboarding.v1"
     },
+    "run_state": {
+      "schema": "ark.run-state.v1",
+      "schema_ref": "run-state.v1.json",
+      "event_log": "receipts/events/gates-<YYYYMMDD>.jsonl",
+      "stage_index": "receipts/stage-index.json",
+      "events": [
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FINAL_RECEIPT"
+      ],
+      "blocker_codes": [
+        "BLOCKED_SOURCE_MISSING",
+        "BLOCKED_EXECUTION_CHANNEL",
+        "BLOCKED_WORKDIR_POLICY",
+        "BLOCKED_APPROVAL_REQUIRED",
+        "BLOCKED_PLAN_INCOMPLETE"
+      ],
+      "run_statuses": [
+        "queued",
+        "dispatched",
+        "running",
+        "waiting_local_directory",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "done_by": "human-only",
+      "landing_status": "in_review",
+      "preflight_checks": [
+        "runtime_online",
+        "agent_runtime_match",
+        "workdir_policy",
+        "plan_present",
+        "launcher_available",
+        "hidden_execution_capable",
+        "device_preflight"
+      ]
+    },
+    "stage_policy": {
+      "id_source": "multica-stage-integer",
+      "milestone": "not-supported",
+      "barrier": "--until-children-done --stage N",
+      "rollback": "per-stage",
+      "delete_evidence": "forbidden"
+    },
+    "gate_events": {
+      "write_before_work": true,
+      "progress_interval_minutes": 5,
+      "missing_event": "BLOCKED",
+      "watchdog_channels": [
+        "comment",
+        "run_record",
+        "artifact_mtime"
+      ],
+      "watchdog_sample_seconds_min": 10,
+      "watchdog_sample_seconds_max": 30
+    },
+    "receipt_layers": {
+      "formal": "receipts/run.receipt.json",
+      "candidate": "receipts/candidates/",
+      "evidence_gap": "receipts/evidence-gaps/",
+      "join_key": "run_id",
+      "reflow_source": "formal-only",
+      "schema_change": "forbidden"
+    },
+    "kb_sync": {
+      "enabled": true,
+      "context_schema": "ark.kb-context.v1",
+      "delivery_schema": "ark.delivery.v1",
+      "query_command": "python3 <ark-kb>/tools/kb.py query --json",
+      "query_dims": [
+        "capability",
+        "project",
+        "device",
+        "firmware",
+        "profile"
+      ],
+      "record_first": false,
+      "refresh_points": [
+        "stage_boundary",
+        "every_30_minutes",
+        "every_100_rounds",
+        "registry_commit_change"
+      ],
+      "delivery_path": "receipts/delivery.json",
+      "order": [
+        "manifest",
+        "receipt",
+        "archive",
+        "kb_record",
+        "kb_query_back"
+      ],
+      "query_back_top": 20,
+      "no_kb_required_reasons": [
+        "no-new-knowledge",
+        "pure-inventory",
+        "duplicate-of-existing:<entry_id>",
+        "sensitive-not-indexable"
+      ],
+      "incomplete_code": "DELIVERY_INCOMPLETE",
+      "layers": {
+        "formal": "receipts/run.receipt.json",
+        "candidate": "receipts/candidates/",
+        "evidence_gap": "receipts/evidence-gaps/"
+      },
+      "candidate_may_drive_dispatch": false,
+      "checkpoint": {
+        "event_schema": "ark.checkpoint.v1",
+        "wal": "receipts/outbox/checkpoints-<YYYYMMDD>.jsonl",
+        "index": "receipts/outbox/outbox.json",
+        "append_only": true,
+        "idempotency_key": "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"
+      },
+      "triggers": [
+        "EXECUTION_CHECK",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FAIL",
+        "NEEDS_REVIEW",
+        "WATCHDOG_RUNNING_NO_EVIDENCE",
+        "WATCHDOG_STATE_DRIFT",
+        "WATCHDOG_TIMEOUT",
+        "WATCHDOG_HEARTBEAT_LOST",
+        "MANUAL_CANCEL",
+        "RUNTIME_CRASH",
+        "RECOVERY_REPLAY"
+      ],
+      "final_receipt_role": "aggregate-close-only",
+      "quality_tiers": {
+        "formal": "evidence-complete",
+        "candidate": "evidence-incomplete",
+        "evidence_gap": "no-evidence"
+      },
+      "failure_can_be_formal": true,
+      "failure_outcome_forbidden": "PASS",
+      "scopes": [
+        "run",
+        "node",
+        "project",
+        "device_family",
+        "platform",
+        "capability",
+        "global"
+      ],
+      "scope_inherit": "near-to-far",
+      "cross_scope_reference": "derived_from-applies_to-exceptions",
+      "project_may_override_global": false,
+      "promotion": {
+        "min_projects": 2,
+        "promote_to": [
+          "capability",
+          "global"
+        ],
+        "requires_review": true,
+        "demotion": "add-applies_to-or-exceptions"
+      },
+      "outbox_close_when": "all archive ok and kb ingest recorded-or-skipped and query-back pass-or-deferred",
+      "recovery_scan": true,
+      "recovery_scan_when": "run-start",
+      "query_back_per_checkpoint": true
+    },
+    "tts_library": {
+      "root": "/srv/storage/ark/artifacts/audio/tts-library",
+      "index": "index.json",
+      "canonical_tool": "asset-tools",
+      "lookup_command": "asset-tools tts-library lookup --spec <spec.json>",
+      "fetch_command": "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir .",
+      "publish_command": "asset-tools tts-library publish --staging <dir> --task-dir .",
+      "synth_tool": "tts-runtime",
+      "synth_engine": "lstts",
+      "lookup_before_synth": true,
+      "reuse_requires": [
+        "quality=formal",
+        "status=active",
+        "shareable=true",
+        "full_cache_key_match",
+        "sha256_verified",
+        "acl_allowed"
+      ],
+      "original_dir": "assets/tts/original",
+      "derived_dir": "work/audio",
+      "hardlink_forbidden": true,
+      "derived_requires_asset_id": true,
+      "outbox_dir": "receipts/outbox",
+      "unreachable_action": "BLOCKED_TTS_LIBRARY_UNREACHABLE",
+      "sensitive_default_shareable": false,
+      "gc_requires_approval": true
+    },
     "compatibility": {
-      "template_version": "1.0.1",
+      "template_version": "1.6.0",
       "ark_node": ">=0.1.0",
       "skillhub_sync": ">=1.0.0",
       "asset_tools": ">=0.1.0"
@@ -121,7 +356,11 @@
     }
   },
   "fields": {
-    "schema": { "type": "string", "required": true, "const": "ark.agent-profile.v1" },
+    "schema": {
+      "type": "string",
+      "required": true,
+      "const": "ark.agent-profile.v1"
+    },
     "agent_name": {
       "type": "string",
       "required": true,
@@ -131,7 +370,12 @@
     "role": {
       "type": "string",
       "required": true,
-      "enum": ["coordinator", "node-executor", "hardware-bench", "knowledge-curator"]
+      "enum": [
+        "coordinator",
+        "node-executor",
+        "hardware-bench",
+        "knowledge-curator"
+      ]
     },
     "description": {
       "type": "string",
@@ -144,8 +388,14 @@
       "required": true,
       "description": "行为契约文件名；契约正文来自模板"
     },
-    "runtime.runtime_id": { "type": "string", "required": true },
-    "runtime.model": { "type": "string", "required": true },
+    "runtime.runtime_id": {
+      "type": "string",
+      "required": true
+    },
+    "runtime.model": {
+      "type": "string",
+      "required": true
+    },
     "runtime.max_concurrent_tasks": {
       "type": "integer",
       "required": true,
@@ -153,50 +403,145 @@
       "maximum": 3,
       "rule": "hardware-bench 必须为 1"
     },
-    "runtime.timeout_minutes": { "type": "integer", "required": false, "minimum": 1 },
-    "paths.task_root_windows": { "type": "string", "required": true, "const": "D:\\zhsh\\workspace\\tasks" },
-    "paths.task_root_linux": { "type": "string", "required": true, "const": "/home/zhsh/workspace/tasks" },
-    "paths.task_dir_pattern": { "type": "string", "required": true, "const": "<tasks-id>" },
-    "paths.task_id_source": { "type": "string", "required": true, "const": "multica-issue-id-first" },
+    "runtime.timeout_minutes": {
+      "type": "integer",
+      "required": false,
+      "minimum": 1
+    },
+    "paths.task_root_windows": {
+      "type": "string",
+      "required": true,
+      "const": "D:\\zhsh\\workspace\\tasks"
+    },
+    "paths.task_root_linux": {
+      "type": "string",
+      "required": true,
+      "const": "/home/zhsh/workspace/tasks"
+    },
+    "paths.task_dir_pattern": {
+      "type": "string",
+      "required": true,
+      "const": "<tasks-id>"
+    },
+    "paths.task_id_source": {
+      "type": "string",
+      "required": true,
+      "const": "multica-issue-id-first"
+    },
     "paths.subdirs": {
       "type": "array",
       "required": true,
-      "items_const": ["assets", "work", "logs", "result", "receipts"]
+      "items_const": [
+        "assets",
+        "work",
+        "logs",
+        "result",
+        "receipts"
+      ]
     },
     "paths.root_files": {
       "type": "array",
       "required": true,
-      "items_const": ["plan.md", "manifest.json"]
+      "items_const": [
+        "plan.md",
+        "manifest.json"
+      ]
     },
-    "paths.on_violation": { "type": "string", "required": true, "const": "BLOCKED_WORKDIR_POLICY" },
-    "sources.git.canonical_repo": { "type": "string", "required": true },
-    "sources.git.ssh_alias": { "type": "string", "required": true },
-    "sources.git.workflow": { "type": "string", "required": true, "const": "branch-and-pull-request" },
+    "paths.on_violation": {
+      "type": "string",
+      "required": true,
+      "const": "BLOCKED_WORKDIR_POLICY"
+    },
+    "sources.git.canonical_repo": {
+      "type": "string",
+      "required": true
+    },
+    "sources.git.ssh_alias": {
+      "type": "string",
+      "required": true
+    },
+    "sources.git.workflow": {
+      "type": "string",
+      "required": true,
+      "const": "branch-and-pull-request"
+    },
     "sources.git.push_to_main": {
       "type": "string",
       "required": true,
       "const": "forbidden-without-approval"
     },
-    "sources.skillhub.manifest": { "type": "string", "required": true },
-    "sources.skillhub.tool": { "type": "string", "required": true, "const": "skillhub-sync" },
-    "sources.skillhub.sync_mode": { "type": "string", "required": true, "enum": ["on-demand"] },
-    "sources.skillhub.protect_local_drift": { "type": "boolean", "required": true },
-    "storage.root": { "type": "string", "required": true, "const": "/srv/storage/ark" },
-    "storage.results": { "type": "string", "required": true },
-    "storage.receipts": { "type": "string", "required": true },
-    "storage.artifacts": { "type": "string", "required": true },
-    "storage.quarantine": { "type": "string", "required": true },
+    "sources.skillhub.manifest": {
+      "type": "string",
+      "required": true
+    },
+    "sources.skillhub.tool": {
+      "type": "string",
+      "required": true,
+      "const": "skillhub-sync"
+    },
+    "sources.skillhub.sync_mode": {
+      "type": "string",
+      "required": true,
+      "enum": [
+        "on-demand"
+      ]
+    },
+    "sources.skillhub.protect_local_drift": {
+      "type": "boolean",
+      "required": true
+    },
+    "storage.root": {
+      "type": "string",
+      "required": true,
+      "const": "/srv/storage/ark"
+    },
+    "storage.results": {
+      "type": "string",
+      "required": true
+    },
+    "storage.receipts": {
+      "type": "string",
+      "required": true
+    },
+    "storage.artifacts": {
+      "type": "string",
+      "required": true
+    },
+    "storage.quarantine": {
+      "type": "string",
+      "required": true
+    },
     "time.display_format": {
       "type": "string",
       "required": true,
       "const": "YYYY-MM-DD HH:MM:SS",
       "rule": "北京时间、无时区标记"
     },
-    "time.stamp_format": { "type": "string", "required": true, "const": "YYYYMMDD-HHMMSS" },
-    "time.locale_zone": { "type": "string", "required": true, "const": "Beijing" },
-    "time.offset_hours": { "type": "integer", "required": true, "const": 8 },
-    "time.zone_designator": { "type": "string", "required": true, "const": "forbidden" },
-    "time.raw_field_prefix": { "type": "string", "required": true, "const": "raw_" },
+    "time.stamp_format": {
+      "type": "string",
+      "required": true,
+      "const": "YYYYMMDD-HHMMSS"
+    },
+    "time.locale_zone": {
+      "type": "string",
+      "required": true,
+      "const": "Beijing"
+    },
+    "time.offset_hours": {
+      "type": "integer",
+      "required": true,
+      "const": 8
+    },
+    "time.zone_designator": {
+      "type": "string",
+      "required": true,
+      "const": "forbidden"
+    },
+    "time.raw_field_prefix": {
+      "type": "string",
+      "required": true,
+      "const": "raw_"
+    },
     "env_keys": {
       "type": "array",
       "required": true,
@@ -206,15 +551,86 @@
     "loop": {
       "type": "array",
       "required": true,
-      "items_const": ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"]
+      "items_const": [
+        "ark-dispatch",
+        "execute",
+        "ark-archive",
+        "receipt",
+        "ark-kb",
+        "next-dispatch"
+      ]
     },
     "supervision.rules": {
       "type": "array",
       "required": true,
-      "items_const": ["EXECUTION_CHECK", "PROGRESS_5M", "STATE_DRIFT", "RUNNING_NO_EVIDENCE"]
+      "items_const": [
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STATE_DRIFT",
+        "RUNNING_NO_EVIDENCE"
+      ]
     },
-    "supervision.progress_interval_minutes": { "type": "integer", "required": true, "const": 5 },
-    "supervision.background_and_yield": { "type": "string", "required": true, "const": "forbidden" },
+    "supervision.progress_interval_minutes": {
+      "type": "integer",
+      "required": true,
+      "const": 5
+    },
+    "supervision.background_and_yield": {
+      "type": "string",
+      "required": true,
+      "const": "forbidden"
+    },
+    "execution_channel.mode": {
+      "type": "string",
+      "required": true,
+      "const": "hidden-background"
+    },
+    "execution_channel.no_visible_terminal": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "execution_channel.non_interactive": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "execution_channel.stdout_redirect": {
+      "type": "string",
+      "required": true,
+      "const": "logs/"
+    },
+    "execution_channel.stderr_redirect": {
+      "type": "string",
+      "required": true,
+      "const": "logs/"
+    },
+    "execution_channel.forbidden_launchers": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "Start-Process",
+        "Win32_Process.Create",
+        "conhost",
+        "wt",
+        "powershell -NoExit"
+      ]
+    },
+    "execution_channel.require_batch_mode": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "execution_channel.unverifiable_action": {
+      "type": "string",
+      "required": true,
+      "const": "BLOCKED_EXECUTION_CHANNEL"
+    },
+    "execution_channel.background_and_yield": {
+      "type": "string",
+      "required": true,
+      "const": "forbidden"
+    },
     "approval.requires": {
       "type": "array",
       "required": true,
@@ -226,12 +642,311 @@
         "permission-change"
       ]
     },
-    "approval.default_mode": { "type": "string", "required": true, "const": "dry-run" },
-    "receipts.run": { "type": "string", "required": true, "const": "run.receipt.v1" },
-    "receipts.onboarding": { "type": "string", "required": true, "const": "ark.agent-onboarding.v1" },
-    "compatibility.template_version": { "type": "string", "required": true },
-    "compatibility.ark_node": { "type": "string", "required": true },
-    "compatibility.skillhub_sync": { "type": "string", "required": false },
-    "compatibility.asset_tools": { "type": "string", "required": false }
+    "approval.default_mode": {
+      "type": "string",
+      "required": true,
+      "const": "dry-run"
+    },
+    "receipts.run": {
+      "type": "string",
+      "required": true,
+      "const": "run.receipt.v1"
+    },
+    "receipts.onboarding": {
+      "type": "string",
+      "required": true,
+      "const": "ark.agent-onboarding.v1"
+    },
+    "run_state.schema": {
+      "type": "string",
+      "required": true,
+      "const": "ark.run-state.v1"
+    },
+    "run_state.schema_ref": {
+      "type": "string",
+      "required": true,
+      "const": "run-state.v1.json"
+    },
+    "run_state.event_log": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/events/gates-<YYYYMMDD>.jsonl"
+    },
+    "run_state.stage_index": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/stage-index.json"
+    },
+    "run_state.events": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FINAL_RECEIPT"
+      ]
+    },
+    "run_state.blocker_codes": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "BLOCKED_SOURCE_MISSING",
+        "BLOCKED_EXECUTION_CHANNEL",
+        "BLOCKED_WORKDIR_POLICY",
+        "BLOCKED_APPROVAL_REQUIRED",
+        "BLOCKED_PLAN_INCOMPLETE"
+      ]
+    },
+    "run_state.run_statuses": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "queued",
+        "dispatched",
+        "running",
+        "waiting_local_directory",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "run_state.done_by": {
+      "type": "string",
+      "required": true,
+      "const": "human-only"
+    },
+    "run_state.landing_status": {
+      "type": "string",
+      "required": true,
+      "const": "in_review"
+    },
+    "stage_policy.id_source": {
+      "type": "string",
+      "required": true,
+      "const": "multica-stage-integer"
+    },
+    "stage_policy.milestone": {
+      "type": "string",
+      "required": true,
+      "const": "not-supported"
+    },
+    "stage_policy.barrier": {
+      "type": "string",
+      "required": true,
+      "const": "--until-children-done --stage N"
+    },
+    "stage_policy.rollback": {
+      "type": "string",
+      "required": true,
+      "const": "per-stage"
+    },
+    "stage_policy.delete_evidence": {
+      "type": "string",
+      "required": true,
+      "const": "forbidden"
+    },
+    "gate_events.write_before_work": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "gate_events.progress_interval_minutes": {
+      "type": "integer",
+      "required": true,
+      "const": 5
+    },
+    "gate_events.missing_event": {
+      "type": "string",
+      "required": true,
+      "const": "BLOCKED"
+    },
+    "gate_events.watchdog_channels": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "comment",
+        "run_record",
+        "artifact_mtime"
+      ]
+    },
+    "receipt_layers.formal": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/run.receipt.json"
+    },
+    "receipt_layers.candidate": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/candidates/"
+    },
+    "receipt_layers.evidence_gap": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/evidence-gaps/"
+    },
+    "receipt_layers.join_key": {
+      "type": "string",
+      "required": true,
+      "const": "run_id"
+    },
+    "receipt_layers.reflow_source": {
+      "type": "string",
+      "required": true,
+      "const": "formal-only"
+    },
+    "receipt_layers.schema_change": {
+      "type": "string",
+      "required": true,
+      "const": "forbidden"
+    },
+    "kb_sync.enabled": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.context_schema": {"type": "string", "required": true, "const": "ark.kb-context.v1"},
+    "kb_sync.delivery_schema": {"type": "string", "required": true, "const": "ark.delivery.v1"},
+    "kb_sync.query_command": {"type": "string", "required": true},
+    "kb_sync.query_dims": {
+      "type": "array",
+      "required": true,
+      "items_const": ["capability", "project", "device", "firmware", "profile"]
+    },
+    "kb_sync.record_first": {"type": "boolean", "required": true, "const": false},
+    "kb_sync.refresh_points": {
+      "type": "array",
+      "required": true,
+      "items_const": ["stage_boundary", "every_30_minutes", "every_100_rounds", "registry_commit_change"]
+    },
+    "kb_sync.delivery_path": {"type": "string", "required": true, "const": "receipts/delivery.json"},
+    "kb_sync.order": {
+      "type": "array",
+      "required": true,
+      "items_const": ["manifest", "receipt", "archive", "kb_record", "kb_query_back"]
+    },
+    "kb_sync.query_back_top": {"type": "integer", "required": true, "const": 20},
+    "kb_sync.no_kb_required_reasons": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "no-new-knowledge",
+        "pure-inventory",
+        "duplicate-of-existing:<entry_id>",
+        "sensitive-not-indexable"
+      ]
+    },
+    "kb_sync.incomplete_code": {"type": "string", "required": true, "const": "DELIVERY_INCOMPLETE"},
+    "kb_sync.layers.formal": {"type": "string", "required": true, "const": "receipts/run.receipt.json"},
+    "kb_sync.layers.candidate": {"type": "string", "required": true, "const": "receipts/candidates/"},
+    "kb_sync.layers.evidence_gap": {"type": "string", "required": true, "const": "receipts/evidence-gaps/"},
+    "kb_sync.candidate_may_drive_dispatch": {"type": "boolean", "required": true, "const": false},
+    "kb_sync.checkpoint.event_schema": {"type": "string", "required": true, "const": "ark.checkpoint.v1"},
+    "kb_sync.checkpoint.wal": {"type": "string", "required": true, "const": "receipts/outbox/checkpoints-<YYYYMMDD>.jsonl"},
+    "kb_sync.checkpoint.index": {"type": "string", "required": true, "const": "receipts/outbox/outbox.json"},
+    "kb_sync.checkpoint.append_only": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.checkpoint.idempotency_key": {"type": "string", "required": true, "const": "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"},
+    "kb_sync.triggers": {
+      "type": "array",
+      "required": true,
+      "items_const": ["EXECUTION_CHECK", "STAGE_FINISHED", "BLOCKED", "FAIL", "NEEDS_REVIEW", "WATCHDOG_RUNNING_NO_EVIDENCE", "WATCHDOG_STATE_DRIFT", "WATCHDOG_TIMEOUT", "WATCHDOG_HEARTBEAT_LOST", "MANUAL_CANCEL", "RUNTIME_CRASH", "RECOVERY_REPLAY"]
+    },
+    "kb_sync.final_receipt_role": {"type": "string", "required": true, "const": "aggregate-close-only"},
+    "kb_sync.quality_tiers.formal": {"type": "string", "required": true, "const": "evidence-complete"},
+    "kb_sync.quality_tiers.candidate": {"type": "string", "required": true, "const": "evidence-incomplete"},
+    "kb_sync.quality_tiers.evidence_gap": {"type": "string", "required": true, "const": "no-evidence"},
+    "kb_sync.failure_can_be_formal": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.failure_outcome_forbidden": {"type": "string", "required": true, "const": "PASS"},
+    "kb_sync.scopes": {
+      "type": "array",
+      "required": true,
+      "items_const": ["run", "node", "project", "device_family", "platform", "capability", "global"]
+    },
+    "kb_sync.scope_inherit": {"type": "string", "required": true, "const": "near-to-far"},
+    "kb_sync.cross_scope_reference": {"type": "string", "required": true, "const": "derived_from-applies_to-exceptions"},
+    "kb_sync.project_may_override_global": {"type": "boolean", "required": true, "const": false},
+    "kb_sync.promotion.min_projects": {"type": "integer", "required": true, "const": 2},
+    "kb_sync.promotion.promote_to": {
+      "type": "array",
+      "required": true,
+      "items_const": ["capability", "global"]
+    },
+    "kb_sync.promotion.requires_review": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.promotion.demotion": {"type": "string", "required": true, "const": "add-applies_to-or-exceptions"},
+    "kb_sync.outbox_close_when": {
+      "type": "string",
+      "required": true,
+      "const": "all archive ok and kb ingest recorded-or-skipped and query-back pass-or-deferred"
+    },
+    "kb_sync.recovery_scan": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.recovery_scan_when": {"type": "string", "required": true, "const": "run-start"},
+    "kb_sync.query_back_per_checkpoint": {"type": "boolean", "required": true, "const": true},
+    "tts_library.root": {"type": "string", "required": true, "const": "/srv/storage/ark/artifacts/audio/tts-library"},
+    "tts_library.index": {"type": "string", "required": true, "const": "index.json"},
+    "tts_library.canonical_tool": {"type": "string", "required": true, "const": "asset-tools"},
+    "tts_library.lookup_command": {"type": "string", "required": true, "const": "asset-tools tts-library lookup --spec <spec.json>"},
+    "tts_library.fetch_command": {"type": "string", "required": true, "const": "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir ."},
+    "tts_library.publish_command": {"type": "string", "required": true, "const": "asset-tools tts-library publish --staging <dir> --task-dir ."},
+    "tts_library.synth_tool": {"type": "string", "required": true, "const": "tts-runtime"},
+    "tts_library.synth_engine": {"type": "string", "required": true, "const": "lstts"},
+    "tts_library.lookup_before_synth": {"type": "boolean", "required": true, "const": true},
+    "tts_library.reuse_requires": {
+      "type": "array",
+      "required": true,
+      "items_const": ["quality=formal", "status=active", "shareable=true", "full_cache_key_match", "sha256_verified", "acl_allowed"]
+    },
+    "tts_library.original_dir": {"type": "string", "required": true, "const": "assets/tts/original"},
+    "tts_library.derived_dir": {"type": "string", "required": true, "const": "work/audio"},
+    "tts_library.hardlink_forbidden": {"type": "boolean", "required": true, "const": true},
+    "tts_library.derived_requires_asset_id": {"type": "boolean", "required": true, "const": true},
+    "tts_library.outbox_dir": {"type": "string", "required": true, "const": "receipts/outbox"},
+    "tts_library.unreachable_action": {"type": "string", "required": true, "const": "BLOCKED_TTS_LIBRARY_UNREACHABLE"},
+    "tts_library.sensitive_default_shareable": {"type": "boolean", "required": true, "const": false},
+    "tts_library.gc_requires_approval": {"type": "boolean", "required": true, "const": true},
+    "compatibility.template_version": {
+      "type": "string",
+      "required": true
+    },
+    "compatibility.ark_node": {
+      "type": "string",
+      "required": true
+    },
+    "compatibility.skillhub_sync": {
+      "type": "string",
+      "required": false
+    },
+    "compatibility.asset_tools": {
+      "type": "string",
+      "required": false
+    },
+    "run_state.preflight_checks": {
+      "type": "array",
+      "required": true,
+      "items_const": [
+        "runtime_online",
+        "agent_runtime_match",
+        "workdir_policy",
+        "plan_present",
+        "launcher_available",
+        "hidden_execution_capable",
+        "device_preflight"
+      ],
+      "description": "EXECUTION_CHECK.preflight.checks 的固定 7 项，顺序固定，缺项即预检失败。"
+    },
+    "gate_events.watchdog_sample_seconds_min": {
+      "type": "integer",
+      "required": true,
+      "const": 10,
+      "description": "watchdog 采样最短间隔（秒）"
+    },
+    "gate_events.watchdog_sample_seconds_max": {
+      "type": "integer",
+      "required": true,
+      "const": 30,
+      "description": "watchdog 采样最长间隔（秒）；上报节奏仍是 PROGRESS_5M 的 5 分钟"
+    },
+    "execution_channel.launch_record": {
+      "type": "string",
+      "required": true,
+      "const": "logs/launch.json",
+      "description": "启动记录相对路径；记录 pid/ppid/cwd/streams/window_count/launcher 版本，无法证明隐藏即 BLOCKED"
+    }
   }
 }

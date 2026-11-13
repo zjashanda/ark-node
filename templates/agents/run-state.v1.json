@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noahsark.listenai.internal/schemas/run-state.v1.json",
+  "x-ark-schema": "ark.run-state.v1",
+  "x-ark-version": "1.1.0",
+  "title": "NoahsArk 执行门禁事件",
+  "description": "任务目录 receipts/events/gates-<YYYYMMDD>.jsonl 的行格式，一行一个事件。事件是门禁的机器可读真源；plan.md 与 issue 评论是给人的同一事实的投影。stage 只存在于本事件流与 receipts/stage-index.json，不写入 run.receipt.v1 / manifest.v1.json。",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/execution_check"
+    },
+    {
+      "$ref": "#/$defs/progress_5m"
+    },
+    {
+      "$ref": "#/$defs/stage_finished"
+    },
+    {
+      "$ref": "#/$defs/blocked"
+    },
+    {
+      "$ref": "#/$defs/final_receipt"
+    }
+  ],
+  "type": "object",
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "description": "所有事件共有字段。schema 固定标记，event 由各分支收窄。",
+      "required": [
+        "schema",
+        "event",
+        "run_id",
+        "issue_id",
+        "stage",
+        "at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ark.run-state.v1"
+        },
+        "event": {
+          "type": "string",
+          "enum": [
+            "EXECUTION_CHECK",
+            "PROGRESS_5M",
+            "STAGE_FINISHED",
+            "BLOCKED",
+            "FINAL_RECEIPT"
+          ]
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$",
+          "description": "北京时间，秒级，禁止 Z / +08:00 等时区标记"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "execution_check": {
+      "type": "object",
+      "description": "开跑即报。started=YES 必须有真实 run；没有 run 只能 started=false。可选 preflight 记录服务端/启动器预检结果（7 项能力），不得用 agent 自述代替。",
+      "required": [
+        "schema",
+        "event",
+        "run_id",
+        "issue_id",
+        "agent_id",
+        "runtime_id",
+        "started",
+        "stage",
+        "first_action",
+        "first_artifact",
+        "at"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "event": {
+          "const": "EXECUTION_CHECK"
+        },
+        "started": {
+          "type": "boolean"
+        },
+        "first_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "first_artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workdir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "preflight": {
+          "type": "object",
+          "description": "预检结果。passed 才允许进入 QUEUED/RUNNING；任一 false 必须以 BLOCKED 事件说明。",
+          "required": [
+            "status",
+            "checks",
+            "checked_at",
+            "checker_version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "blocked"
+              ]
+            },
+            "checks": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "runtime_online",
+                "agent_runtime_match",
+                "workdir_policy",
+                "plan_present",
+                "launcher_available",
+                "hidden_execution_capable",
+                "device_preflight"
+              ],
+              "properties": {
+                "runtime_online": {
+                  "type": "boolean"
+                },
+                "agent_runtime_match": {
+                  "type": "boolean"
+                },
+                "workdir_policy": {
+                  "type": "boolean"
+                },
+                "plan_present": {
+                  "type": "boolean"
+                },
+                "launcher_available": {
+                  "type": "boolean"
+                },
+                "hidden_execution_capable": {
+                  "type": "boolean"
+                },
+                "device_preflight": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "checked_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$"
+            },
+            "checker_version": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "progress_5m": {
+      "type": "object",
+      "description": "每 5 分钟一条。artifacts_state=NONE 时 artifacts 必须为空并给出原因；编造路径按失败处理。",
+      "required": [
+        "schema",
+        "event",
+        "run_id",
+        "issue_id",
+        "stage",
+        "at",
+        "status",
+        "last_5m_action",
+        "artifacts_state",
+        "artifacts",
+        "next_step"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "event": {
+          "const": "PROGRESS_5M"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "RUNNING",
+            "QUEUED",
+            "BLOCKED",
+            "NEEDS_REVIEW"
+          ]
+        },
+        "last_5m_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifacts_state": {
+          "type": "string",
+          "enum": [
+            "EVIDENCE",
+            "NONE"
+          ]
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "no_artifact_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_step": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "stage_finished": {
+      "type": "object",
+      "description": "一个 stage 收尾：结果、证据、回滚方式、下一阶段。每个 stage 必须能独立回滚且不删旧证据。",
+      "required": [
+        "schema",
+        "event",
+        "run_id",
+        "issue_id",
+        "stage",
+        "at",
+        "result",
+        "evidence",
+        "rollback",
+        "next_stage"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "event": {
+          "const": "STAGE_FINISHED"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "BLOCKED",
+            "NEEDS_REVIEW"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rollback": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_stage": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "blocked": {
+      "type": "object",
+      "description": "阻塞必须可执行：码、原因、需要谁做什么、下一步。禁止用 BLOCKED 代替 FAIL 掩盖失败。",
+      "required": [
+        "schema",
+        "event",
+        "run_id",
+        "issue_id",
+        "stage",
+        "at",
+        "code",
+        "reason",
+        "needs",
+        "next_step"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "event": {
+          "const": "BLOCKED"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "BLOCKED_SOURCE_MISSING",
+            "BLOCKED_EXECUTION_CHANNEL",
+            "BLOCKED_WORKDIR_POLICY",
+            "BLOCKED_APPROVAL_REQUIRED",
+            "BLOCKED_PLAN_INCOMPLETE"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "needs": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_step": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "final_receipt": {
+      "type": "object",
+      "description": "正式回执落地后的收尾事件。receipt_path 指向 receipts/ 下的正式回执；receipt_sha256 是该回执文件自身的 sha256（不要与 ark-archive 回执里数组型的 evidence_sha256 混用）。",
+      "required": [
+        "schema",
+        "event",
+        "run_id",
+        "issue_id",
+        "stage",
+        "at",
+        "result",
+        "receipt_path",
+        "receipt_sha256",
+        "archive_path"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "event": {
+          "const": "FINAL_RECEIPT"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "BLOCKED",
+            "NEEDS_REVIEW"
+          ]
+        },
+        "receipt_path": {
+          "type": "string",
+          "pattern": "^receipts/"
+        },
+        "receipt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "archive_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

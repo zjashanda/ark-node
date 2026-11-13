@@ -244,6 +244,107 @@ class SupervisionTests(unittest.TestCase):
             self.assertIn(f"`{rule}`", self.text)
 
 
+
+def load_verifier_module():
+    """把 verify-template.py 作为模块导入，复用其中的通道校验函数。"""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("ark_verify_template", VERIFIER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+class ExecutionChannelTests(unittest.TestCase):
+    """执行通道：Windows 无可见窗口、Linux 非交互、输出一律落任务目录 logs/。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.verifier = load_verifier_module()
+        cls.profile = load_profile()
+        cls.text = read_template()
+
+    def _reasons(self, platform: str, command: str) -> list:
+        return self.verifier.validate_channel_command(platform, command)
+
+    def test_profile_declares_channel_contract(self) -> None:
+        channel = self.profile["default"]["execution_channel"]
+        self.assertEqual(channel["mode"], "hidden-background")
+        self.assertIs(channel["no_visible_terminal"], True)
+        self.assertIs(channel["non_interactive"], True)
+        self.assertEqual(channel["stdout_redirect"], "logs/")
+        self.assertEqual(channel["stderr_redirect"], "logs/")
+        self.assertIs(channel["require_batch_mode"], True)
+        self.assertEqual(channel["unverifiable_action"], "BLOCKED_EXECUTION_CHANNEL")
+        self.assertEqual(channel["background_and_yield"], "forbidden")
+        for launcher in ("Start-Process", "Win32_Process.Create"):
+            self.assertIn(launcher, channel["forbidden_launchers"])
+
+    def test_template_documents_channel(self) -> None:
+        for token in ("execution_channel", "no_visible_terminal", "non_interactive"):
+            self.assertIn(token, self.text)
+        self.assertIn("## 11. 执行通道与窗口", self.text)
+        self.assertIn("BLOCKED_EXECUTION_CHANNEL", self.text)
+        self.assertIn("background_and_yield", self.text)
+
+    def test_template_forbids_popup_and_interactive_channels(self) -> None:
+        for token in ("Start-Process", "Win32_Process.Create", "conhost", "BatchMode=yes", "logs/"):
+            self.assertIn(token, self.text)
+        self.assertIn("后台运行」不等于「隐藏窗口", self.text)
+        self.assertIn("不得先执行再观察", self.text)
+
+    def test_windows_positive_examples_pass(self) -> None:
+        commands = [
+            'hostname > D:\\zhsh\\workspace\\tasks\\NOAH-64\\logs\\hostname.log 2>&1',
+            'powershell -NoProfile -NonInteractive -Command "Get-Process" > D:\\zhsh\\workspace\\tasks\\NOAH-64\\logs\\proc.log 2>&1',
+            'ssh -T -o BatchMode=yes -p 22 administrator@win-node.example hostname > D:\\zhsh\\workspace\\tasks\\NOAH-64\\logs\\win.log 2>&1',
+        ]
+        for command in commands:
+            self.assertEqual(self._reasons("windows", command), [], command)
+
+    def test_windows_negative_examples_fail(self) -> None:
+        cases = {
+            "Start-Process powershell -ArgumentList '-NoProfile'": "Start-Process",
+            "Start-Process -FilePath cmd.exe": "Start-Process",
+            "powershell -NoExit": "powershell -NoExit",
+            "cmd /k hostname": "cmd /k",
+            "conhost.exe": "conhost",
+            "wt.exe new-tab powershell": "wt.exe",
+        }
+        for command, token in cases.items():
+            reasons = self._reasons("windows", command)
+            self.assertTrue(reasons, command)
+            self.assertTrue(any(token.lower() in reason.lower() for reason in reasons), reasons)
+        # 即使通道干净，没有落 logs/ 也不算通过
+        self.assertTrue(self._reasons("windows", "hostname"))
+
+    def test_linux_positive_examples_pass(self) -> None:
+        commands = [
+            "ssh -T -o BatchMode=yes bszheng@linux-node.example 'hostname' > /home/zhsh/workspace/tasks/NOAH-64/logs/bsz.log 2>&1",
+            "ssh -T -o BatchMode=yes -p 10023 administrator@win-node-b.example whoami > /home/zhsh/workspace/tasks/NOAH-64/logs/pvm.log 2>&1",
+            "bash -c 'hostname' > /home/zhsh/workspace/tasks/NOAH-64/logs/local.log 2>&1",
+        ]
+        for command in commands:
+            self.assertEqual(self._reasons("linux", command), [], command)
+
+    def test_linux_negative_examples_fail(self) -> None:
+        cases = {
+            "ssh bszheng@linux-node.example hostname > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "-T",
+            "ssh -T bszheng@linux-node.example hostname > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "BatchMode=yes",
+            "bash -i > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "bash -i",
+            "sshpass -p x ssh host hostname > /home/zhsh/workspace/tasks/NOAH-64/logs/a.log 2>&1": "sshpass -p",
+        }
+        for command, token in cases.items():
+            reasons = self._reasons("linux", command)
+            self.assertTrue(reasons, command)
+            self.assertTrue(any(token.lower() in reason.lower() for reason in reasons), reasons)
+        self.assertTrue(self._reasons("linux", "ssh -T -o BatchMode=yes host hostname"))
+
+    def test_unknown_platform_rejected(self) -> None:
+        self.assertTrue(self._reasons("solaris", "hostname > logs/a.log"))
+        self.assertTrue(self._reasons("linux", "   "))
+
+
 class ProfileSchemaTests(unittest.TestCase):
     """profile 是机器可读契约，字段必须自洽。"""
 
@@ -252,7 +353,7 @@ class ProfileSchemaTests(unittest.TestCase):
 
     def test_schema_and_version(self) -> None:
         self.assertEqual(self.profile["schema"], "ark.agent-profile.v1")
-        self.assertEqual(self.profile["template_version"], "1.0.1")
+        self.assertEqual(self.profile["template_version"], "1.6.0")
 
     def test_every_default_leaf_has_a_field_entry(self) -> None:
         fields = self.profile["fields"]
@@ -399,7 +500,12 @@ class PublishVerifyTests(unittest.TestCase):
         return proc.returncode, proc.stdout, proc.stderr
 
     def _stage_package(self) -> None:
-        for name in ("noahsark-agent-template.md", "agent-profile.v1.json", "verify-template.py"):
+        for name in (
+            "noahsark-agent-template.md",
+            "agent-profile.v1.json",
+            "verify-template.py",
+            "run-state.v1.json",
+        ):
             shutil.copy2(AGENTS_DIR / name, self.tmp / name)
 
     def test_dry_run_writes_manifest_without_uploading(self) -> None:
@@ -408,11 +514,12 @@ class PublishVerifyTests(unittest.TestCase):
         self.assertIn("DRY-RUN", out)
         manifest = json.loads((self.tmp / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schema"], "ark.agent-template.manifest.v1")
-        self.assertEqual(manifest["version"], "1.0.1")
+        self.assertEqual(manifest["version"], "1.6.0")
         self.assertRegex(manifest["published_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual(manifest["checks"], {"secret_scan": "pass", "time_lint": "pass"})
         self.assertEqual(
-            [entry["role"] for entry in manifest["files"]], ["template", "profile", "verifier"]
+            [entry["role"] for entry in manifest["files"]],
+            ["template", "profile", "verifier", "schema"],
         )
 
     def test_latest_channel_manifest_passes_object_path_check(self) -> None:
@@ -450,7 +557,7 @@ class PublishVerifyTests(unittest.TestCase):
     def test_object_paths_are_immutable_plus_latest(self) -> None:
         code, out, err = self._publish()
         self.assertEqual(code, 0, out + err)
-        self.assertIn("noahsark/agent-template/v1.0.1/noahsark-agent-template.md", out)
+        self.assertIn("noahsark/agent-template/v1.6.0/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/noahsark-agent-template.md", out)
         self.assertIn("noahsark/agent-template/latest/manifest.json", out)
 
@@ -473,7 +580,7 @@ class PublishVerifyTests(unittest.TestCase):
         tampered = self.tmp / "noahsark-agent-template.md"
         original = tampered.read_bytes()
         # 同长度改写：字节数不变，只有摘要能发现
-        tampered.write_bytes(original.replace(b"1.0.1", b"9.9.9", 1))
+        tampered.write_bytes(original.replace(b"1.6.0", b"9.9.9", 1))
         proc = subprocess.run(
             [sys.executable, str(self.tmp / "verify-template.py"), "--dir", str(self.tmp)],
             capture_output=True,
@@ -733,6 +840,410 @@ class OssUploadTests(unittest.TestCase):
 
     def test_clean_tree_is_not_dirty(self) -> None:
         self.assertFalse(self._dirty_with(""))
+
+
+
+class RunStateContractTests(unittest.TestCase):
+    """run-state.v1 事件流契约：schema、profile 块、模板段落、发布包四件套自洽。"""
+
+    RUN_STATE = AGENTS_DIR / "run-state.v1.json"
+    EVENTS = (
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FINAL_RECEIPT",
+    )
+
+    def setUp(self) -> None:
+        self.schema = json.loads(self.RUN_STATE.read_text(encoding="utf-8"))
+        self.profile = load_profile()
+        self.template = read_template()
+
+    def test_schema_marker_and_refs(self) -> None:
+        self.assertEqual(self.schema["x-ark-schema"], "ark.run-state.v1")
+        refs = [item["$ref"].rsplit("/", 1)[-1] for item in self.schema["oneOf"]]
+        self.assertEqual(sorted(refs), sorted(name.lower() for name in self.EVENTS))
+
+    def test_envelope_requires_join_keys(self) -> None:
+        envelope = self.schema["$defs"]["envelope"]
+        self.assertEqual(
+            sorted(envelope["required"]),
+            ["at", "event", "issue_id", "run_id", "schema", "stage"],
+        )
+        self.assertEqual(envelope["properties"]["event"]["enum"], list(self.EVENTS))
+        self.assertIn("run_id", envelope["properties"])
+
+    def test_every_event_def_includes_envelope(self) -> None:
+        """五个事件都通过 allOf 引用信封，并在 required 里重复声明共有字段。"""
+        envelope = self.schema["$defs"]["envelope"]
+        for name in ("execution_check", "progress_5m", "stage_finished", "blocked", "final_receipt"):
+            spec = self.schema["$defs"][name]
+            refs = [item.get("$ref") for item in spec.get("allOf", [])]
+            self.assertIn("#/$defs/envelope", refs, name)
+            self.assertTrue(set(envelope["required"]) <= set(spec["required"]), name)
+            self.assertEqual(spec["properties"]["event"]["const"], name.upper(), name)
+
+    def test_profile_run_state_block(self) -> None:
+        block = self.profile["default"]["run_state"]
+        self.assertEqual(block["schema"], "ark.run-state.v1")
+        self.assertEqual(block["schema_ref"], "run-state.v1.json")
+        self.assertEqual(block["event_log"], "receipts/events/gates-<YYYYMMDD>.jsonl")
+        self.assertEqual(block["stage_index"], "receipts/stage-index.json")
+        self.assertEqual(block["events"], list(self.EVENTS))
+        self.assertEqual(block["done_by"], "human-only")
+        self.assertEqual(block["landing_status"], "in_review")
+
+    def test_profile_stage_and_receipt_blocks(self) -> None:
+        self.assertEqual(self.profile["default"]["stage_policy"]["milestone"], "not-supported")
+        self.assertEqual(self.profile["default"]["stage_policy"]["delete_evidence"], "forbidden")
+        layers = self.profile["default"]["receipt_layers"]
+        self.assertEqual(layers["join_key"], "run_id")
+        self.assertEqual(layers["reflow_source"], "formal-only")
+        self.assertEqual(layers["schema_change"], "forbidden")
+        self.assertEqual(
+            self.profile["default"]["gate_events"]["watchdog_channels"],
+            ["comment", "run_record", "artifact_mtime"],
+        )
+
+    def test_template_section_present(self) -> None:
+        self.assertIn("## 14. 状态机与阶段门禁", self.template)
+        self.assertIn("## 15. 回执分层与闭环", self.template)
+        self.assertIn("run-state.v1.json", self.template)
+        for token in self.EVENTS:
+            self.assertIn(token, self.template)
+        self.assertIn("receipts/stage-index.json", self.template)
+
+    def test_execution_check_preflight_contract(self) -> None:
+        preflight = self.schema["$defs"]["execution_check"]["properties"]["preflight"]
+        self.assertFalse(preflight["additionalProperties"])
+        self.assertEqual(
+            preflight["required"], ["status", "checks", "checked_at", "checker_version"]
+        )
+        checks = preflight["properties"]["checks"]
+        self.assertFalse(checks["additionalProperties"])
+        expected = self.profile["default"]["run_state"]["preflight_checks"]
+        self.assertEqual(checks["required"], expected)
+        self.assertEqual(sorted(checks["properties"]), sorted(expected))
+        for name, spec in checks["properties"].items():
+            self.assertEqual(spec["type"], "boolean", name)
+        self.assertEqual(preflight["properties"]["status"]["enum"], ["passed", "blocked"])
+
+    def test_template_documents_launch_record(self) -> None:
+        self.assertIn("logs/launch.json", self.template)
+        self.assertIn("hidden_verified", self.template)
+        self.assertIn("### 11.6", self.template)
+
+    def test_watchdog_sampling_contract(self) -> None:
+        gate = self.profile["default"]["gate_events"]
+        self.assertEqual(gate["watchdog_sample_seconds_min"], 10)
+        self.assertEqual(gate["watchdog_sample_seconds_max"], 30)
+        self.assertEqual(self.profile["default"]["execution_channel"]["launch_record"], "logs/launch.json")
+
+    def test_manifest_ships_schema_artifact(self) -> None:
+        manifest = json.loads((AGENTS_DIR / "manifest.json").read_text(encoding="utf-8"))
+        entry = [item for item in manifest["files"] if item["role"] == "schema"]
+        self.assertEqual(len(entry), 1)
+        self.assertEqual(entry[0]["path"], "run-state.v1.json")
+        self.assertEqual(
+            entry[0]["object"], f"noahsark/agent-template/v{manifest['version']}/run-state.v1.json"
+        )
+
+    def test_verifier_passes_on_checked_in_package(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+
+class KbSyncContractTests(unittest.TestCase):
+    """知识同步契约：profile 块、模板第 16 节、校验器自检三者一致。"""
+
+    TOKENS = (
+        "ark.kb-context.v1",
+        "ark.delivery.v1",
+        "receipts/delivery.json",
+        "DELIVERY_INCOMPLETE",
+        "NO_KB_REQUIRED",
+        "kb_query_back_status",
+        "receipts/evidence-gaps/",
+        "ark.checkpoint.v1",
+        "receipts/outbox/checkpoints-",
+        "RECOVERY_REPLAY",
+        "derived_from",
+        "promotion",
+        "evidence_gap",
+        "聚合",
+    )
+
+    def setUp(self) -> None:
+        self.profile = load_profile()
+        self.template = read_template()
+        self.block = self.profile["default"]["kb_sync"]
+
+    def test_profile_kb_sync_block(self) -> None:
+        self.assertTrue(self.block["enabled"])
+        self.assertEqual(self.block["context_schema"], "ark.kb-context.v1")
+        self.assertEqual(self.block["delivery_schema"], "ark.delivery.v1")
+        self.assertEqual(self.block["query_dims"], ["capability", "project", "device", "firmware", "profile"])
+        self.assertFalse(self.block["record_first"])
+        self.assertEqual(self.block["delivery_path"], "receipts/delivery.json")
+        self.assertEqual(self.block["query_back_top"], 20)
+        self.assertEqual(self.block["incomplete_code"], "DELIVERY_INCOMPLETE")
+        self.assertIs(self.block["candidate_may_drive_dispatch"], False)
+        self.assertEqual(
+            self.block["no_kb_required_reasons"],
+            [
+                "no-new-knowledge",
+                "pure-inventory",
+                "duplicate-of-existing:<entry_id>",
+                "sensitive-not-indexable",
+            ],
+        )
+
+    def test_profile_kb_sync_order(self) -> None:
+        self.assertEqual(
+            self.block["order"],
+            ["manifest", "receipt", "archive", "kb_record", "kb_query_back"],
+        )
+
+    def test_template_kb_sync_section(self) -> None:
+        self.assertIn("## 16. 知识同步（事件驱动检查点）", self.template)
+        missing = [token for token in self.TOKENS if token not in self.template]
+        self.assertEqual(missing, [], f"模板缺少知识同步要素: {missing}")
+        for index, heading in enumerate(
+            ("### 16.1 为什么不是 end-only", "### 16.2 检查点事件与 WAL",
+             "### 16.3 12 个触发器", "### 16.4 幂等键与重放",
+             "### 16.5 质量分层与提升", "### 16.6 多作用域与引用",
+             "### 16.7 promotion / demotion（提升与降级）",
+             "### 16.8 查询与消费边界",
+             "### 16.9 outbox 关闭条件与 FINAL_RECEIPT",
+             "### 16.10 跨项目共享自测清单"),
+             start=1,
+        ):
+            self.assertIn(heading, self.template, f"缺少小节 {index}")
+
+    def test_verifier_reports_kb_sync_checks(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        names = {check["name"] for check in payload["checks"]}
+        for name in ("profile-kb-sync", "profile-kb-sync-order", "template-kb-sync"):
+            self.assertIn(name, names)
+            self.assertEqual(
+                next(check["result"] for check in payload["checks"] if check["name"] == name),
+                "pass",
+                name,
+            )
+
+
+class KbSyncV2Tests(unittest.TestCase):
+    """v1.5.0 事件驱动检查点：profile 契约、模板章节、校验器三处一致。"""
+
+    TRIGGERS = (
+        "EXECUTION_CHECK",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FAIL",
+        "NEEDS_REVIEW",
+        "WATCHDOG_RUNNING_NO_EVIDENCE",
+        "WATCHDOG_STATE_DRIFT",
+        "WATCHDOG_TIMEOUT",
+        "WATCHDOG_HEARTBEAT_LOST",
+        "MANUAL_CANCEL",
+        "RUNTIME_CRASH",
+        "RECOVERY_REPLAY",
+    )
+    SCOPES = ["run", "node", "project", "device_family", "platform", "capability", "global"]
+    V2_TOKENS = (
+        "ark.checkpoint.v1",
+        "receipts/outbox/checkpoints-",
+        "RECOVERY_REPLAY",
+        "derived_from",
+        "promotion",
+        "evidence_gap",
+        "aggregate",
+        "聚合",
+    )
+
+    def setUp(self) -> None:
+        self.profile = load_profile()
+        self.template = read_template()
+        self.block = self.profile["default"]["kb_sync"]
+
+    def test_checkpoint_block_paths(self) -> None:
+        checkpoint = self.block["checkpoint"]
+        self.assertEqual(checkpoint["event_schema"], "ark.checkpoint.v1")
+        self.assertIn("receipts/outbox/", checkpoint["wal"])
+        self.assertIn("checkpoints-", checkpoint["wal"])
+        self.assertEqual(checkpoint["index"], "receipts/outbox/outbox.json")
+        self.assertIs(checkpoint["append_only"], True)
+        self.assertEqual(
+            checkpoint["idempotency_key"],
+            "sha256(issue_id|run_id|stage|event_seq|evidence_digest)",
+        )
+
+    def test_triggers_exact_order(self) -> None:
+        self.assertEqual(list(self.block["triggers"]), list(self.TRIGGERS))
+        self.assertEqual(len(self.block["triggers"]), 12)
+        self.assertNotIn("FINAL_RECEIPT", self.block["triggers"])
+        self.assertEqual(self.block["final_receipt_role"], "aggregate-close-only")
+
+    def test_quality_tiers_and_failure_rules(self) -> None:
+        self.assertEqual(
+            self.block["quality_tiers"],
+            {
+                "formal": "evidence-complete",
+                "candidate": "evidence-incomplete",
+                "evidence_gap": "no-evidence",
+            },
+        )
+        self.assertIs(self.block["failure_can_be_formal"], True)
+        self.assertEqual(self.block["failure_outcome_forbidden"], "PASS")
+
+    def test_scopes_and_inheritance(self) -> None:
+        self.assertEqual(list(self.block["scopes"]), self.SCOPES)
+        self.assertEqual(self.block["scope_inherit"], "near-to-far")
+        self.assertEqual(
+            self.block["cross_scope_reference"], "derived_from-applies_to-exceptions"
+        )
+        self.assertIs(self.block["project_may_override_global"], False)
+
+    def test_promotion_and_demotion(self) -> None:
+        promotion = self.block["promotion"]
+        self.assertEqual(promotion["min_projects"], 2)
+        self.assertEqual(list(promotion["promote_to"]), ["capability", "global"])
+        self.assertIs(promotion["requires_review"], True)
+        self.assertIn("applies_to", promotion["demotion"])
+        self.assertIn("exceptions", promotion["demotion"])
+
+    def test_recovery_and_outbox_flags(self) -> None:
+        self.assertIs(self.block["recovery_scan"], True)
+        self.assertEqual(self.block["recovery_scan_when"], "run-start")
+        self.assertIs(self.block["query_back_per_checkpoint"], True)
+        close_when = self.block["outbox_close_when"]
+        self.assertIn("archive ok", close_when)
+        self.assertIn("recorded-or-skipped", close_when)
+        self.assertIn("pass-or-deferred", close_when)
+
+    def test_template_has_v2_section(self) -> None:
+        self.assertIn("## 16. 知识同步（事件驱动检查点）", self.template)
+        missing = [token for token in self.V2_TOKENS if token not in self.template]
+        self.assertEqual(missing, [], f"模板缺少 v2 要素: {missing}")
+        for heading in (
+            "### 16.1 为什么不是 end-only",
+            "### 16.3 12 个触发器",
+            "### 16.4 幂等键与重放",
+            "### 16.7 promotion / demotion（提升与降级）",
+            "### 16.10 跨项目共享自测清单",
+        ):
+            self.assertIn(heading, self.template)
+
+    def test_verifier_reports_v2_checks(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        results = {check["name"]: check["result"] for check in payload["checks"]}
+        for name in ("kb-sync-profile", "kb-sync-triggers", "kb-sync-template"):
+            self.assertEqual(results.get(name), "pass", name)
+
+
+class TtsLibraryContractTests(unittest.TestCase):
+    """v1.6.0 1006 TTS 音频库：profile 契约、模板章节、校验器三处一致。"""
+
+    TOKENS = (
+        "lookup_before_synth",
+        "assets/tts/original",
+        "work/audio",
+        "BLOCKED_TTS_LIBRARY_UNREACHABLE",
+        "receipts/outbox",
+        "derived_from_asset_id",
+    )
+    REUSE_REQUIRES = [
+        "quality=formal",
+        "status=active",
+        "shareable=true",
+        "full_cache_key_match",
+        "sha256_verified",
+        "acl_allowed",
+    ]
+
+    def setUp(self) -> None:
+        self.profile = load_profile()
+        self.template = read_template()
+        self.block = self.profile["default"]["tts_library"]
+
+    def test_profile_tts_library_block(self) -> None:
+        self.assertEqual(
+            self.block["root"], "/srv/storage/ark/artifacts/audio/tts-library"
+        )
+        self.assertEqual(self.block["index"], "index.json")
+        self.assertEqual(self.block["canonical_tool"], "asset-tools")
+        self.assertEqual(
+            self.block["lookup_command"],
+            "asset-tools tts-library lookup --spec <spec.json>",
+        )
+        self.assertEqual(
+            self.block["fetch_command"],
+            "asset-tools tts-library fetch --spec <spec.json> "
+            "--dest assets/tts/original --task-dir .",
+        )
+        self.assertEqual(
+            self.block["publish_command"],
+            "asset-tools tts-library publish --staging <dir> --task-dir .",
+        )
+        self.assertEqual(self.block["synth_tool"], "tts-runtime")
+        self.assertEqual(self.block["synth_engine"], "lstts")
+        self.assertIs(self.block["lookup_before_synth"], True)
+        self.assertEqual(self.block["reuse_requires"], self.REUSE_REQUIRES)
+        self.assertEqual(self.block["original_dir"], "assets/tts/original")
+        self.assertEqual(self.block["derived_dir"], "work/audio")
+        self.assertIs(self.block["hardlink_forbidden"], True)
+        self.assertIs(self.block["derived_requires_asset_id"], True)
+        self.assertEqual(self.block["outbox_dir"], "receipts/outbox")
+        self.assertEqual(
+            self.block["unreachable_action"], "BLOCKED_TTS_LIBRARY_UNREACHABLE"
+        )
+        self.assertIs(self.block["sensitive_default_shareable"], False)
+        self.assertIs(self.block["gc_requires_approval"], True)
+
+    def test_template_section_and_tokens(self) -> None:
+        self.assertIn("## 17. 1006 TTS 音频库", self.template)
+        missing = [token for token in self.TOKENS if token not in self.template]
+        self.assertEqual(missing, [], f"模板缺少 TTS 库要素: {missing}")
+        for heading in (
+            "### 17.4 任务流程（唯一顺序）",
+            "### 17.6 退出码映射（沿用全平台跨契约口径）",
+            "### 17.7 正例 / 反例",
+            "### 17.8 1006 不可达：只记不可达，不说「库里没有」",
+        ):
+            self.assertIn(heading, self.template)
+
+    def test_verifier_reports_tts_checks(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(VERIFIER), "--dir", str(AGENTS_DIR), "--manifest",
+             str(AGENTS_DIR / "manifest.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        results = {check["name"]: check["result"] for check in payload["checks"]}
+        for name in ("profile-tts-library", "template-tts-library"):
+            self.assertEqual(results.get(name), "pass", name)
 
 
 if __name__ == "__main__":

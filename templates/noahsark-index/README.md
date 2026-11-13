@@ -29,7 +29,7 @@ OSS 上的 Markdown 没有历史、没有评审、没有测试。手工改 OSS �
 
 - **Git 是唯一真源**，OSS 只是这份真源的副本；
 - 任何对外可见的文字都必须先进入 `catalog.json` 或生成器，再由脚本发布；
-- 版本目录（例如 `noahsark/agent-template/v1.0.1/`）**只增不改**，根索引只做「重指向」。
+- 版本目录（例如 `noahsark/agent-template/v1.1.0/`）**只增不改**，根索引只做「重指向」。
 
 禁止的操作：直接在控制台上传/覆盖 `noahsark/index.*`；删除版本目录；把凭据写进任何对象。
 
@@ -62,12 +62,12 @@ python3 templates/noahsark-index/verify-index.py --online
 {
   "id": "agent-template.template",
   "kind": "entry",
-  "title": "智能体模板正文 v1.0.1",
+  "title": "智能体模板正文 v1.1.0",
   "status": "available",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "roles": ["external-reader", "coordinator"],
   "requires": ["agent-template.manifest"],
-  "oss": "noahsark/agent-template/v1.0.1/noahsark-agent-template.md",
+  "oss": "noahsark/agent-template/v1.1.0/noahsark-agent-template.md",
   "local": "templates/agents/noahsark-agent-template.md",
   "summary": "一句话说清这条是干什么的。"
 }
@@ -123,8 +123,8 @@ python3 templates/noahsark-index/publish-index.py --allow-downgrade --apply --ye
 
 根索引不复制模板正文，只指向它：
 
-- 创建入口 `noahsark/agent-template/latest/manifest.json`（当前 v1.0.1）；
-- 正文 `noahsark/agent-template/v1.0.1/noahsark-agent-template.md`；
-- 校验器 `noahsark/agent-template/v1.0.1/verify-template.py`。
+- 创建入口 `noahsark/agent-template/latest/manifest.json`（当前 v1.1.0）；
+- 正文 `noahsark/agent-template/v1.1.0/noahsark-agent-template.md`；
+- 校验器 `noahsark/agent-template/v1.1.0/verify-template.py`。
 
 模板升级时：先按 `templates/agents/publish-template.py` 发布新版本目录，再改本目录 `catalog.json` 里的版本号与校验值，最后发布根索引。顺序颠倒会出现「索引指向尚不存在的对象」，`verify-index.py --online` 会拦住。

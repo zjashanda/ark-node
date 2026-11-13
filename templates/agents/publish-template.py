@@ -47,22 +47,23 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.0.1"
+VERSION = "1.6.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 TEMPLATE_SCHEMA = "ark.agent-template.v1"
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
-DEFAULT_VERSION = "1.0.1"
+DEFAULT_VERSION = "1.6.0"
 DEFAULT_PREFIX = "noahsark/agent-template"
-DEFAULT_BUCKET = "ark-public"
+DEFAULT_BUCKET = "listenai-test-internal"
 DEFAULT_VISIBILITY = "public-read"
 
-# (文件名, 角色)：发布包只含这三件，多一个都不发。
+# (文件名, 角色)：发布包只含这四件，多一个都不发。
 ARTIFACTS: List[Tuple[str, str]] = [
     ("noahsark-agent-template.md", "template"),
     ("agent-profile.v1.json", "profile"),
     ("verify-template.py", "verifier"),
+    ("run-state.v1.json", "schema"),
 ]
 
 # 对象存储凭据的变量名（只有名字，值永远不落盘）。

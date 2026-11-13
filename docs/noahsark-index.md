@@ -20,7 +20,7 @@ noahsark/
 ├── agent-template/     # Agent 模板（版本目录不可变）
 │   ├── latest/         # 只做指向，内容与当前版本逐字节一致
 │   ├── v1.0.0/
-│   └── v1.0.1/
+│   └── v1.1.0/
 ├── platform/           # 规划中
 ├── git/                # 规划中
 ├── storage/            # 规划中
@@ -32,7 +32,7 @@ noahsark/
 三条不变式：
 
 1. **入口地址永久不变**。升级、扩目录、调顺序都只改 `index.md` / `index.json` / `manifest.json` 三个对象。
-2. **版本目录不可变**。`v1.0.1/` 一旦发布就不再改写；`latest/` 才是可变的指针。
+2. **版本目录不可变**。`v1.1.0/` 一旦发布就不再改写；`latest/` 才是可变的指针。
 3. **未发布的内容不出现链接**。`catalog.json` 里状态为 `planned` 的条目在 `index.md` 与 `index.json` 中都没有 URL，不会产生死链。
 
 ## 3. 内容职责

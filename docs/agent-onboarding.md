@@ -36,6 +36,22 @@ python3 templates/agents/publish-template.py
 dry-run 会打印将要上传的对象路径、字节数、摘要与可见性，并在 `build/agent-template/<版本>/`
 生成 `manifest.json`。`build/` 已在 `.gitignore` 里，不会进仓库。
 
+### 2.1 执行通道自检
+
+新建或修改智能体时，必须确认执行通道符合模板第 11 节，profile 里对应 `execution_channel` 段：
+
+| 字段 | 必须值 | 说明 |
+|---|---|---|
+| `mode` | `hidden-background` | 后台运行不等于隐藏窗口，两者要同时满足 |
+| `no_visible_terminal` | `true` | 不得弹出 PowerShell、cmd、Windows Terminal、conhost |
+| `non_interactive` | `true` | 不得进入交互式 shell；SSH 必须 `-T -o BatchMode=yes` |
+| `stdout_redirect` / `stderr_redirect` | `logs/` | 输出落到任务目录 `logs/`，可复核 |
+| `require_batch_mode` | `true` | SSH 关闭一切交互提示 |
+| `unverifiable_action` | `BLOCKED_EXECUTION_CHANNEL` | 无法保证隐藏就停，不允许先执行再观察是否弹窗 |
+
+`verify-template.py` 校验三件事：字段全部等值、模板正文含 `execution_channel` / `no_visible_terminal` / `non_interactive` 三个词、第 11 节标题存在；缺一项即 FAIL。
+`tests/test_agent_template.py::ExecutionChannelTests` 用正反例锁住判据：Windows 侧命中 `Start-Process`、`powershell -NoExit`、`cmd /k`、`conhost`、`wt` 一律违规；Linux 侧缺 `-T` 或缺 `BatchMode=yes` 的 ssh、`bash -i`、`sshpass -p` 一律违规；两个平台都要求把输出重定向到 `logs/`。
+
 ## 3. 发布流程
 
 ### 3.1 步骤
@@ -136,10 +152,12 @@ python3 templates/agents/publish-template.py --apply --yes \
 - 不写「某某系统不存在」这类结论式判定；连不上就记连不上。
 - 模板与 profile 的字段名、枚举值、目录名保持一致，改一边必须改另一边。
 - 发布是**对外动作**：没有明确批准就停在 dry-run。
+- 执行通道判据与模板正文第 11 节一致；改判据必须同时改 profile、校验器与测试，只改一边等于没改。
 
 ## 8. 变更记录
 
 | 版本 | 变更 |
 |---|---|
+| 1.1.0 | 新增第 11 节「执行通道与窗口」：profile 增加 `execution_channel` 段（`no_visible_terminal`、`non_interactive`、`forbidden_launchers`、`BLOCKED_EXECUTION_CHANNEL`）；Windows 禁用 `Start-Process` / `Win32_Process.Create` / `conhost` / `wt` / `powershell -NoExit`；Linux 与 macOS 强制 `ssh -T -o BatchMode=yes` 且输出重定向到任务目录 `logs/`；观测不到输出不得 background-and-yield |
 | 1.0.1 | 任务目录收敛为唯一规则：Windows `D:\zhsh\workspace\tasks\<tasks-id>\`、Linux `/home/zhsh/workspace/tasks/<tasks-id>/`；任务根下改为 `plan.md`、`manifest.json` + 五个子目录；平台自动 workdir 与 `%TEMP%`、`/tmp` 不得作任务根，无法遵守报 `BLOCKED_WORKDIR_POLICY` |
 | 1.0.0 | 首版：四角色、目录规范、canonical + SkillHub 来源、1006 与多来源取件、六步闭环、时间口径、凭据边界、四条监督规则、onboarding 回执 |
