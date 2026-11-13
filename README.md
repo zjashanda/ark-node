@@ -105,7 +105,7 @@ printf '%s' "$ARK_HTTP_PASS" | ark-node env --pass-stdin --apply
 ## 智能体模板
 
 新建 NoahsArk 智能体的唯一入口：[templates/agents/noahsark-agent-template.md](templates/agents/noahsark-agent-template.md)。
-它不是一个 Skill，而是一套任务闭环的运行范式（角色、目录、来源、闭环、时间、凭据、监督、验收）。
+它不是一个 Skill，而是一套任务闭环的运行范式（角色、稳定图标、目录、来源、闭环、时间、凭据、监督、验收）。其中 `jinyiwei`（锦衣卫）是绑定单一 runtime/节点的专属执行角色，不承担协调或跨节点工作。
 
 同目录还有机器可读的 `agent-profile.v1.json`、发布器 `publish-template.py`（默认 dry-run）、
 校验器 `verify-template.py`。维护与发布流程见 [docs/agent-onboarding.md](docs/agent-onboarding.md)。

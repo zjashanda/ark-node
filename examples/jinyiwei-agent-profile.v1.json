@@ -1,0 +1,329 @@
+{
+  "schema": "ark.agent-profile.instance.v1",
+  "source_profile": "templates/agents/agent-profile.v1.json",
+  "profile": {
+    "schema": "ark.agent-profile.v1",
+    "agent_name": "锦衣卫·local-sample",
+    "role": "jinyiwei",
+    "description": "节点专属执行智能体：仅在 local-sample 执行 Mika/Issue 派发的具体任务并回执",
+    "instructions_ref": "noahsark-agent-template.md",
+    "runtime": {
+      "runtime_id": "local-sample",
+      "model": "listenai/deepseek-flash",
+      "max_concurrent_tasks": 1,
+      "timeout_minutes": 120,
+      "node_binding": "local-sample"
+    },
+    "paths": {
+      "task_root_windows": "D:\\zhsh\\workspace\\tasks",
+      "task_root_linux": "/home/zhsh/workspace/tasks",
+      "task_dir_pattern": "<tasks-id>",
+      "task_id_source": "multica-issue-id-first",
+      "subdirs": [
+        "assets",
+        "work",
+        "logs",
+        "result",
+        "receipts"
+      ],
+      "root_files": [
+        "plan.md",
+        "manifest.json"
+      ],
+      "on_violation": "BLOCKED_WORKDIR_POLICY"
+    },
+    "sources": {
+      "git": {
+        "canonical_repo": "zjashanda/ark-node",
+        "ssh_alias": "github-zjashanda",
+        "workflow": "branch-and-pull-request",
+        "push_to_main": "forbidden-without-approval"
+      },
+      "skillhub": {
+        "manifest": "manifests/canonical.json",
+        "tool": "skillhub-sync",
+        "sync_mode": "on-demand",
+        "protect_local_drift": true
+      }
+    },
+    "storage": {
+      "root": "/srv/storage/ark",
+      "results": "/srv/storage/ark/results/<node>/<project>/<run_id>",
+      "receipts": "/srv/storage/ark/receipts/<node>/<project>/<run_id>",
+      "artifacts": "/srv/storage/ark/artifacts",
+      "quarantine": "/srv/storage/ark/_quarantine"
+    },
+    "time": {
+      "display_format": "YYYY-MM-DD HH:MM:SS",
+      "stamp_format": "YYYYMMDD-HHMMSS",
+      "locale_zone": "Beijing",
+      "offset_hours": 8,
+      "zone_designator": "forbidden",
+      "raw_field_prefix": "raw_"
+    },
+    "env_keys": [
+      "GITHUB_TOKEN",
+      "ACCESS_KEY_ID",
+      "ACCESS_KEY_SECRET",
+      "LSTTS_TTS_TOKEN",
+      "EMAIL_PASSWORD",
+      "NAS_ACCOUNT",
+      "NAS_PASSWORD",
+      "STORAGE_HOST",
+      "STORAGE_USER",
+      "STORAGE_PASSWORD"
+    ],
+    "loop": [
+      "ark-dispatch",
+      "execute",
+      "ark-archive",
+      "receipt",
+      "ark-kb",
+      "next-dispatch"
+    ],
+    "supervision": {
+      "rules": [
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STATE_DRIFT",
+        "RUNNING_NO_EVIDENCE"
+      ],
+      "progress_interval_minutes": 5,
+      "background_and_yield": "forbidden"
+    },
+    "execution_channel": {
+      "mode": "hidden-background",
+      "no_visible_terminal": true,
+      "non_interactive": true,
+      "stdout_redirect": "logs/",
+      "stderr_redirect": "logs/",
+      "forbidden_launchers": [
+        "Start-Process",
+        "Win32_Process.Create",
+        "conhost",
+        "wt",
+        "powershell -NoExit"
+      ],
+      "require_batch_mode": true,
+      "unverifiable_action": "BLOCKED_EXECUTION_CHANNEL",
+      "background_and_yield": "forbidden",
+      "launch_record": "logs/launch.json"
+    },
+    "approval": {
+      "requires": [
+        "git-push",
+        "external-publish",
+        "real-device-action",
+        "file-deletion",
+        "permission-change"
+      ],
+      "default_mode": "dry-run"
+    },
+    "receipts": {
+      "run": "run.receipt.v1",
+      "onboarding": "ark.agent-onboarding.v1"
+    },
+    "run_state": {
+      "schema": "ark.run-state.v1",
+      "schema_ref": "run-state.v1.json",
+      "event_log": "receipts/events/gates-<YYYYMMDD>.jsonl",
+      "stage_index": "receipts/stage-index.json",
+      "events": [
+        "EXECUTION_CHECK",
+        "PROGRESS_5M",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FINAL_RECEIPT"
+      ],
+      "blocker_codes": [
+        "BLOCKED_SOURCE_MISSING",
+        "BLOCKED_EXECUTION_CHANNEL",
+        "BLOCKED_WORKDIR_POLICY",
+        "BLOCKED_APPROVAL_REQUIRED",
+        "BLOCKED_PLAN_INCOMPLETE"
+      ],
+      "run_statuses": [
+        "queued",
+        "dispatched",
+        "running",
+        "waiting_local_directory",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "done_by": "human-only",
+      "landing_status": "in_review",
+      "preflight_checks": [
+        "runtime_online",
+        "agent_runtime_match",
+        "workdir_policy",
+        "plan_present",
+        "launcher_available",
+        "hidden_execution_capable",
+        "device_preflight"
+      ]
+    },
+    "stage_policy": {
+      "id_source": "multica-stage-integer",
+      "milestone": "not-supported",
+      "barrier": "--until-children-done --stage N",
+      "rollback": "per-stage",
+      "delete_evidence": "forbidden"
+    },
+    "gate_events": {
+      "write_before_work": true,
+      "progress_interval_minutes": 5,
+      "missing_event": "BLOCKED",
+      "watchdog_channels": [
+        "comment",
+        "run_record",
+        "artifact_mtime"
+      ],
+      "watchdog_sample_seconds_min": 10,
+      "watchdog_sample_seconds_max": 30
+    },
+    "receipt_layers": {
+      "formal": "receipts/run.receipt.json",
+      "candidate": "receipts/candidates/",
+      "evidence_gap": "receipts/evidence-gaps/",
+      "join_key": "run_id",
+      "reflow_source": "formal-only",
+      "schema_change": "forbidden"
+    },
+    "kb_sync": {
+      "enabled": true,
+      "context_schema": "ark.kb-context.v1",
+      "delivery_schema": "ark.delivery.v1",
+      "query_command": "python3 <ark-kb>/tools/kb.py query --json",
+      "query_dims": [
+        "capability",
+        "project",
+        "device",
+        "firmware",
+        "profile"
+      ],
+      "record_first": false,
+      "refresh_points": [
+        "stage_boundary",
+        "every_30_minutes",
+        "every_100_rounds",
+        "registry_commit_change"
+      ],
+      "delivery_path": "receipts/delivery.json",
+      "order": [
+        "manifest",
+        "receipt",
+        "archive",
+        "kb_record",
+        "kb_query_back"
+      ],
+      "query_back_top": 20,
+      "no_kb_required_reasons": [
+        "no-new-knowledge",
+        "pure-inventory",
+        "duplicate-of-existing:<entry_id>",
+        "sensitive-not-indexable"
+      ],
+      "incomplete_code": "DELIVERY_INCOMPLETE",
+      "layers": {
+        "formal": "receipts/run.receipt.json",
+        "candidate": "receipts/candidates/",
+        "evidence_gap": "receipts/evidence-gaps/"
+      },
+      "candidate_may_drive_dispatch": false,
+      "checkpoint": {
+        "event_schema": "ark.checkpoint.v1",
+        "wal": "receipts/outbox/checkpoints-<YYYYMMDD>.jsonl",
+        "index": "receipts/outbox/outbox.json",
+        "append_only": true,
+        "idempotency_key": "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"
+      },
+      "triggers": [
+        "EXECUTION_CHECK",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FAIL",
+        "NEEDS_REVIEW",
+        "WATCHDOG_RUNNING_NO_EVIDENCE",
+        "WATCHDOG_STATE_DRIFT",
+        "WATCHDOG_TIMEOUT",
+        "WATCHDOG_HEARTBEAT_LOST",
+        "MANUAL_CANCEL",
+        "RUNTIME_CRASH",
+        "RECOVERY_REPLAY"
+      ],
+      "final_receipt_role": "aggregate-close-only",
+      "quality_tiers": {
+        "formal": "evidence-complete",
+        "candidate": "evidence-incomplete",
+        "evidence_gap": "no-evidence"
+      },
+      "failure_can_be_formal": true,
+      "failure_outcome_forbidden": "PASS",
+      "scopes": [
+        "run",
+        "node",
+        "project",
+        "device_family",
+        "platform",
+        "capability",
+        "global"
+      ],
+      "scope_inherit": "near-to-far",
+      "cross_scope_reference": "derived_from-applies_to-exceptions",
+      "project_may_override_global": false,
+      "promotion": {
+        "min_projects": 2,
+        "promote_to": [
+          "capability",
+          "global"
+        ],
+        "requires_review": true,
+        "demotion": "add-applies_to-or-exceptions"
+      },
+      "outbox_close_when": "all archive ok and kb ingest recorded-or-skipped and query-back pass-or-deferred",
+      "recovery_scan": true,
+      "recovery_scan_when": "run-start",
+      "query_back_per_checkpoint": true
+    },
+    "tts_library": {
+      "root": "/srv/storage/ark/artifacts/audio/tts-library",
+      "index": "index.json",
+      "canonical_tool": "asset-tools",
+      "lookup_command": "asset-tools tts-library lookup --spec <spec.json>",
+      "fetch_command": "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir .",
+      "publish_command": "asset-tools tts-library publish --staging <dir> --task-dir .",
+      "synth_tool": "tts-runtime",
+      "synth_engine": "lstts",
+      "lookup_before_synth": true,
+      "reuse_requires": [
+        "quality=formal",
+        "status=active",
+        "shareable=true",
+        "full_cache_key_match",
+        "sha256_verified",
+        "acl_allowed"
+      ],
+      "original_dir": "assets/tts/original",
+      "derived_dir": "work/audio",
+      "hardlink_forbidden": true,
+      "derived_requires_asset_id": true,
+      "outbox_dir": "receipts/outbox",
+      "unreachable_action": "BLOCKED_TTS_LIBRARY_UNREACHABLE",
+      "sensitive_default_shareable": false,
+      "gc_requires_approval": true
+    },
+    "compatibility": {
+      "template_version": "1.7.0",
+      "ark_node": ">=0.1.0",
+      "skillhub_sync": ">=1.0.0",
+      "asset_tools": ">=0.1.0"
+    },
+    "identity": {
+      "role_family": "node-executor",
+      "official_role": "jinyiwei",
+      "avatar_icon": "🥷",
+      "avatar_policy": "stable-role-mapping"
+    }
+  }
+}

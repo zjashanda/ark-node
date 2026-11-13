@@ -1,7 +1,7 @@
 {
   "schema": "ark.agent-profile.v1",
-  "profile_version": "1.6.0",
-  "template_version": "1.6.0",
+  "profile_version": "1.7.0",
+  "template_version": "1.7.0",
   "description": "NoahsArk 智能体实例配置：既是 schema（fields），也是可复制的默认实例（default）与按角色的预设（roles）。值里不允许出现任何凭据。",
   "default": {
     "schema": "ark.agent-profile.v1",
@@ -13,7 +13,8 @@
       "runtime_id": "<node>",
       "model": "<workspace-model>",
       "max_concurrent_tasks": 2,
-      "timeout_minutes": 120
+      "timeout_minutes": 120,
+      "node_binding": "<node>"
     },
     "paths": {
       "task_root_windows": "D:\\zhsh\\workspace\\tasks",
@@ -315,10 +316,16 @@
       "gc_requires_approval": true
     },
     "compatibility": {
-      "template_version": "1.6.0",
+      "template_version": "1.7.0",
       "ark_node": ">=0.1.0",
       "skillhub_sync": ">=1.0.0",
       "asset_tools": ">=0.1.0"
+    },
+    "identity": {
+      "role_family": "node-executor",
+      "official_role": "node-executor",
+      "avatar_icon": "⚙️",
+      "avatar_policy": "stable-role-mapping"
     }
   },
   "roles": {
@@ -328,7 +335,9 @@
       "max_concurrent_tasks": 3,
       "may_touch_devices": false,
       "may_change_node_config": false,
-      "default_description": "协调智能体：拆任务、派 issue、对回执做验收，不直接操作设备"
+      "default_description": "协调智能体：拆任务、派 issue、对回执做验收，不直接操作设备",
+      "role_family": "coordinator",
+      "avatar_icon": "🧭"
     },
     "node-executor": {
       "label": "节点执行者",
@@ -336,7 +345,9 @@
       "max_concurrent_tasks": 2,
       "may_touch_devices": false,
       "may_change_node_config": false,
-      "default_description": "节点执行智能体：在指定节点上跑任务、采集证据并回执，不碰设备独占测试"
+      "default_description": "节点执行智能体：在指定节点上跑任务、采集证据并回执，不碰设备独占测试",
+      "role_family": "node-executor",
+      "avatar_icon": "⚙️"
     },
     "hardware-bench": {
       "label": "硬件台架",
@@ -344,7 +355,9 @@
       "max_concurrent_tasks": 1,
       "may_touch_devices": true,
       "may_change_node_config": false,
-      "default_description": "硬件台架智能体：独占设备跑真机测试，产出可追溯证据与失败归因"
+      "default_description": "硬件台架智能体：独占设备跑真机测试，产出可追溯证据与失败归因",
+      "role_family": "hardware-bench",
+      "avatar_icon": "🔧"
     },
     "knowledge-curator": {
       "label": "知识管理员",
@@ -352,7 +365,32 @@
       "max_concurrent_tasks": 2,
       "may_touch_devices": false,
       "may_change_node_config": false,
-      "default_description": "知识管理智能体：把回执沉淀为 bug / knowledge / method / run 条目，不改执行结论"
+      "default_description": "知识管理智能体：把回执沉淀为 bug / knowledge / method / run 条目，不改执行结论",
+      "role_family": "knowledge-curator",
+      "avatar_icon": "📚"
+    },
+    "jinyiwei": {
+      "label": "锦衣卫",
+      "purpose": "只在绑定节点执行 Mika/Issue 派发的具体执行、测试、调试和验证任务",
+      "role_family": "node-executor",
+      "avatar_icon": "🥷",
+      "name_pattern": "^锦衣卫·\\S+(?:·[1-9]\\d*)?$",
+      "default_model": "listenai/deepseek-flash",
+      "max_concurrent_tasks": 1,
+      "runtime_binding": "required-exact",
+      "accepted_dispatchers": [
+        "Mika",
+        "Issue"
+      ],
+      "forbidden_scopes": [
+        "planning",
+        "coordination",
+        "cross-node",
+        "general-purpose"
+      ],
+      "may_touch_devices": false,
+      "may_change_node_config": false,
+      "default_description": "节点专属执行智能体：仅在绑定节点执行 Mika/Issue 派发的具体任务并回执"
     }
   },
   "fields": {
@@ -364,8 +402,8 @@
     "agent_name": {
       "type": "string",
       "required": true,
-      "pattern": "^方舟\\S+$",
-      "description": "方舟+角色；不含任务名与时间戳"
+      "pattern": "^(?:Mika|(?:吏部|户部|礼部|兵部|刑部|工部)(?:尚书|侍郎(?:·\\S+)?)|锦衣卫·\\S+(?:·[1-9]\\d*)?|方舟\\S+)$",
+      "description": "长期创建使用 Mika、<部>尚书、<部>侍郎[·专业] 或锦衣卫·节点名；旧方舟名称仅兼容；不含任务名、时间戳、provider 或模型名"
     },
     "role": {
       "type": "string",
@@ -374,7 +412,8 @@
         "coordinator",
         "node-executor",
         "hardware-bench",
-        "knowledge-curator"
+        "knowledge-curator",
+        "jinyiwei"
       ]
     },
     "description": {
@@ -401,7 +440,7 @@
       "required": true,
       "minimum": 1,
       "maximum": 3,
-      "rule": "hardware-bench 必须为 1"
+      "rule": "hardware-bench 与 jinyiwei 必须为 1；锦衣卫仅在节点 profile 明确放宽时例外"
     },
     "runtime.timeout_minutes": {
       "type": "integer",
@@ -801,28 +840,72 @@
       "required": true,
       "const": "forbidden"
     },
-    "kb_sync.enabled": {"type": "boolean", "required": true, "const": true},
-    "kb_sync.context_schema": {"type": "string", "required": true, "const": "ark.kb-context.v1"},
-    "kb_sync.delivery_schema": {"type": "string", "required": true, "const": "ark.delivery.v1"},
-    "kb_sync.query_command": {"type": "string", "required": true},
+    "kb_sync.enabled": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "kb_sync.context_schema": {
+      "type": "string",
+      "required": true,
+      "const": "ark.kb-context.v1"
+    },
+    "kb_sync.delivery_schema": {
+      "type": "string",
+      "required": true,
+      "const": "ark.delivery.v1"
+    },
+    "kb_sync.query_command": {
+      "type": "string",
+      "required": true
+    },
     "kb_sync.query_dims": {
       "type": "array",
       "required": true,
-      "items_const": ["capability", "project", "device", "firmware", "profile"]
+      "items_const": [
+        "capability",
+        "project",
+        "device",
+        "firmware",
+        "profile"
+      ]
     },
-    "kb_sync.record_first": {"type": "boolean", "required": true, "const": false},
+    "kb_sync.record_first": {
+      "type": "boolean",
+      "required": true,
+      "const": false
+    },
     "kb_sync.refresh_points": {
       "type": "array",
       "required": true,
-      "items_const": ["stage_boundary", "every_30_minutes", "every_100_rounds", "registry_commit_change"]
+      "items_const": [
+        "stage_boundary",
+        "every_30_minutes",
+        "every_100_rounds",
+        "registry_commit_change"
+      ]
     },
-    "kb_sync.delivery_path": {"type": "string", "required": true, "const": "receipts/delivery.json"},
+    "kb_sync.delivery_path": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/delivery.json"
+    },
     "kb_sync.order": {
       "type": "array",
       "required": true,
-      "items_const": ["manifest", "receipt", "archive", "kb_record", "kb_query_back"]
+      "items_const": [
+        "manifest",
+        "receipt",
+        "archive",
+        "kb_record",
+        "kb_query_back"
+      ]
     },
-    "kb_sync.query_back_top": {"type": "integer", "required": true, "const": 20},
+    "kb_sync.query_back_top": {
+      "type": "integer",
+      "required": true,
+      "const": 20
+    },
     "kb_sync.no_kb_required_reasons": {
       "type": "array",
       "required": true,
@@ -833,73 +916,272 @@
         "sensitive-not-indexable"
       ]
     },
-    "kb_sync.incomplete_code": {"type": "string", "required": true, "const": "DELIVERY_INCOMPLETE"},
-    "kb_sync.layers.formal": {"type": "string", "required": true, "const": "receipts/run.receipt.json"},
-    "kb_sync.layers.candidate": {"type": "string", "required": true, "const": "receipts/candidates/"},
-    "kb_sync.layers.evidence_gap": {"type": "string", "required": true, "const": "receipts/evidence-gaps/"},
-    "kb_sync.candidate_may_drive_dispatch": {"type": "boolean", "required": true, "const": false},
-    "kb_sync.checkpoint.event_schema": {"type": "string", "required": true, "const": "ark.checkpoint.v1"},
-    "kb_sync.checkpoint.wal": {"type": "string", "required": true, "const": "receipts/outbox/checkpoints-<YYYYMMDD>.jsonl"},
-    "kb_sync.checkpoint.index": {"type": "string", "required": true, "const": "receipts/outbox/outbox.json"},
-    "kb_sync.checkpoint.append_only": {"type": "boolean", "required": true, "const": true},
-    "kb_sync.checkpoint.idempotency_key": {"type": "string", "required": true, "const": "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"},
+    "kb_sync.incomplete_code": {
+      "type": "string",
+      "required": true,
+      "const": "DELIVERY_INCOMPLETE"
+    },
+    "kb_sync.layers.formal": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/run.receipt.json"
+    },
+    "kb_sync.layers.candidate": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/candidates/"
+    },
+    "kb_sync.layers.evidence_gap": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/evidence-gaps/"
+    },
+    "kb_sync.candidate_may_drive_dispatch": {
+      "type": "boolean",
+      "required": true,
+      "const": false
+    },
+    "kb_sync.checkpoint.event_schema": {
+      "type": "string",
+      "required": true,
+      "const": "ark.checkpoint.v1"
+    },
+    "kb_sync.checkpoint.wal": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/outbox/checkpoints-<YYYYMMDD>.jsonl"
+    },
+    "kb_sync.checkpoint.index": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/outbox/outbox.json"
+    },
+    "kb_sync.checkpoint.append_only": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "kb_sync.checkpoint.idempotency_key": {
+      "type": "string",
+      "required": true,
+      "const": "sha256(issue_id|run_id|stage|event_seq|evidence_digest)"
+    },
     "kb_sync.triggers": {
       "type": "array",
       "required": true,
-      "items_const": ["EXECUTION_CHECK", "STAGE_FINISHED", "BLOCKED", "FAIL", "NEEDS_REVIEW", "WATCHDOG_RUNNING_NO_EVIDENCE", "WATCHDOG_STATE_DRIFT", "WATCHDOG_TIMEOUT", "WATCHDOG_HEARTBEAT_LOST", "MANUAL_CANCEL", "RUNTIME_CRASH", "RECOVERY_REPLAY"]
+      "items_const": [
+        "EXECUTION_CHECK",
+        "STAGE_FINISHED",
+        "BLOCKED",
+        "FAIL",
+        "NEEDS_REVIEW",
+        "WATCHDOG_RUNNING_NO_EVIDENCE",
+        "WATCHDOG_STATE_DRIFT",
+        "WATCHDOG_TIMEOUT",
+        "WATCHDOG_HEARTBEAT_LOST",
+        "MANUAL_CANCEL",
+        "RUNTIME_CRASH",
+        "RECOVERY_REPLAY"
+      ]
     },
-    "kb_sync.final_receipt_role": {"type": "string", "required": true, "const": "aggregate-close-only"},
-    "kb_sync.quality_tiers.formal": {"type": "string", "required": true, "const": "evidence-complete"},
-    "kb_sync.quality_tiers.candidate": {"type": "string", "required": true, "const": "evidence-incomplete"},
-    "kb_sync.quality_tiers.evidence_gap": {"type": "string", "required": true, "const": "no-evidence"},
-    "kb_sync.failure_can_be_formal": {"type": "boolean", "required": true, "const": true},
-    "kb_sync.failure_outcome_forbidden": {"type": "string", "required": true, "const": "PASS"},
+    "kb_sync.final_receipt_role": {
+      "type": "string",
+      "required": true,
+      "const": "aggregate-close-only"
+    },
+    "kb_sync.quality_tiers.formal": {
+      "type": "string",
+      "required": true,
+      "const": "evidence-complete"
+    },
+    "kb_sync.quality_tiers.candidate": {
+      "type": "string",
+      "required": true,
+      "const": "evidence-incomplete"
+    },
+    "kb_sync.quality_tiers.evidence_gap": {
+      "type": "string",
+      "required": true,
+      "const": "no-evidence"
+    },
+    "kb_sync.failure_can_be_formal": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "kb_sync.failure_outcome_forbidden": {
+      "type": "string",
+      "required": true,
+      "const": "PASS"
+    },
     "kb_sync.scopes": {
       "type": "array",
       "required": true,
-      "items_const": ["run", "node", "project", "device_family", "platform", "capability", "global"]
+      "items_const": [
+        "run",
+        "node",
+        "project",
+        "device_family",
+        "platform",
+        "capability",
+        "global"
+      ]
     },
-    "kb_sync.scope_inherit": {"type": "string", "required": true, "const": "near-to-far"},
-    "kb_sync.cross_scope_reference": {"type": "string", "required": true, "const": "derived_from-applies_to-exceptions"},
-    "kb_sync.project_may_override_global": {"type": "boolean", "required": true, "const": false},
-    "kb_sync.promotion.min_projects": {"type": "integer", "required": true, "const": 2},
+    "kb_sync.scope_inherit": {
+      "type": "string",
+      "required": true,
+      "const": "near-to-far"
+    },
+    "kb_sync.cross_scope_reference": {
+      "type": "string",
+      "required": true,
+      "const": "derived_from-applies_to-exceptions"
+    },
+    "kb_sync.project_may_override_global": {
+      "type": "boolean",
+      "required": true,
+      "const": false
+    },
+    "kb_sync.promotion.min_projects": {
+      "type": "integer",
+      "required": true,
+      "const": 2
+    },
     "kb_sync.promotion.promote_to": {
       "type": "array",
       "required": true,
-      "items_const": ["capability", "global"]
+      "items_const": [
+        "capability",
+        "global"
+      ]
     },
-    "kb_sync.promotion.requires_review": {"type": "boolean", "required": true, "const": true},
-    "kb_sync.promotion.demotion": {"type": "string", "required": true, "const": "add-applies_to-or-exceptions"},
+    "kb_sync.promotion.requires_review": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "kb_sync.promotion.demotion": {
+      "type": "string",
+      "required": true,
+      "const": "add-applies_to-or-exceptions"
+    },
     "kb_sync.outbox_close_when": {
       "type": "string",
       "required": true,
       "const": "all archive ok and kb ingest recorded-or-skipped and query-back pass-or-deferred"
     },
-    "kb_sync.recovery_scan": {"type": "boolean", "required": true, "const": true},
-    "kb_sync.recovery_scan_when": {"type": "string", "required": true, "const": "run-start"},
-    "kb_sync.query_back_per_checkpoint": {"type": "boolean", "required": true, "const": true},
-    "tts_library.root": {"type": "string", "required": true, "const": "/srv/storage/ark/artifacts/audio/tts-library"},
-    "tts_library.index": {"type": "string", "required": true, "const": "index.json"},
-    "tts_library.canonical_tool": {"type": "string", "required": true, "const": "asset-tools"},
-    "tts_library.lookup_command": {"type": "string", "required": true, "const": "asset-tools tts-library lookup --spec <spec.json>"},
-    "tts_library.fetch_command": {"type": "string", "required": true, "const": "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir ."},
-    "tts_library.publish_command": {"type": "string", "required": true, "const": "asset-tools tts-library publish --staging <dir> --task-dir ."},
-    "tts_library.synth_tool": {"type": "string", "required": true, "const": "tts-runtime"},
-    "tts_library.synth_engine": {"type": "string", "required": true, "const": "lstts"},
-    "tts_library.lookup_before_synth": {"type": "boolean", "required": true, "const": true},
+    "kb_sync.recovery_scan": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "kb_sync.recovery_scan_when": {
+      "type": "string",
+      "required": true,
+      "const": "run-start"
+    },
+    "kb_sync.query_back_per_checkpoint": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "tts_library.root": {
+      "type": "string",
+      "required": true,
+      "const": "/srv/storage/ark/artifacts/audio/tts-library"
+    },
+    "tts_library.index": {
+      "type": "string",
+      "required": true,
+      "const": "index.json"
+    },
+    "tts_library.canonical_tool": {
+      "type": "string",
+      "required": true,
+      "const": "asset-tools"
+    },
+    "tts_library.lookup_command": {
+      "type": "string",
+      "required": true,
+      "const": "asset-tools tts-library lookup --spec <spec.json>"
+    },
+    "tts_library.fetch_command": {
+      "type": "string",
+      "required": true,
+      "const": "asset-tools tts-library fetch --spec <spec.json> --dest assets/tts/original --task-dir ."
+    },
+    "tts_library.publish_command": {
+      "type": "string",
+      "required": true,
+      "const": "asset-tools tts-library publish --staging <dir> --task-dir ."
+    },
+    "tts_library.synth_tool": {
+      "type": "string",
+      "required": true,
+      "const": "tts-runtime"
+    },
+    "tts_library.synth_engine": {
+      "type": "string",
+      "required": true,
+      "const": "lstts"
+    },
+    "tts_library.lookup_before_synth": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
     "tts_library.reuse_requires": {
       "type": "array",
       "required": true,
-      "items_const": ["quality=formal", "status=active", "shareable=true", "full_cache_key_match", "sha256_verified", "acl_allowed"]
+      "items_const": [
+        "quality=formal",
+        "status=active",
+        "shareable=true",
+        "full_cache_key_match",
+        "sha256_verified",
+        "acl_allowed"
+      ]
     },
-    "tts_library.original_dir": {"type": "string", "required": true, "const": "assets/tts/original"},
-    "tts_library.derived_dir": {"type": "string", "required": true, "const": "work/audio"},
-    "tts_library.hardlink_forbidden": {"type": "boolean", "required": true, "const": true},
-    "tts_library.derived_requires_asset_id": {"type": "boolean", "required": true, "const": true},
-    "tts_library.outbox_dir": {"type": "string", "required": true, "const": "receipts/outbox"},
-    "tts_library.unreachable_action": {"type": "string", "required": true, "const": "BLOCKED_TTS_LIBRARY_UNREACHABLE"},
-    "tts_library.sensitive_default_shareable": {"type": "boolean", "required": true, "const": false},
-    "tts_library.gc_requires_approval": {"type": "boolean", "required": true, "const": true},
+    "tts_library.original_dir": {
+      "type": "string",
+      "required": true,
+      "const": "assets/tts/original"
+    },
+    "tts_library.derived_dir": {
+      "type": "string",
+      "required": true,
+      "const": "work/audio"
+    },
+    "tts_library.hardlink_forbidden": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "tts_library.derived_requires_asset_id": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
+    "tts_library.outbox_dir": {
+      "type": "string",
+      "required": true,
+      "const": "receipts/outbox"
+    },
+    "tts_library.unreachable_action": {
+      "type": "string",
+      "required": true,
+      "const": "BLOCKED_TTS_LIBRARY_UNREACHABLE"
+    },
+    "tts_library.sensitive_default_shareable": {
+      "type": "boolean",
+      "required": true,
+      "const": false
+    },
+    "tts_library.gc_requires_approval": {
+      "type": "boolean",
+      "required": true,
+      "const": true
+    },
     "compatibility.template_version": {
       "type": "string",
       "required": true
@@ -947,6 +1229,308 @@
       "required": true,
       "const": "logs/launch.json",
       "description": "启动记录相对路径；记录 pid/ppid/cwd/streams/window_count/launcher 版本，无法证明隐藏即 BLOCKED"
+    },
+    "identity.role_family": {
+      "type": "string",
+      "required": true,
+      "enum": [
+        "coordinator",
+        "node-executor",
+        "hardware-bench",
+        "knowledge-curator"
+      ]
+    },
+    "identity.official_role": {
+      "type": "string",
+      "required": true,
+      "description": "稳定官职/角色标识；改名或改造时必须同步检查图标"
+    },
+    "identity.avatar_icon": {
+      "type": "string",
+      "required": true,
+      "description": "必须等于顶层 role_icons 对当前 role 的稳定映射"
+    },
+    "identity.avatar_policy": {
+      "type": "string",
+      "required": true,
+      "const": "stable-role-mapping"
+    },
+    "runtime.node_binding": {
+      "type": "string",
+      "required": true,
+      "description": "节点执行角色必须与 runtime_id 完全一致；锦衣卫禁止跨节点"
+    },
+    "official_system.name": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "六部 + 锦衣卫"
+    },
+    "official_system.mika.name": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "Mika"
+    },
+    "official_system.mika.position": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "workspace-chief-of-staff"
+    },
+    "official_system.mika.department": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "null",
+      "const": null
+    },
+    "official_system.mika.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🇨🇳"
+    },
+    "official_system.mika.outside_six_ministries": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "boolean",
+      "const": true
+    },
+    "official_system.mika.default_model_exception": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "boolean",
+      "const": true
+    },
+    "official_system.ministries.吏部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "人员、智能体组织与任用治理"
+    },
+    "official_system.ministries.吏部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "👥"
+    },
+    "official_system.ministries.户部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "资产、预算、资源与台账治理"
+    },
+    "official_system.ministries.户部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🧾"
+    },
+    "official_system.ministries.礼部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "文档、规范、对外表达与礼仪治理"
+    },
+    "official_system.ministries.礼部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "📜"
+    },
+    "official_system.ministries.兵部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "任务执行、调度、节点与设备作战治理"
+    },
+    "official_system.ministries.兵部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🛡️"
+    },
+    "official_system.ministries.刑部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "合规、审计、风险与事故裁定"
+    },
+    "official_system.ministries.刑部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "⚖️"
+    },
+    "official_system.ministries.工部.domain": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "工程、代码、工具与基础设施建设"
+    },
+    "official_system.ministries.工部.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🛠️"
+    },
+    "official_system.levels.尚书.purpose": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "领域统筹、规则、风险和分派"
+    },
+    "official_system.levels.尚书.name_pattern": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "^(吏部|户部|礼部|兵部|刑部|工部)尚书$"
+    },
+    "official_system.levels.侍郎.purpose": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "领域专业执行"
+    },
+    "official_system.levels.侍郎.name_pattern": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "^(吏部|户部|礼部|兵部|刑部|工部)侍郎(?:·\\S+)?$"
+    },
+    "official_system.jinyiwei.purpose": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "绑定单一节点的专属执行"
+    },
+    "official_system.jinyiwei.name_pattern": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "^锦衣卫·\\S+(?:·[1-9]\\d*)?$"
+    },
+    "official_system.jinyiwei.avatar_icon": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "🥷"
+    },
+    "official_system.default_model": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "listenai/deepseek-flash"
+    },
+    "official_system.preview_required": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "array",
+      "items_const": [
+        "名称",
+        "部门/层级",
+        "职责",
+        "禁区",
+        "runtime",
+        "模型",
+        "并发",
+        "图标",
+        "固定目录",
+        "验收"
+      ]
+    },
+    "official_system.random_avatar": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "string",
+      "const": "forbidden"
+    },
+    "official_system.rename_requires_icon_review": {
+      "required": true,
+      "description": "六部 + 锦衣卫长期创建契约",
+      "type": "boolean",
+      "const": true
     }
+  },
+  "role_icons": {
+    "mika": "🇨🇳",
+    "吏部": "👥",
+    "户部": "🧾",
+    "礼部": "📜",
+    "兵部": "🛡️",
+    "刑部": "⚖️",
+    "工部": "🛠️",
+    "jinyiwei": "🥷",
+    "coordinator": "🧭",
+    "node-executor": "⚙️",
+    "hardware-bench": "🔧",
+    "knowledge-curator": "📚"
+  },
+  "official_system": {
+    "name": "六部 + 锦衣卫",
+    "mika": {
+      "name": "Mika",
+      "position": "workspace-chief-of-staff",
+      "department": null,
+      "avatar_icon": "🇨🇳",
+      "outside_six_ministries": true,
+      "default_model_exception": true
+    },
+    "ministries": {
+      "吏部": {
+        "domain": "人员、智能体组织与任用治理",
+        "avatar_icon": "👥"
+      },
+      "户部": {
+        "domain": "资产、预算、资源与台账治理",
+        "avatar_icon": "🧾"
+      },
+      "礼部": {
+        "domain": "文档、规范、对外表达与礼仪治理",
+        "avatar_icon": "📜"
+      },
+      "兵部": {
+        "domain": "任务执行、调度、节点与设备作战治理",
+        "avatar_icon": "🛡️"
+      },
+      "刑部": {
+        "domain": "合规、审计、风险与事故裁定",
+        "avatar_icon": "⚖️"
+      },
+      "工部": {
+        "domain": "工程、代码、工具与基础设施建设",
+        "avatar_icon": "🛠️"
+      }
+    },
+    "levels": {
+      "尚书": {
+        "purpose": "领域统筹、规则、风险和分派",
+        "name_pattern": "^(吏部|户部|礼部|兵部|刑部|工部)尚书$"
+      },
+      "侍郎": {
+        "purpose": "领域专业执行",
+        "name_pattern": "^(吏部|户部|礼部|兵部|刑部|工部)侍郎(?:·\\S+)?$"
+      }
+    },
+    "jinyiwei": {
+      "purpose": "绑定单一节点的专属执行",
+      "name_pattern": "^锦衣卫·\\S+(?:·[1-9]\\d*)?$",
+      "avatar_icon": "🥷"
+    },
+    "default_model": "listenai/deepseek-flash",
+    "preview_required": [
+      "名称",
+      "部门/层级",
+      "职责",
+      "禁区",
+      "runtime",
+      "模型",
+      "并发",
+      "图标",
+      "固定目录",
+      "验收"
+    ],
+    "random_avatar": "forbidden",
+    "rename_requires_icon_review": true
   }
 }

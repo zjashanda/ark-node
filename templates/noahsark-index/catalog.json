@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v1",
   "name": "noahsark-index",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -50,6 +50,7 @@
       "must_read": [
         "root.index-md",
         "agent-template.template",
+        "rule.official-system",
         "rule.execution_channel",
         "rule.supervision",
         "rule.approval",
@@ -82,6 +83,28 @@
         "git.device-io",
         "canonical.skillhub",
         "canonical.routing"
+      ]
+    },
+    {
+      "id": "jinyiwei",
+      "label": "锦衣卫",
+      "summary": "绑定单一 runtime/节点，只执行 Mika/Issue 派发的具体执行、测试、调试和验证任务；统一图标 🥷。",
+      "must_read": [
+        "root.index-md",
+        "agent-template.template",
+        "agent-template.profile",
+        "rule.official-system",
+        "rule.jinyiwei",
+        "rule.role-icons",
+        "rule.execution_channel",
+        "rule.workdir",
+        "rule.supervision"
+      ],
+      "optional": [
+        "canonical.node-cli",
+        "git.ark-node",
+        "rule.credentials",
+        "rule.time"
       ]
     },
     {
@@ -135,13 +158,14 @@
           "kind": "entry",
           "title": "总览（人读入口）",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
             "node-executor",
             "hardware-bench",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [],
           "oss": "noahsark/index.md",
@@ -152,7 +176,7 @@
           "kind": "entry",
           "title": "总览（机器读入口）",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -170,7 +194,7 @@
           "kind": "entry",
           "title": "根清单",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -194,13 +218,14 @@
           "kind": "entry",
           "title": "创建入口（latest 清单）",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
             "node-executor",
             "hardware-bench",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [],
           "oss": "noahsark/agent-template/latest/manifest.json",
@@ -212,7 +237,7 @@
           "kind": "entry",
           "title": "模板清单 v1.1.0（不可变）",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -222,7 +247,7 @@
           "requires": [
             "agent-template.latest"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/manifest.json",
+          "oss": "noahsark/agent-template/v1.7.0/manifest.json",
           "sha256": "fc9b02f0d44b7ae2d23459f8b17a9695d1b924b55e1d70e320643d33130886cd",
           "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
         },
@@ -231,47 +256,49 @@
           "kind": "entry",
           "title": "智能体模板正文 v1.1.0",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
             "node-executor",
             "hardware-bench",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         },
         {
           "id": "agent-template.profile",
           "kind": "entry",
           "title": "Agent Profile v1 结构定义",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/agent-profile.v1.json",
+          "oss": "noahsark/agent-template/v1.7.0/agent-profile.v1.json",
           "local": "templates/agents/agent-profile.v1.json",
           "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。",
-          "sha256": "d681dcf4534324d3fc212f3798784e7ae951c672c086eecaabef1353cc41171e"
+          "sha256": "ef77fa8b9a218d1cf08bff6926bf8d6a85dedda68cf1ef0e7a364b2c8778a9a7"
         },
         {
           "id": "agent-template.verifier",
           "kind": "entry",
           "title": "模板自检脚本",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -280,17 +307,17 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/verify-template.py",
+          "oss": "noahsark/agent-template/v1.7.0/verify-template.py",
           "local": "templates/agents/verify-template.py",
           "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。",
-          "sha256": "3d66ab203591caebee50fab5bf027af0e4f58373541e51b4b04b3c41070dd534"
+          "sha256": "2cc3c8ccba70617acffed20c56c57320822bfa9aab0beb5a8cf870665e70755f"
         },
         {
           "id": "agent-template.schema",
           "kind": "entry",
           "title": "Agent Template 状态机 schema v1.6.0",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "coordinator",
             "node-executor"
@@ -298,7 +325,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/run-state.v1.json",
+          "oss": "noahsark/agent-template/v1.7.0/run-state.v1.json",
           "sha256": "d9633c2277fc5017f925166867a98e0e903d67a44146355202ad7bdca43eaa07",
           "summary": "ark.run-state.v1 门禁事件 schema（EXECUTION_CHECK/PROGRESS_5M/STAGE_FINISHED/BLOCKED/FINAL_RECEIPT）。"
         }
@@ -368,7 +395,8 @@
           "version": "main@1b12c41ccd3e",
           "roles": [
             "node-executor",
-            "hardware-bench"
+            "hardware-bench",
+            "jinyiwei"
           ],
           "requires": [
             "git.ark-node"
@@ -563,7 +591,8 @@
           "version": "main@1b12c41ccd3e",
           "roles": [
             "coordinator",
-            "node-executor"
+            "node-executor",
+            "jinyiwei"
           ],
           "requires": [],
           "git": "zjashanda/ark-node",
@@ -626,28 +655,29 @@
           "kind": "rule",
           "title": "唯一任务目录",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
             "node-executor",
-            "hardware-bench"
+            "hardware-bench",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 工作目录",
           "summary": "每个任务一个目录：Windows 为 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 为 /home/zhsh/workspace/tasks/<tasks-id>/；<tasks-id> 用任务编号，不用时间戳；不得用 C 盘、系统临时目录、/tmp 或运行时工作目录代替。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         },
         {
           "id": "rule.storage",
           "kind": "rule",
           "title": "存储与归档布局",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "node-executor",
             "knowledge-curator"
@@ -655,117 +685,189 @@
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "6. 资产、结果与 1006",
           "summary": "结果与回执按 节点/项目/批次 三级归档；1006 资产必须同时记录文件名、大小、校验值，本机不可达时先记原因再委派可达节点取件，禁止直接结论「资产不存在」。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         },
         {
           "id": "rule.time",
           "kind": "rule",
           "title": "时间口径",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
             "node-executor",
             "hardware-bench",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "8. 时间口径",
           "summary": "唯一形态「年-月-日 时:分:秒」，文件名为紧凑无分隔形式；禁止字母分隔符、末尾时区字母、数字时区偏移与毫秒，禁止节点本地时区。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         },
         {
           "id": "rule.credentials",
           "kind": "rule",
           "title": "凭据与安全",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
             "node-executor",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9. 凭据与安全",
           "summary": "凭据只来自进程环境变量或权限 600 的受控密钥文件，共十个变量名；任何凭据值不得出现在模板、日志、回执、评论、提交或对外对象里。本总览不复制任何凭据。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         },
         {
           "id": "rule.supervision",
           "kind": "rule",
           "title": "监督契约",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "coordinator",
             "node-executor",
             "hardware-bench",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "10. 监督契约",
           "summary": "开工先报执行检查字段，长任务每五分钟报进度，状态漂移与无证据运行都要显式暴露；禁止起后台任务后直接结束。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         },
         {
           "id": "rule.execution_channel",
           "kind": "rule",
           "title": "执行通道与窗口",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "external-reader",
             "coordinator",
             "node-executor",
             "hardware-bench",
-            "knowledge-curator"
+            "knowledge-curator",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "11. 执行通道与窗口",
           "summary": "终端、脚本与 SSH 一律走无可见窗口、非交互、可观测的后台通道：Windows 不得弹出 PowerShell、cmd、Windows Terminal 或 conhost，不得用 Start-Process 或 Win32_Process.Create 包装；Linux 与 macOS 用 ssh -T -o BatchMode=yes；输出统一重定向到任务目录 logs/。后台运行不等于隐藏窗口，不得先执行再观察是否弹窗；无法确认隐藏时报 BLOCKED_EXECUTION_CHANNEL。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         },
         {
           "id": "rule.approval",
           "kind": "rule",
           "title": "审批边界",
           "status": "available",
-          "version": "1.6.0",
+          "version": "1.7.0",
           "roles": [
             "coordinator",
             "node-executor",
-            "hardware-bench"
+            "hardware-bench",
+            "jinyiwei"
           ],
           "requires": [
             "agent-template.template"
           ],
-          "oss": "noahsark/agent-template/v1.6.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9.4 审批边界",
           "summary": "推送代码、对外发布、真机操作、删除文件、改权限或 ACL 五类必须先获批；没有明确同意字样即视为未批准；只读巡检免审，写操作默认 dry-run。",
-          "sha256": "c569f887b140ad094a04ea49dd5cc459b5b67d9fda575b73cbfb4062d59637e9"
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
+        },
+        {
+          "id": "rule.jinyiwei",
+          "kind": "rule",
+          "title": "锦衣卫节点专属执行角色",
+          "status": "available",
+          "version": "1.7.0",
+          "roles": [
+            "coordinator",
+            "jinyiwei"
+          ],
+          "requires": [
+            "agent-template.template",
+            "agent-template.profile"
+          ],
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "1.1 锦衣卫：节点专属执行入口",
+          "summary": "锦衣卫一对一绑定 runtime/节点，只接受 Mika/Issue 的具体执行任务；默认 listenai/deepseek-flash、并发 1，禁止规划、协调、跨节点和通用工作。",
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
+        },
+        {
+          "id": "rule.role-icons",
+          "kind": "rule",
+          "title": "名称、官职与稳定图标",
+          "status": "available",
+          "version": "1.7.0",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "jinyiwei",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.template",
+            "agent-template.profile"
+          ],
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "1.2 名称、官职与稳定图标",
+          "summary": "Mika 固定五星红旗；六部使用稳定部徽，同部尚书/侍郎共享；锦衣卫统一 🥷。节点、专业和数字后缀不改变图标，禁止平台随机图标。",
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
+        },
+        {
+          "id": "rule.official-system",
+          "kind": "rule",
+          "title": "Mika + 六部 + 锦衣卫长期创建体系",
+          "status": "available",
+          "version": "1.7.0",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "jinyiwei",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "agent-template.template",
+            "agent-template.profile",
+            "rule.role-icons"
+          ],
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "1.3 长期创建体系：Mika + 六部 + 锦衣卫",
+          "summary": "Mika 是六部之外的工作区总协调；六部仅限吏、户、礼、兵、刑、工，尚书负责统筹/规则/风险/分派，侍郎负责专业执行；创建前必须预览十项字段。",
+          "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         }
       ]
     },

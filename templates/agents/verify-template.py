@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 MANIFEST_SCHEMA = "ark.agent-template.manifest.v1"
 PROFILE_SCHEMA = "ark.agent-profile.v1"
 REQUIRED_ROLES = ("template", "profile", "verifier")
@@ -81,8 +81,13 @@ PROFILE_REQUIRED = (
     "agent_name",
     "role",
     "description",
+    "identity.role_family",
+    "identity.official_role",
+    "identity.avatar_icon",
+    "identity.avatar_policy",
     "runtime.runtime_id",
     "runtime.model",
+    "runtime.node_binding",
     "runtime.max_concurrent_tasks",
     "paths.task_root_windows",
     "paths.task_root_linux",
@@ -105,7 +110,29 @@ PROFILE_REQUIRED = (
     "execution_channel.no_visible_terminal",
     "execution_channel.non_interactive",
 )
-PROFILE_ROLES = ("coordinator", "node-executor", "hardware-bench", "knowledge-curator")
+PROFILE_ROLES = ("coordinator", "node-executor", "jinyiwei", "hardware-bench", "knowledge-curator")
+EXPECTED_ROLE_ICONS = {
+    "coordinator": "🧭",
+    "node-executor": "⚙️",
+    "jinyiwei": "🥷",
+    "hardware-bench": "🔧",
+    "knowledge-curator": "📚",
+}
+EXPECTED_OFFICIAL_ICONS = {
+    "mika": "🇨🇳",
+    "吏部": "👥",
+    "户部": "🧾",
+    "礼部": "📜",
+    "兵部": "🛡️",
+    "刑部": "⚖️",
+    "工部": "🛠️",
+    "jinyiwei": "🥷",
+}
+EXPECTED_PREVIEW_FIELDS = ["名称", "部门/层级", "职责", "禁区", "runtime", "模型", "并发", "图标", "固定目录", "验收"]
+JINYIWEI_NAME = re.compile(r"^锦衣卫·\S+(?:·[1-9]\d*)?$")
+JINYIWEI_FORBIDDEN_NAME_TOKENS = ("listenai", "deepseek", "gpt", "claude", "gemini")
+JINYIWEI_MODEL = "listenai/deepseek-flash"
+JINYIWEI_FORBIDDEN_SCOPES = ["planning", "coordination", "cross-node", "general-purpose"]
 EXPECTED_LOOP = ["ark-dispatch", "execute", "ark-archive", "receipt", "ark-kb", "next-dispatch"]
 EXPECTED_SUPERVISION = ["EXECUTION_CHECK", "PROGRESS_5M", "STATE_DRIFT", "RUNNING_NO_EVIDENCE"]
 EXPECTED_SUBDIRS = ["assets", "work", "logs", "result", "receipts"]
@@ -342,6 +369,41 @@ def check_profile(manifest: Dict[str, Any], base: Path) -> List[Check]:
     role = str(default.get("role", ""))
     checks.append(Check("profile-role-enum", role in PROFILE_ROLES, f"role={role}"))
 
+    role_icons = profile.get("role_icons") if isinstance(profile.get("role_icons"), dict) else {}
+    roles = profile.get("roles") if isinstance(profile.get("roles"), dict) else {}
+    icon_map_ok = all(role_icons.get(name) == icon for name, icon in EXPECTED_ROLE_ICONS.items()) and all(
+        isinstance(roles.get(name), dict) and roles[name].get("avatar_icon") == icon
+        for name, icon in EXPECTED_ROLE_ICONS.items()
+    )
+    checks.append(Check("profile-role-icons", icon_map_ok, "稳定图标映射正确" if icon_map_ok else "角色图标映射缺失或漂移"))
+
+    official = profile.get("official_system") if isinstance(profile.get("official_system"), dict) else {}
+    ministries = official.get("ministries") if isinstance(official.get("ministries"), dict) else {}
+    official_icons = {"mika": _dig(official, "mika.avatar_icon"), "jinyiwei": _dig(official, "jinyiwei.avatar_icon")}
+    official_icons.update({name: spec.get("avatar_icon") for name, spec in ministries.items() if isinstance(spec, dict)})
+    official_ok = (
+        official_icons == EXPECTED_OFFICIAL_ICONS
+        and _dig(official, "mika.outside_six_ministries") is True
+        and set(ministries) == {"吏部", "户部", "礼部", "兵部", "刑部", "工部"}
+        and official.get("default_model") == JINYIWEI_MODEL
+        and official.get("preview_required") == EXPECTED_PREVIEW_FIELDS
+        and official.get("random_avatar") == "forbidden"
+        and official.get("rename_requires_icon_review") is True
+    )
+    checks.append(Check("profile-official-system", official_ok, "Mika + 六部 + 锦衣卫体系正确" if official_ok else "官职、部徽或创建预览契约漂移"))
+
+    checks.extend(check_profile_identity(default, roles, role_icons, "default"))
+    jinyiwei = roles.get("jinyiwei") if isinstance(roles.get("jinyiwei"), dict) else {}
+    jinyiwei_contract_ok = (
+        jinyiwei.get("role_family") == "node-executor"
+        and jinyiwei.get("default_model") == JINYIWEI_MODEL
+        and jinyiwei.get("max_concurrent_tasks") == 1
+        and jinyiwei.get("runtime_binding") == "required-exact"
+        and jinyiwei.get("accepted_dispatchers") == ["Mika", "Issue"]
+        and jinyiwei.get("forbidden_scopes") == JINYIWEI_FORBIDDEN_SCOPES
+    )
+    checks.append(Check("profile-jinyiwei-contract", jinyiwei_contract_ok, "节点专属执行边界正确" if jinyiwei_contract_ok else "锦衣卫预设缺失或边界漂移"))
+
     concurrency = _dig(default, "runtime.max_concurrent_tasks")
     bench = _dig(profile, "roles.hardware-bench.max_concurrent_tasks")
     bench_ok = concurrency == 1 if role == "hardware-bench" else True
@@ -410,6 +472,42 @@ def check_profile(manifest: Dict[str, Any], base: Path) -> List[Check]:
     checks.append(
         Check("profile-env-keys", keys_ok, "只有键名" if keys_ok else "env_keys 含非键名内容（可能有值）")
     )
+    return checks
+
+
+def check_profile_identity(
+    instance: Dict[str, Any], roles: Dict[str, Any], role_icons: Dict[str, Any], label: str
+) -> List[Check]:
+    """校验实例角色、稳定图标；锦衣卫额外校验名称、节点绑定、模型与串行入口。"""
+    role = str(instance.get("role", ""))
+    identity = instance.get("identity") if isinstance(instance.get("identity"), dict) else {}
+    runtime = instance.get("runtime") if isinstance(instance.get("runtime"), dict) else {}
+    icon = role_icons.get(role)
+    identity_ok = (
+        role in roles
+        and identity.get("official_role") == role
+        and identity.get("role_family") == roles.get(role, {}).get("role_family")
+        and identity.get("avatar_icon") == icon
+        and identity.get("avatar_policy") == "stable-role-mapping"
+    )
+    checks = [Check(f"{label}-role-icon", identity_ok, f"role={role}, avatar_icon={identity.get('avatar_icon')}")]
+    if role != "jinyiwei":
+        return checks
+    runtime_id = runtime.get("runtime_id")
+    binding = runtime.get("node_binding")
+    problems = []
+    agent_name = str(instance.get("agent_name", ""))
+    if not JINYIWEI_NAME.fullmatch(agent_name) or any(
+        token in agent_name.lower() for token in JINYIWEI_FORBIDDEN_NAME_TOKENS
+    ):
+        problems.append("agent_name")
+    if not runtime_id or binding != runtime_id:
+        problems.append("runtime.node_binding")
+    if runtime.get("model") != JINYIWEI_MODEL:
+        problems.append("runtime.model")
+    if runtime.get("max_concurrent_tasks") != 1:
+        problems.append("runtime.max_concurrent_tasks")
+    checks.append(Check(f"{label}-jinyiwei-binding", not problems, "节点、模型和串行入口正确" if not problems else "不符: " + ",".join(problems)))
     return checks
 
 
@@ -1241,6 +1339,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--dir", default=str(Path(__file__).resolve().parent), help="发布包所在目录")
     parser.add_argument("--manifest", default=None, help="manifest 路径，默认 <dir>/manifest.json")
     parser.add_argument("--json", action="store_true", help="输出机器可读结果")
+    parser.add_argument("--profile", default=None, help="额外校验一个实例 profile（可为 profile 包装对象）")
     return parser.parse_args(argv)
 
 
@@ -1251,6 +1350,12 @@ def main(argv: List[str]) -> int:
 
     try:
         checks, manifest = verify(base, manifest_path)
+        if args.profile:
+            source = json.loads(Path(args.profile).read_text(encoding="utf-8"))
+            instance = source.get("profile", source) if isinstance(source, dict) else {}
+            profile_entry = next(entry for entry in (manifest or {}).get("files", []) if entry.get("role") == "profile")
+            schema = json.loads((base / profile_entry["path"]).read_text(encoding="utf-8"))
+            checks.extend(check_profile_identity(instance, schema.get("roles", {}), schema.get("role_icons", {}), "instance"))
     except FileNotFoundError as exc:
         sys.stderr.write(f"verify-template: {exc}\n")
         return EXIT_NO_SOURCE
