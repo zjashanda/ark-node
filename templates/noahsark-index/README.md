@@ -172,3 +172,7 @@ python3 templates/noahsark-index/publish-index.py --allow-downgrade --apply --ye
 - 校验器 `noahsark/agent-template/v1.1.0/verify-template.py`。
 
 模板升级时：先按 `templates/agents/publish-template.py` 发布新版本目录，再改本目录 `catalog.json` 里的版本号与校验值，最后发布根索引。顺序颠倒会出现「索引指向尚不存在的对象」，`verify-index.py --online` 会拦住。
+
+`agent-template.latest` 是可变的指针：模板每发布一次，它的清单字节就会变，因此根索引里记录的 `sha256`
+必须同步刷新并重发根索引。忘记刷新时 `verify-index.py --online` 会对该条目报「线上内容与记录校验值不一致」——
+这是有意的漂移告警（2026-11-16 的 2.0.1 就是修这个：两个清单对象的 SHA 停留在旧批次）。

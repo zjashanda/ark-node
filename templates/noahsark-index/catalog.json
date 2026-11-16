@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1086,7 +1086,7 @@
           "requires": [],
           "oss": "noahsark/agent-template/latest/manifest.json",
           "summary": "当前推荐版本清单（v1.7.0）。latest 只做指向，内容与 v1.7.0 逐字节一致，长期留存请改用版本目录。",
-          "sha256": "b3ee1cce0fed2992c779c46c50d9e752ad5f93f21335a26796f5750cd23b5ce2"
+          "sha256": "95d89c250dec98e731fb9554e3c76619c2c7e7f68025a47e6a3ecbe26dfcec4a"
         },
         {
           "id": "agent-template.manifest",
@@ -1104,7 +1104,7 @@
             "agent-template.latest"
           ],
           "oss": "noahsark/agent-template/v1.7.0/manifest.json",
-          "sha256": "fc9b02f0d44b7ae2d23459f8b17a9695d1b924b55e1d70e320643d33130886cd",
+          "sha256": "843ed428b5292ee5a406c44a0dadee82a4e27f889c8f41b3ed2d850239813a55",
           "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
         },
         {
