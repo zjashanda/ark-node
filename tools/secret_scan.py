@@ -45,9 +45,11 @@ URL_CREDENTIAL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^/\s:@]+:[^/\s@]+@")  
 HEX_BLOB = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{32,}(?![0-9A-Za-z])")  # noqa: secret-scan
 B64_BLOB = re.compile(r"(?<![0-9A-Za-z+/=])[A-Za-z0-9+/]{32,}={0,2}(?![0-9A-Za-z+/=])")  # noqa: secret-scan
 # 内容摘要（sha256）与 Git 提交号都是标识符，不是凭据：同行内出现即放行。
+# 内容摘要（sha256）、产物摘要与 Git 提交号都是标识符，不是凭据：同行内出现即放行。
+# 字段名允许 *_sha256 / *_commit，值必须是纯十六进制摘要或提交号。
 DIGEST_FIELD = re.compile(
-    r'"(?:content_|evidence_)?sha256"\s*:\s*"[0-9A-Fa-f]{64}"'
-    r'|"commit"\s*:\s*"[0-9A-Fa-f]{40}"'
+    r'"[A-Za-z0-9_]*sha256"\s*:\s*"[0-9A-Fa-f]{64}"'
+    r'|"[A-Za-z0-9_]*commit"\s*:\s*"[0-9A-Fa-f]{40,64}"'
 )
 
 PRIVATE_IP = re.compile(

@@ -1,7 +1,7 @@
 {
-  "schema": "ark.noahsark-index.catalog.v1",
+  "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "1.7.0",
+  "version": "2.0.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -17,13 +17,193 @@
   },
   "workdir": {
     "windows": "D:\\zhsh\\workspace\\tasks\\<tasks-id>\\",
-    "linux": "/home/zhsh/workspace/tasks/<tasks-id>/"
+    "linux": "/home/zhsh/workspace/tasks/<tasks-id>/",
+    "macos": "/Users/zhsh/workspace/tasks/<tasks-id>/"
   },
+  "regions": [
+    {
+      "id": "system",
+      "title": "NoahsArk 体系介绍",
+      "summary": "平台边界、三层职责、执行闭环、角色体系、服务入口、知识时序与门禁。只读这一节就能判断某项工作该走哪一层。",
+      "lead": [
+        "本区域回答「NoahsArk 是什么、由谁负责什么、一次任务怎么走完、知识从哪里来」。",
+        "服务地址一律使用可解析节点名，不写内网地址字面量；需要真实地址时查节点侧部署回执。"
+      ]
+    },
+    {
+      "id": "onboarding",
+      "title": "体系环境初始化",
+      "summary": "工作区、节点、Agent 的完整接入步骤：目录、runtime、节点专属 Agent、Git 能力、8090 存储、8091 知识、工具、TTS、验收与回执。",
+      "lead": [
+        "本区域按「谁来做、能不能自动做、做完怎么证明」组织；每一步都带自动化级别、验收项和失败阻塞码。",
+        "初始化的终点是一份 Node Onboarding receipt：能力登记、版本/SHA、服务连通、查询与存取结果齐全，才算接入完成。"
+      ]
+    }
+  ],
   "positioning": [
-    "NoahsArk 是一个闭环平台，不是单个 Skill：任务拆解、真机执行、证据归档、知识回写由一组 Skill 与节点协作完成。",
-    "Git 仓库是唯一真源；OSS 上的 noahsark/ 目录只是对外分发副本，全部内容由本仓库 templates/noahsark-index/ 生成，不手工维护。",
-    "外部工作区只需要一个地址：noahsark/index.md。读完总览后按角色进入对应条目，不需要理解内部仓库结构。",
-    "本目录的地址永久不变；更新只重新指向 index.md / index.json / manifest.json，已发布的版本目录不可修改。"
+    "NoahsArk 是闭环平台，不是单个 Skill：任务拆解、真机执行、证据归档、知识沉淀与下一次复用由一组 Skill 与节点协作完成。",
+    "Multica 负责任务与运行载体（Issue、Run、评审、评论、唤醒）；NoahsArk 负责运行规范与能力集合（目录、门禁、证据、知识、服务）。平台记录任务，NoahsArk 规定任务怎么做、证据放哪、知识怎么沉淀。",
+    "Git 仓库是唯一真源；OSS 上的 noahsark/ 目录只是对外分发副本，本页由 ark-node 的 templates/noahsark-index 生成，不手工维护。",
+    "三层职责固定：ark-kb 是唯一审核知识真源；8091 Knowledge Service 是在线查询与 proposal 入口；8090 Ark Storage Service 与 1006 存放原始证据、资产与备份。",
+    "入口地址永久不变：外部工作区只记 noahsark/index.md，其余内容按本页入口进入，不需要理解内部仓库与节点结构。",
+    "本页不含 token、私钥、口令或内网地址字面量；服务发现使用可解析节点名和 services/*.json 机器可读契约。"
+  ],
+  "layers": [
+    {
+      "id": "ark-kb",
+      "title": "ark-kb（Git 唯一审核知识真源）",
+      "responsibility": "保存审核通过的结构化知识与索引（entries/、index/、registry/）；条目带证据引用、SHA-256 与适用范围；写入只走提交流程。",
+      "not_responsible": "不存原始证据本体；不提供在线查询；pending proposal 不在其中，也不算可用知识。",
+      "gate": "审核后才 active；pending 只能当线索。"
+    },
+    {
+      "id": "svc.knowledge-service",
+      "title": "8091 Knowledge Service（在线查询与 proposal 入口）",
+      "responsibility": "在线检索 ark-kb 与 kb.sqlite；接收 proposal 进 outbox；给出 source_commit / indexed_commit / freshness；定时增量索引。",
+      "not_responsible": "不替代 ark-kb，不是真源；不把 pending 当 active；不保存原始大文件与音频本体。",
+      "gate": "freshness=stale 时按降级处理，高风险任务阻塞。"
+    },
+    {
+      "id": "svc.storage-service",
+      "title": "8090 Ark Storage Service / 1006（原始证据、资产与备份）",
+      "responsibility": "证据、结果、回执、资产与备份的写入与下载；服务端复算 SHA-256；staging/finalize/quarantine；TTS 公共缓存分发。",
+      "not_responsible": "不是在线知识真源，不做语义检索；不保存 token 明文；1006 未挂载时不得声称备份可用。",
+      "gate": "SHA 不符一律 quarantine，正式目录不受污染。"
+    }
+  ],
+  "lifecycle": [
+    {
+      "step": "Issue 与 Run",
+      "actor": "Multica / 协调者",
+      "artifact": "任务号、触发评论、run 记录",
+      "gate": "没有 active run 不得声称已开始执行。"
+    },
+    {
+      "step": "plan.md",
+      "actor": "执行 Agent",
+      "artifact": "任务目录内 plan.md（知识查询、计划、状态、证据路径）",
+      "gate": "没有 plan.md 不得开工；每阶段结束回写已完成/未完成/阻塞。"
+    },
+    {
+      "step": "EXECUTION_CHECK",
+      "actor": "执行 Agent",
+      "artifact": "执行检查事件（issue/run/agent/runtime、第一个动作、第一件产物）",
+      "gate": "没有产物不得写 started=YES。"
+    },
+    {
+      "step": "阶段产物",
+      "actor": "执行 Agent",
+      "artifact": "assets/、work/、logs/、result/",
+      "gate": "先落盘再继续；结论必须能被下游复核。"
+    },
+    {
+      "step": "receipt 与 checkpoint",
+      "actor": "执行 Agent",
+      "artifact": "run.receipt.json、outbox 检查点、gate 事件流",
+      "gate": "归档与知识入库状态齐全才能关闭 outbox。"
+    },
+    {
+      "step": "archive 与 kb",
+      "actor": "ark-archive / ark-kb",
+      "artifact": "归档包、结构化知识条目（带 storage_id/evidence_ref、bytes、SHA-256）",
+      "gate": "证据引用缺校验值不算有效引用。"
+    },
+    {
+      "step": "下一次复用",
+      "actor": "其他 Agent",
+      "artifact": "查询命中、同类任务前置检查",
+      "gate": "只引用 formal 且非 stale/superseded 条目。"
+    }
+  ],
+  "knowledge_loop": [
+    {
+      "step": "1. 产生证据",
+      "actor": "执行 Agent",
+      "detail": "任务产物、日志、回执按任务目录规范落盘，敏感数据先脱敏。",
+      "artifact": "本地文件 + manifest"
+    },
+    {
+      "step": "2. 上传 8090",
+      "actor": "执行 Agent",
+      "detail": "按分类写入 evidence/results/receipts，服务端复算 SHA-256；失败或 SHA 不符进 quarantine，不进正式目录。",
+      "artifact": "evidence_ref = ark://<category>/<scope>/<key> + bytes + sha256"
+    },
+    {
+      "step": "3. 提交 proposal",
+      "actor": "执行 Agent",
+      "detail": "向 8091 POST /v1/proposals 提交草稿；返回 pending，重复提交幂等；不直接改 ark-kb。",
+      "artifact": "proposal_id（prop-<sha256(draft)[:16]>）"
+    },
+    {
+      "step": "4. 审核",
+      "actor": "人 / 授权 Agent",
+      "detail": "核对证据引用与结论，关闭为 accepted 或 rejected；pending 不得当 active 使用。",
+      "artifact": "审核结论 + entry_id"
+    },
+    {
+      "step": "5. 写入 ark-kb",
+      "actor": "知识沉淀角色",
+      "detail": "条目落 entries/ 与 index/，走功能分支与 PR；合并后 Git 才成为真源。",
+      "artifact": "ark-kb commit（新 main）"
+    },
+    {
+      "step": "6. 增量索引",
+      "actor": "8091 Knowledge Service",
+      "detail": "900 秒定时 pull 或 ark-kb webhook 触发；source_commit 与 indexed_commit 追平且 freshness=fresh。",
+      "artifact": "indexed_commit + freshness"
+    },
+    {
+      "step": "7. 跨 Agent 复用",
+      "actor": "任意 Agent",
+      "detail": "查询命中后生成同类任务前置检查；回执记录 knowledge_snapshot；stale/unavailable 按降级规则。",
+      "artifact": "knowledge_snapshot + 前置检查"
+    }
+  ],
+  "gates": [
+    {
+      "gate": "阶段门禁",
+      "rule": "Stage N 未通过不进 Stage N+1；服务未验收不发布索引，索引未发布不同步 Fleet。",
+      "failure": "BLOCKED_STAGE_GATE"
+    },
+    {
+      "gate": "发布元数据一致性",
+      "rule": "index.md/index.json/manifest 的版本、标题、URL、Git pin、latest、bytes、SHA 必须一致；匿名回读逐项比对。",
+      "failure": "PUBLISH_METADATA_DRIFT"
+    },
+    {
+      "gate": "知识新鲜度",
+      "rule": "source_commit == indexed_commit 且 freshness=fresh 才能当权威依据；否则普通任务用未过期快照，高风险任务阻塞。",
+      "failure": "BLOCKED_KB_STALE / BLOCKED_KB_UNAVAILABLE"
+    },
+    {
+      "gate": "证据完整性",
+      "rule": "服务端复算 SHA-256；不符进 quarantine；回读必须比对 bytes 与 SHA。",
+      "failure": "BLOCKED_STORAGE_QUARANTINE"
+    },
+    {
+      "gate": "鉴权与 scope",
+      "rule": "每节点独立 token；缺 token 401、scope 不足 403；不得共用或转借凭据。",
+      "failure": "BLOCKED_STORAGE_AUTH / BLOCKED_STORAGE_SCOPE / BLOCKED_KB_AUTH"
+    },
+    {
+      "gate": "TTS 公共缓存",
+      "rule": "cache key 必须覆盖文本、语言、voice、模型、供应商版本、采样率、声道、格式、语速、音调；命中先校验 bytes/SHA。",
+      "failure": "BLOCKED_TTS_CACHE_CORRUPT / BLOCKED_TTS_PUBLISH"
+    },
+    {
+      "gate": "审批边界",
+      "rule": "推送代码、对外发布、真机操作、删除、权限变更需要明确同意；凭据存在不代表自动获批。",
+      "failure": "BLOCKED_APPROVAL_REQUIRED"
+    }
+  ],
+  "security": [
+    "凭据只来自进程环境变量或权限 0600 的受控文件；变量名限定 GITHUB_TOKEN、ACCESS_KEY_ID、ACCESS_KEY_SECRET、LSTTS_TTS_TOKEN 等白名单。",
+    "任何凭据值不得进入 Git、OSS、index、Issue、日志、回执或 Agent instructions，也不得拼进 URL 或经命令行传口令。",
+    "索引与公开对象不写 RFC1918 地址、主机清单或 Authorization 头；服务发现使用可解析节点名。",
+    "8090/8091 服务进程不持有 GitHub 写 token；Git 写操作只由部署/代码任务的节点级凭据执行。",
+    "敏感文本不进公共 TTS 库；需要项目或权限 scope 与保留策略。",
+    "审计日志不记录 Authorization 与请求体；token 存储只保留 SHA-256。",
+    "错误、失败、阻塞必须如实标注；不得把代码测试通过写成真机验证通过。"
   ],
   "roles": [
     {
@@ -40,7 +220,9 @@
       "optional": [
         "root.index-json",
         "agent-template.profile",
-        "rule.credentials"
+        "rule.credentials",
+        "svc.knowledge-service",
+        "svc.storage-service"
       ]
     },
     {
@@ -56,7 +238,9 @@
         "rule.approval",
         "rule.credentials",
         "rule.time",
-        "canonical.routing"
+        "canonical.routing",
+        "svc.storage-service",
+        "svc.knowledge-service"
       ],
       "optional": [
         "canonical.skillhub",
@@ -76,7 +260,9 @@
         "rule.workdir",
         "rule.credentials",
         "rule.time",
-        "canonical.node-cli"
+        "canonical.node-cli",
+        "svc.storage-service",
+        "svc.knowledge-service"
       ],
       "optional": [
         "git.ark-node",
@@ -98,7 +284,9 @@
         "rule.role-icons",
         "rule.execution_channel",
         "rule.workdir",
-        "rule.supervision"
+        "rule.supervision",
+        "svc.storage-service",
+        "svc.knowledge-service"
       ],
       "optional": [
         "canonical.node-cli",
@@ -138,7 +326,9 @@
         "rule.time",
         "rule.storage",
         "canonical.kb-ledger",
-        "git.ark-archive"
+        "git.ark-archive",
+        "svc.storage-service",
+        "svc.knowledge-service"
       ],
       "optional": [
         "git.ark-kb",
@@ -147,18 +337,550 @@
       ]
     }
   ],
+  "services": [
+    {
+      "id": "svc.storage-service",
+      "descriptor": "templates/noahsark-index/services/storage-service.json",
+      "roles": [
+        "coordinator",
+        "node-executor",
+        "jinyiwei",
+        "hardware-bench",
+        "knowledge-curator",
+        "external-reader"
+      ],
+      "requires": [],
+      "summary": "8090 统一存储入口：上传/下载/HEAD/Range、staging/finalize/quarantine、分类与 scope、审计与 TTS 公共缓存；兼容旧 /ark/*。"
+    },
+    {
+      "id": "svc.knowledge-service",
+      "descriptor": "templates/noahsark-index/services/knowledge-service.json",
+      "roles": [
+        "external-reader",
+        "coordinator",
+        "node-executor",
+        "jinyiwei",
+        "hardware-bench",
+        "knowledge-curator"
+      ],
+      "requires": [],
+      "summary": "8091 知识入口：检索、条目详情、proposal 与 outbox、sync 状态与增量 pull、freshness 与降级；不替代 ark-kb。"
+    }
+  ],
+  "onboarding": {
+    "automation_levels": {
+      "auto": "无对外副作用、可重复执行，失败可重试；Agent 直接做并留日志。",
+      "confirm": "需要郑保山首次准入或管理员授权的动作；先给目标、命令、影响范围、回滚方式，拿到明确同意再执行。",
+      "admin": "只在管理员/root 或平台控制台执行；Agent 不得代执行，只能给出命令与验证方式。"
+    },
+    "steps": [
+      {
+        "id": "workspace.dir",
+        "scope": "workspace",
+        "title": "建立唯一任务目录与 plan.md",
+        "automation": "auto",
+        "requires": [],
+        "detail": "Windows 用 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 用 /home/zhsh/workspace/tasks/<tasks-id>/；目录内含 plan.md、assets/、work/、logs/、result/、receipts/。runtime 分配的工作目录只是入口，不是任务目录。",
+        "commands": [
+          "mkdir -p <task>/assets <task>/work <task>/logs <task>/result <task>/receipts",
+          "写 plan.md：目标、知识查询、计划、状态、证据路径"
+        ],
+        "acceptance": [
+          "ACCEPT_WORKDIR"
+        ],
+        "block_codes": [
+          "BLOCKED_WORKDIR_POLICY"
+        ]
+      },
+      {
+        "id": "runtime.identify",
+        "scope": "node",
+        "title": "识别 runtime、模型与执行通道",
+        "automation": "auto",
+        "requires": [
+          "workspace.dir"
+        ],
+        "detail": "用 ark-node identity / probe 确认 node_id、平台、可用工具；确认执行通道无可见窗口、非交互、输出落 logs/。无法保证隐藏时按 BLOCKED_EXECUTION_CHANNEL 停止。",
+        "commands": [
+          "ark-node identity",
+          "ark-node probe --out capability.json"
+        ],
+        "acceptance": [
+          "ACCEPT_RUNTIME"
+        ],
+        "block_codes": [
+          "BLOCKED_EXECUTION_CHANNEL",
+          "BLOCKED_RUNTIME_TASK_TOKEN"
+        ]
+      },
+      {
+        "id": "node.agent.bind",
+        "scope": "agent",
+        "title": "创建或绑定节点专属 Agent",
+        "automation": "confirm",
+        "requires": [
+          "runtime.identify"
+        ],
+        "detail": "节点专属 Agent（六部/锦衣卫）需要先展示 runtime、模型、并发、角色、图标与权限预览并确认；运行中的 Run 保持 pinned，不中途换模型。",
+        "commands": [
+          "展示 agent 创建/绑定预览 → 确认后执行"
+        ],
+        "acceptance": [
+          "ACCEPT_AGENT_BOUND"
+        ],
+        "block_codes": [
+          "BLOCKED_APPROVAL_REQUIRED"
+        ]
+      },
+      {
+        "id": "git.identity",
+        "scope": "node",
+        "title": "配置 Git 身份与远端能力",
+        "automation": "confirm",
+        "requires": [
+          "runtime.identify"
+        ],
+        "detail": "作者固定 zjashanda <zjashanda@gmail.com>；同一节点优先配置机器级 SSH key 或 credential helper 供该节点代码 Agent 复用。只读 clone/pull 可自动，push/PR/合并仍按审批边界。服务进程不持有写 token。",
+        "commands": [
+          "git config --global user.name zjashanda",
+          "git config --global user.email zjashanda@gmail.com",
+          "git ls-remote <repo> 验证只读"
+        ],
+        "acceptance": [
+          "ACCEPT_GIT_READ",
+          "ACCEPT_GIT_WRITE"
+        ],
+        "block_codes": [
+          "BLOCKED_APPROVAL_REQUIRED",
+          "BLOCKED_GIT_REMOTE"
+        ]
+      },
+      {
+        "id": "storage.enroll",
+        "scope": "node",
+        "title": "接入 8090 存储服务",
+        "automation": "confirm",
+        "requires": [
+          "git.identity"
+        ],
+        "detail": "服务发现用节点名 linux003:8090；节点 enrollment 时每节点签发独立 token 与 scope（read/write/evidence:write/backup:write），明文只在签发时下发到 0600 受控文件。轮换与吊销由管理员执行，旧 token 立即失效。",
+        "commands": [
+          "GET /health 确认 200",
+          "用独立 token 做一次 objects 上传/下载回读"
+        ],
+        "acceptance": [
+          "ACCEPT_STORAGE_ROUNDTRIP",
+          "ACCEPT_STORAGE_SCOPE",
+          "ACCEPT_STORAGE_QUARANTINE"
+        ],
+        "block_codes": [
+          "BLOCKED_STORAGE_UNAVAILABLE",
+          "BLOCKED_STORAGE_AUTH",
+          "BLOCKED_STORAGE_SCOPE"
+        ]
+      },
+      {
+        "id": "knowledge.connect",
+        "scope": "node",
+        "title": "连接 8091 知识服务",
+        "automation": "auto",
+        "requires": [
+          "storage.enroll"
+        ],
+        "detail": "服务发现用节点名 bszT14:8091；用 read token 查 /healthz 与 /v1/search，记录 knowledge_snapshot；需要沉淀的节点另配 write token 提交 proposal。pending 只能当线索。",
+        "commands": [
+          "GET /healthz",
+          "GET /v1/search?device=<node>",
+          "GET /v1/sync/status"
+        ],
+        "acceptance": [
+          "ACCEPT_KB_QUERY",
+          "ACCEPT_KB_PROPOSAL",
+          "ACCEPT_KB_FRESHNESS"
+        ],
+        "block_codes": [
+          "BLOCKED_KB_STALE",
+          "BLOCKED_KB_UNAVAILABLE",
+          "BLOCKED_KB_AUTH",
+          "BLOCKED_KB_SCOPE"
+        ]
+      },
+      {
+        "id": "tools.install",
+        "scope": "node",
+        "title": "安装 ark-node、归档与取件工具",
+        "automation": "auto",
+        "requires": [
+          "runtime.identify"
+        ],
+        "detail": "ark-node 提供 identity/probe/init/env/fetch；ark-archive 负责归档；asset-tools 负责多来源取件；知识客户端走 ark-kb 的 tools/kb.py 或 8091 API。安装后记录版本与 SHA-256，不把版本写死在本页。",
+        "commands": [
+          "git clone <repo> && python3 -m pip install --user .",
+          "ark-node probe",
+          "记录各工具 commit 与产物 SHA-256"
+        ],
+        "acceptance": [
+          "ACCEPT_TOOLS"
+        ],
+        "block_codes": [
+          "BLOCKED_TOOL_MISSING"
+        ]
+      },
+      {
+        "id": "tts.node-config",
+        "scope": "node",
+        "title": "按能力配置节点 TTS",
+        "automation": "confirm",
+        "requires": [
+          "storage.enroll"
+        ],
+        "detail": "需要语音测试或临时生成语料的节点配置 LSTTS_TTS_TOKEN（秘密）与 LSTTS_TTS_URL/default provider/voice（非敏感）；纯协调/存储/知识节点不需要。秘密写入节点受控文件，由同节点 Agent 复用，不逐 Agent 复制。",
+        "commands": [
+          "配置节点级秘密文件（0600）",
+          "按 cache key 查 8090 公共音频"
+        ],
+        "acceptance": [
+          "ACCEPT_TTS_CACHE_READ",
+          "ACCEPT_TTS_SYNTH",
+          "ACCEPT_TTS_PUBLISH"
+        ],
+        "block_codes": [
+          "BLOCKED_TTS_CACHE_CORRUPT",
+          "BLOCKED_TTS_PUBLISH"
+        ]
+      },
+      {
+        "id": "capability.register",
+        "scope": "node",
+        "title": "登记能力清单与 preflight",
+        "automation": "auto",
+        "requires": [
+          "tools.install",
+          "knowledge.connect"
+        ],
+        "detail": "用 ark-node probe 产出 ark-node-capability.v1，登记设备、工具、存储与知识连通结果；开工前跑一次 preflight，结果与登记不符按漂移处理。",
+        "commands": [
+          "ark-node probe --out capability.json",
+          "preflight 对比上次 capability"
+        ],
+        "acceptance": [
+          "ACCEPT_CAPABILITY"
+        ],
+        "block_codes": [
+          "BLOCKED_CAPABILITY_DRIFT"
+        ]
+      },
+      {
+        "id": "receipt.emit",
+        "scope": "node",
+        "title": "产出 Node Onboarding receipt",
+        "automation": "auto",
+        "requires": [
+          "capability.register",
+          "storage.enroll",
+          "knowledge.connect"
+        ],
+        "detail": "receipt 记录节点、runtime、工具版本与 SHA、Git 读写结论（GIT_REMOTE_READ_PASS/GIT_REMOTE_WRITE_PASS）、存储与知识验收结果、TTS 验收结果与漂移状态；只记结论与凭据类型，不记凭据值。",
+        "commands": [
+          "写 receipts/node-onboarding.receipt.json",
+          "上传 evidence 到 8090 并回读校验"
+        ],
+        "acceptance": [
+          "ACCEPT_RECEIPT"
+        ],
+        "block_codes": [
+          "BLOCKED_RECEIPT_INCOMPLETE"
+        ]
+      },
+      {
+        "id": "credentials.boundary",
+        "scope": "node",
+        "title": "凭据边界、轮换与吊销",
+        "automation": "admin",
+        "requires": [
+          "storage.enroll",
+          "knowledge.connect"
+        ],
+        "detail": "token 只存 0600 文件或进程环境；轮换按节点维度执行，旧 token 立即吊销；凭据不进入 Git、OSS、index、Issue、日志、回执与 instructions。",
+        "commands": [
+          "管理员签发/轮换/吊销",
+          "轮换后重跑验收"
+        ],
+        "acceptance": [
+          "ACCEPT_CREDENTIAL_BOUNDARY"
+        ],
+        "block_codes": [
+          "BLOCKED_APPROVAL_REQUIRED"
+        ]
+      },
+      {
+        "id": "fleet.sync",
+        "scope": "fleet",
+        "title": "同步现有 Agent Fleet",
+        "automation": "confirm",
+        "requires": [
+          "receipt.emit",
+          "credentials.boundary"
+        ],
+        "detail": "索引发布并匿名回读一致后才执行；逐 Agent/节点版本盘点，空闲 Agent 更新持久 instructions，运行中 Run 保持 pinned，打开会话单独刷新。",
+        "commands": [
+          "逐 Agent 盘点版本 → 更新 instructions → 复跑 preflight"
+        ],
+        "acceptance": [
+          "ACCEPT_FLEET_SYNC"
+        ],
+        "block_codes": [
+          "BLOCKED_APPROVAL_REQUIRED",
+          "PUBLISH_METADATA_DRIFT"
+        ]
+      }
+    ],
+    "acceptance": [
+      {
+        "id": "ACCEPT_WORKDIR",
+        "title": "任务目录与 plan.md",
+        "rule": "目录符合唯一规则，plan.md 已写目标、知识查询、计划与状态。"
+      },
+      {
+        "id": "ACCEPT_RUNTIME",
+        "title": "runtime 与通道",
+        "rule": "identity/probe 成功；执行通道无可见窗口、非交互、输出落 logs/。"
+      },
+      {
+        "id": "ACCEPT_AGENT_BOUND",
+        "title": "节点专属 Agent",
+        "rule": "角色、图标、模型、并发已确认并绑定到该节点 runtime。"
+      },
+      {
+        "id": "ACCEPT_GIT_READ",
+        "title": "Git 只读",
+        "rule": "GIT_REMOTE_READ_PASS：可 clone/pull；私有库按权限。"
+      },
+      {
+        "id": "ACCEPT_GIT_WRITE",
+        "title": "Git 功能分支写",
+        "rule": "GIT_REMOTE_WRITE_PASS：能推功能分支；不直推 main，push/PR/合并仍按审批。"
+      },
+      {
+        "id": "ACCEPT_STORAGE_ROUNDTRIP",
+        "title": "存储往返",
+        "rule": "上传 201 → 服务端 SHA → 下载回读 bytes/SHA 一致。"
+      },
+      {
+        "id": "ACCEPT_STORAGE_SCOPE",
+        "title": "存储鉴权",
+        "rule": "无 token 401、scope 不足 403、本节点 scope 可完成既定分类写入。"
+      },
+      {
+        "id": "ACCEPT_STORAGE_QUARANTINE",
+        "title": "隔离",
+        "rule": "构造错误 SHA → 422 + quarantine，正式目录无污染。"
+      },
+      {
+        "id": "ACCEPT_KB_QUERY",
+        "title": "知识查询",
+        "rule": "GET /healthz 200、search 200 并记录 knowledge_snapshot。"
+      },
+      {
+        "id": "ACCEPT_KB_PROPOSAL",
+        "title": "proposal",
+        "rule": "提交 201、重复提交幂等、pending 不进 active。"
+      },
+      {
+        "id": "ACCEPT_KB_FRESHNESS",
+        "title": "新鲜度",
+        "rule": "source_commit == indexed_commit 且 freshness=fresh，或按降级规则处理。"
+      },
+      {
+        "id": "ACCEPT_TTS_CACHE_READ",
+        "title": "TTS 缓存读",
+        "rule": "cache hit 时校验 bytes/SHA 后使用。"
+      },
+      {
+        "id": "ACCEPT_TTS_SYNTH",
+        "title": "TTS 合成",
+        "rule": "cache miss 时节点本地合成成功，产物带 manifest 与 cache key。"
+      },
+      {
+        "id": "ACCEPT_TTS_PUBLISH",
+        "title": "TTS 发布",
+        "rule": "staging → 服务端复算 SHA → finalize；失败保留本地 outbox，不伪装已共享。"
+      },
+      {
+        "id": "ACCEPT_TOOLS",
+        "title": "工具安装",
+        "rule": "ark-node/ark-archive/asset-tools/知识客户端可执行，版本与 SHA 已记录。"
+      },
+      {
+        "id": "ACCEPT_CAPABILITY",
+        "title": "能力登记",
+        "rule": "capability 清单已登记，preflight 与登记一致。"
+      },
+      {
+        "id": "ACCEPT_RECEIPT",
+        "title": "接入回执",
+        "rule": "Node Onboarding receipt 完整，证据已上传并回读校验。"
+      },
+      {
+        "id": "ACCEPT_CREDENTIAL_BOUNDARY",
+        "title": "凭据边界",
+        "rule": "凭据只在环境或 0600 文件；扫描无命中；轮换/吊销可执行。"
+      },
+      {
+        "id": "ACCEPT_FLEET_SYNC",
+        "title": "Fleet 同步",
+        "rule": "逐 Agent 版本盘点完成；运行中 Run 保持 pinned；至少一个非 Mika Agent 查询成功。"
+      }
+    ],
+    "block_codes": [
+      {
+        "code": "BLOCKED_WORKDIR_POLICY",
+        "area": "workspace",
+        "meaning": "无法建立或切换到任务目录",
+        "action": "先修目录策略，不在错误路径执行。"
+      },
+      {
+        "code": "BLOCKED_EXECUTION_CHANNEL",
+        "area": "runtime",
+        "meaning": "无法保证无可见窗口/非交互",
+        "action": "停止终端操作并说明原因，不先执行再观察。"
+      },
+      {
+        "code": "BLOCKED_RUNTIME_TASK_TOKEN",
+        "area": "runtime",
+        "meaning": "runtime 领取任务时鉴权失败",
+        "action": "修节点登录/token，不能靠重试绕过。"
+      },
+      {
+        "code": "BLOCKED_STORAGE_UNAVAILABLE",
+        "area": "storage",
+        "meaning": "8090 不可达或磁盘不可用",
+        "action": "保留本地 outbox，回执写阻塞，不声称已归档。"
+      },
+      {
+        "code": "BLOCKED_STORAGE_AUTH",
+        "area": "storage",
+        "meaning": "缺 token 或 token 无效",
+        "action": "检查节点 token 存在与有效期，不转借凭据。"
+      },
+      {
+        "code": "BLOCKED_STORAGE_SCOPE",
+        "area": "storage",
+        "meaning": "scope 不足",
+        "action": "申请对应 scope，不越权重试。"
+      },
+      {
+        "code": "BLOCKED_STORAGE_QUARANTINE",
+        "area": "storage",
+        "meaning": "SHA 不符进隔离区",
+        "action": "保留两端 SHA 与 quarantine 路径，按证据损坏上报。"
+      },
+      {
+        "code": "BLOCKED_KB_STALE",
+        "area": "knowledge",
+        "meaning": "索引落后或超过 stale 阈值",
+        "action": "普通任务用未过期快照并标注；高风险任务阻塞。"
+      },
+      {
+        "code": "BLOCKED_KB_UNAVAILABLE",
+        "area": "knowledge",
+        "meaning": "8091 不可用",
+        "action": "可用只读 Git 镜像查询并记 commit；高风险任务阻塞。"
+      },
+      {
+        "code": "BLOCKED_KB_AUTH",
+        "area": "knowledge",
+        "meaning": "缺 token 或 token 不符",
+        "action": "检查节点 read/write token。"
+      },
+      {
+        "code": "BLOCKED_KB_SCOPE",
+        "area": "knowledge",
+        "meaning": "read token 调写接口",
+        "action": "改用 write token 或申请权限。"
+      },
+      {
+        "code": "BLOCKED_TTS_CACHE_CORRUPT",
+        "area": "tts",
+        "meaning": "缓存 bytes/SHA 与 manifest 不符",
+        "action": "不静默修复；保留证据并上报。"
+      },
+      {
+        "code": "BLOCKED_TTS_PUBLISH",
+        "area": "tts",
+        "meaning": "必须远端证据但 8090 发布失败",
+        "action": "保留本地 outbox，不伪装已共享。"
+      },
+      {
+        "code": "BLOCKED_1006_WRITE_AUTH",
+        "area": "storage",
+        "meaning": "1006 备份挂载未授权",
+        "action": "如实写未启用，不承诺可恢复。"
+      },
+      {
+        "code": "BLOCKED_GIT_REMOTE",
+        "area": "git",
+        "meaning": "远端不可达或节点级 Git 身份/凭据缺失",
+        "action": "先修节点凭据或网络；只读失败不得假装已有代码基线。"
+      },
+      {
+        "code": "BLOCKED_TOOL_MISSING",
+        "area": "tools",
+        "meaning": "必需工具未安装或版本不符",
+        "action": "按初始化步骤安装并记录版本与 SHA-256。"
+      },
+      {
+        "code": "BLOCKED_CAPABILITY_DRIFT",
+        "area": "capability",
+        "meaning": "probe 结果与已登记能力不一致",
+        "action": "先判定是设备变化还是登记过期，不静默覆盖。"
+      },
+      {
+        "code": "BLOCKED_RECEIPT_INCOMPLETE",
+        "area": "receipt",
+        "meaning": "接入回执缺项或证据未回读",
+        "action": "补齐结论与证据后再声明接入完成。"
+      },
+      {
+        "code": "BLOCKED_APPROVAL_REQUIRED",
+        "area": "governance",
+        "meaning": "推送/发布/真机/删除/权限变更未获批",
+        "action": "先给审批包，等明确同意。"
+      },
+      {
+        "code": "PUBLISH_METADATA_DRIFT",
+        "area": "publish",
+        "meaning": "版本/URL/pin/latest/bytes/SHA 不一致",
+        "action": "停止发布并修元数据，重跑校验。"
+      }
+    ],
+    "drift": {
+      "states": [
+        "IN_SYNC",
+        "UPDATED",
+        "OUTDATED",
+        "ABSENT",
+        "LOCAL_DRIFT",
+        "PRIVATE_SKILL",
+        "REMOTE_UNREACHABLE"
+      ],
+      "rule": "LOCAL_DRIFT 绝不覆盖：先判定是待回流 PR 还是应丢弃的记录，判定不了就停下问人；其余状态按 UPDATED/OUTDATED/ABSENT 决定同步方向。",
+      "receipt_rule": "Node Onboarding receipt 只记录漂移状态与凭据类型，不记录凭据值。"
+    }
+  },
   "groups": [
     {
       "id": "meta",
       "label": "根入口",
       "summary": "唯一对外地址与本目录的自描述文件。第一次进来先读 index.md。",
+      "region": "system",
       "entries": [
         {
           "id": "root.index-md",
           "kind": "entry",
           "title": "总览（人读入口）",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -176,7 +898,7 @@
           "kind": "entry",
           "title": "总览（机器读入口）",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -194,7 +916,7 @@
           "kind": "entry",
           "title": "根清单",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -209,9 +931,143 @@
       ]
     },
     {
+      "id": "services",
+      "label": "服务入口",
+      "summary": "8090 存储与 8091 知识的在线入口；服务发现用可解析节点名，不接受内网地址字面量。",
+      "region": "system",
+      "entries": [
+        {
+          "id": "svc.storage-service",
+          "kind": "service",
+          "title": "Ark Storage Service（8090）",
+          "status": "available",
+          "version": "1.0.0",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "jinyiwei",
+            "hardware-bench",
+            "knowledge-curator",
+            "external-reader"
+          ],
+          "requires": [],
+          "descriptor": "templates/noahsark-index/services/storage-service.json",
+          "section": "services/*.json",
+          "summary": "8090 统一存储入口：上传/下载/HEAD/Range、staging/finalize/quarantine、分类与 scope、审计与 TTS 公共缓存；兼容旧 /ark/*。"
+        },
+        {
+          "id": "svc.knowledge-service",
+          "kind": "service",
+          "title": "NoahsArk Knowledge Service（8091）",
+          "status": "available",
+          "version": "1.0.0",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "jinyiwei",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [],
+          "descriptor": "templates/noahsark-index/services/knowledge-service.json",
+          "section": "services/*.json",
+          "summary": "8091 知识入口：检索、条目详情、proposal 与 outbox、sync 状态与增量 pull、freshness 与降级；不替代 ark-kb。"
+        }
+      ]
+    },
+    {
+      "id": "onboarding-tools",
+      "label": "接入工具",
+      "summary": "节点初始化的工具链：身份/探测/目录、归档、多来源取件、知识客户端。安装后记录版本与 SHA-256。",
+      "region": "onboarding",
+      "entries": [
+        {
+          "id": "onboard.ark-node",
+          "kind": "git",
+          "title": "ark-node 节点入口",
+          "status": "available",
+          "version": "main@35aa91f0e6c2",
+          "roles": [
+            "external-reader",
+            "coordinator",
+            "node-executor",
+            "jinyiwei",
+            "hardware-bench"
+          ],
+          "requires": [],
+          "git": "zjashanda/ark-node",
+          "file": "README.md",
+          "commit": "35aa91f0e6c22d2dafc4d70131834e3a96bdf8c1",
+          "summary": "identity/probe/init/env/fetch 一套 CLI，Windows 与 Linux 共用；节点身份与目录契约的入口。"
+        },
+        {
+          "id": "onboard.ark-archive",
+          "kind": "git",
+          "title": "ark-archive 归档",
+          "status": "available",
+          "version": "main@1a265ebd3bd6",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "svc.storage-service"
+          ],
+          "git": "zjashanda/ark-archive",
+          "file": "README.md",
+          "commit": "1a265ebd3bd60fe448d51b8d321ce5a6dee63c6d",
+          "summary": "任务证据与结果的归档契约；原始大文件进 8090/1006，台账只留引用与校验值。"
+        },
+        {
+          "id": "onboard.asset-tools",
+          "kind": "git",
+          "title": "asset-tools 取件",
+          "status": "available",
+          "version": "main@535a986e7d4f",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "jinyiwei",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "svc.storage-service"
+          ],
+          "git": "zjashanda/asset-tools",
+          "file": "README.md",
+          "commit": "535a986e7d4f76762c506f6d8a360d406f6edbf8",
+          "summary": "多来源取件与缓存：先查公共缓存，命中校验 SHA 后使用；miss 时才本地生成。"
+        },
+        {
+          "id": "onboard.knowledge-client",
+          "kind": "git",
+          "title": "知识客户端与回写契约",
+          "status": "available",
+          "version": "main@3083923eeb43",
+          "roles": [
+            "coordinator",
+            "node-executor",
+            "jinyiwei",
+            "hardware-bench",
+            "knowledge-curator"
+          ],
+          "requires": [
+            "svc.knowledge-service"
+          ],
+          "git": "zjashanda/ark-kb",
+          "file": "docs/kb-sync.md",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
+          "summary": "查询、proposal 回写、审核后入库与增量索引的契约；工具入口 tools/kb.py。"
+        }
+      ]
+    },
+    {
       "id": "agent-template",
       "label": "Agent 创建",
       "summary": "新建智能体从这里开始。latest 是别名，以不可变版本目录为准。",
+      "region": "onboarding",
       "entries": [
         {
           "id": "agent-template.latest",
@@ -229,13 +1085,13 @@
           ],
           "requires": [],
           "oss": "noahsark/agent-template/latest/manifest.json",
-          "summary": "当前推荐版本清单（v1.1.0）。latest 只做指向，内容与 v1.1.0 逐字节一致，长期留存请改用版本目录。",
+          "summary": "当前推荐版本清单（v1.7.0）。latest 只做指向，内容与 v1.7.0 逐字节一致，长期留存请改用版本目录。",
           "sha256": "b3ee1cce0fed2992c779c46c50d9e752ad5f93f21335a26796f5750cd23b5ce2"
         },
         {
           "id": "agent-template.manifest",
           "kind": "entry",
-          "title": "模板清单 v1.1.0（不可变）",
+          "title": "模板清单 v1.7.0（不可变）",
           "status": "available",
           "version": "1.7.0",
           "roles": [
@@ -254,7 +1110,7 @@
         {
           "id": "agent-template.template",
           "kind": "entry",
-          "title": "智能体模板正文 v1.1.0",
+          "title": "智能体模板正文 v1.7.0",
           "status": "available",
           "version": "1.7.0",
           "roles": [
@@ -335,6 +1191,7 @@
       "id": "canonical",
       "label": "真源清单",
       "summary": "一切清单只在 Git 里。这里指向权威文件，不在本目录复制清单内容。",
+      "region": "system",
       "entries": [
         {
           "id": "canonical.skillhub",
@@ -358,7 +1215,7 @@
           "kind": "git",
           "title": "知识账本",
           "status": "available",
-          "version": "main@75a11dcc0d5e",
+          "version": "main@3083923eeb43",
           "roles": [
             "coordinator",
             "knowledge-curator"
@@ -366,7 +1223,7 @@
           "requires": [],
           "git": "zjashanda/ark-kb",
           "file": "registry/skills.json",
-          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
           "summary": "全部仓库与技能条目账本（含内部/项目级技能），是检索入口而非发布集。"
         },
         {
@@ -392,7 +1249,7 @@
           "kind": "git",
           "title": "节点命令行入口",
           "status": "available",
-          "version": "main@1b12c41ccd3e",
+          "version": "main@35aa91f0e6c2",
           "roles": [
             "node-executor",
             "hardware-bench",
@@ -403,7 +1260,7 @@
           ],
           "git": "zjashanda/ark-node",
           "file": "bin/ark-node",
-          "commit": "1b12c41ccd3e9b87e8d88b170568db81bed442f9",
+          "commit": "35aa91f0e6c22d2dafc4d70131834e3a96bdf8c1",
           "summary": "节点侧统一入口命令：环境同步、目录初始化、身份与探测、取件；Windows 用 bin/ark-node.ps1。"
         }
       ]
@@ -412,6 +1269,7 @@
       "id": "repos",
       "label": "代码仓库",
       "summary": "各能力仓库的主分支状态；克隆用 git clone 加对应仓库名，私有库需要凭据。",
+      "region": "system",
       "entries": [
         {
           "id": "git.venusahisiburner",
@@ -432,13 +1290,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@ae2a4457e815",
+          "version": "main@3490729cca8f",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "commit": "3490729cca8f37a02d72d2a9ddd314814505b7dd",
           "summary": "唯一的测试与语音验证实现，已吸收 Polaris；派发中的 polaris 槽位改指向本仓库加 device-io。"
         },
         {
@@ -574,13 +1432,13 @@
           "kind": "git",
           "title": "ark-kb · 知识库",
           "status": "available",
-          "version": "main@75a11dcc0d5e",
+          "version": "main@3083923eeb43",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-kb",
-          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
           "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
         },
         {
@@ -588,7 +1446,7 @@
           "kind": "git",
           "title": "ark-node · 节点运行时",
           "status": "available",
-          "version": "main@1b12c41ccd3e",
+          "version": "main@35aa91f0e6c2",
           "roles": [
             "coordinator",
             "node-executor",
@@ -596,7 +1454,7 @@
           ],
           "requires": [],
           "git": "zjashanda/ark-node",
-          "commit": "1b12c41ccd3e9b87e8d88b170568db81bed442f9",
+          "commit": "35aa91f0e6c22d2dafc4d70131834e3a96bdf8c1",
           "summary": "节点侧能力：环境同步、目录初始化、身份与探测、取件；本总览的源文件也在本仓库。"
         },
         {
@@ -649,13 +1507,14 @@
       "id": "rules",
       "label": "硬规则",
       "summary": "以下规则对所有角色生效，全部出自模板正文对应章节；冲突时以模板正文为准。",
+      "region": "system",
       "entries": [
         {
           "id": "rule.workdir",
           "kind": "rule",
           "title": "唯一任务目录",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -677,7 +1536,7 @@
           "kind": "rule",
           "title": "存储与归档布局",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "node-executor",
             "knowledge-curator"
@@ -696,7 +1555,7 @@
           "kind": "rule",
           "title": "时间口径",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -719,7 +1578,7 @@
           "kind": "rule",
           "title": "凭据与安全",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -741,7 +1600,7 @@
           "kind": "rule",
           "title": "监督契约",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -763,7 +1622,7 @@
           "kind": "rule",
           "title": "执行通道与窗口",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "external-reader",
             "coordinator",
@@ -786,7 +1645,7 @@
           "kind": "rule",
           "title": "审批边界",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -807,7 +1666,7 @@
           "kind": "rule",
           "title": "锦衣卫节点专属执行角色",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "coordinator",
             "jinyiwei"
@@ -827,7 +1686,7 @@
           "kind": "rule",
           "title": "名称、官职与稳定图标",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -850,7 +1709,7 @@
           "kind": "rule",
           "title": "Mika + 六部 + 锦衣卫长期创建体系",
           "status": "available",
-          "version": "1.7.0",
+          "version": "2.0.0",
           "roles": [
             "coordinator",
             "node-executor",
@@ -875,6 +1734,7 @@
       "id": "dirs",
       "label": "预留目录",
       "summary": "以下目录尚未发布，规划中；在出现对应条目之前不要引用其中的链接。",
+      "region": "system",
       "entries": [
         {
           "id": "dir.platform",
@@ -971,6 +1831,7 @@
       "id": "assets",
       "label": "资产",
       "summary": "体积较大或节点本地持有的资产；未发布的只登记身份信息，不提供链接。",
+      "region": "system",
       "entries": [
         {
           "id": "asset.1006-pudcorntrol",
@@ -995,13 +1856,14 @@
       "id": "knowledge-reflow",
       "label": "知识回流与检查点",
       "summary": "事件驱动知识回流的契约、检查点与回流准入。",
+      "region": "system",
       "entries": [
         {
           "id": "kb.reflow",
           "kind": "git",
           "title": "知识同步契约",
           "status": "available",
-          "version": "main@75a11dcc0d5e",
+          "version": "main@3083923eeb43",
           "roles": [
             "knowledge-curator",
             "coordinator"
@@ -1011,7 +1873,7 @@
           ],
           "git": "zjashanda/ark-kb",
           "file": "docs/kb-sync.md",
-          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
           "summary": "知识查询留痕、交付位与回流顺序。"
         },
         {
@@ -1019,7 +1881,7 @@
           "kind": "git",
           "title": "检查点契约",
           "status": "available",
-          "version": "main@75a11dcc0d5e",
+          "version": "main@3083923eeb43",
           "roles": [
             "knowledge-curator"
           ],
@@ -1028,7 +1890,7 @@
           ],
           "git": "zjashanda/ark-kb",
           "file": "schema/checkpoint.v1.json",
-          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
           "summary": "ark.checkpoint.v1：事件驱动检查点。"
         },
         {
@@ -1036,7 +1898,7 @@
           "kind": "git",
           "title": "交付位契约",
           "status": "available",
-          "version": "main@75a11dcc0d5e",
+          "version": "main@3083923eeb43",
           "roles": [
             "knowledge-curator"
           ],
@@ -1045,7 +1907,7 @@
           ],
           "git": "zjashanda/ark-kb",
           "file": "schema/delivery.v1.json",
-          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
           "summary": "ark.delivery.v1：归档/回流/回查三状态位。"
         },
         {
@@ -1053,7 +1915,7 @@
           "kind": "git",
           "title": "回流门禁",
           "status": "available",
-          "version": "main@75a11dcc0d5e",
+          "version": "main@3083923eeb43",
           "roles": [
             "knowledge-curator"
           ],
@@ -1062,7 +1924,7 @@
           ],
           "git": "zjashanda/ark-kb",
           "file": "docs/reflow-gate.md",
-          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
           "summary": "只允许 formal 回执回流，按 run_id 幂等。"
         }
       ]
@@ -1071,6 +1933,7 @@
       "id": "tts-library",
       "label": "1006 TTS 音频库",
       "summary": "共享音频库的契约、索引与编排；先查库，miss 才合成。",
+      "region": "system",
       "entries": [
         {
           "id": "tts.library",
@@ -1146,7 +2009,7 @@
           "kind": "git",
           "title": "资产搜索索引",
           "status": "available",
-          "version": "main@75a11dcc0d5e",
+          "version": "main@3083923eeb43",
           "roles": [
             "knowledge-curator"
           ],
@@ -1156,7 +2019,7 @@
           ],
           "git": "zjashanda/ark-kb",
           "file": "docs/tts-library-index.md",
-          "commit": "75a11dcc0d5e464cbdf392a9f9ca6977a28b5256",
+          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
           "summary": "只存 ID/键/SHA/作用域，不存音频本体。"
         },
         {
@@ -1183,13 +2046,14 @@
       "id": "requirements",
       "label": "需求与用例库",
       "summary": "需求受理、用例索引与验证包。",
+      "region": "system",
       "entries": [
         {
           "id": "req.intake",
           "kind": "git",
           "title": "需求受理",
           "status": "available",
-          "version": "main@ae2a4457e815",
+          "version": "main@3490729cca8f",
           "roles": [
             "coordinator",
             "hardware-bench"
@@ -1199,7 +2063,7 @@
           ],
           "git": "zjashanda/lstest",
           "file": "docs/voice-validation/new-project-feature-intake.md",
-          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "commit": "3490729cca8f37a02d72d2a9ddd314814505b7dd",
           "summary": "新项目/新特性需求如何转成可验证用例。"
         },
         {
@@ -1207,7 +2071,7 @@
           "kind": "git",
           "title": "受理模板说明",
           "status": "available",
-          "version": "main@ae2a4457e815",
+          "version": "main@3490729cca8f",
           "roles": [
             "coordinator"
           ],
@@ -1216,7 +2080,7 @@
           ],
           "git": "zjashanda/lstest",
           "file": "docs/voice-validation/intake/README.md",
-          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "commit": "3490729cca8f37a02d72d2a9ddd314814505b7dd",
           "summary": "受理模板与字段说明。"
         },
         {
@@ -1224,7 +2088,7 @@
           "kind": "git",
           "title": "验证包索引",
           "status": "available",
-          "version": "main@ae2a4457e815",
+          "version": "main@3490729cca8f",
           "roles": [
             "hardware-bench"
           ],
@@ -1233,7 +2097,7 @@
           ],
           "git": "zjashanda/lstest",
           "file": "docs/voice-validation/packs",
-          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "commit": "3490729cca8f37a02d72d2a9ddd314814505b7dd",
           "summary": "按项目/能力组织的验证包。"
         }
       ]
@@ -1242,13 +2106,14 @@
       "id": "lstest-observability",
       "label": "lstest 日志与状态",
       "summary": "运行方式、日志与结果统计入口。",
+      "region": "system",
       "entries": [
         {
           "id": "lstest.log-status",
           "kind": "git",
           "title": "运行与状态",
           "status": "available",
-          "version": "main@ae2a4457e815",
+          "version": "main@3490729cca8f",
           "roles": [
             "coordinator",
             "hardware-bench"
@@ -1258,7 +2123,7 @@
           ],
           "git": "zjashanda/lstest",
           "file": "README.md",
-          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "commit": "3490729cca8f37a02d72d2a9ddd314814505b7dd",
           "summary": "运行命令、日志位置与状态口径。"
         },
         {
@@ -1266,7 +2131,7 @@
           "kind": "git",
           "title": "结果统计",
           "status": "available",
-          "version": "main@ae2a4457e815",
+          "version": "main@3490729cca8f",
           "roles": [
             "coordinator"
           ],
@@ -1275,7 +2140,7 @@
           ],
           "git": "zjashanda/lstest",
           "file": "scripts/result_stats.py",
-          "commit": "ae2a4457e81502f641a9d56afce537b135d860ff",
+          "commit": "3490729cca8f37a02d72d2a9ddd314814505b7dd",
           "summary": "从结果目录汇总轮次与通过率。"
         }
       ]

@@ -1,0 +1,203 @@
+{
+  "schema": "ark.storage-service.v1",
+  "id": "svc.storage-service",
+  "title": "Ark Storage Service（8090）",
+  "version": "1.0.0",
+  "endpoint": "http://linux003:8090",
+  "host": {
+    "name": "linux003",
+    "port": 8090,
+    "scheme": "http",
+    "bind": "0.0.0.0",
+    "scope": "internal",
+    "data_root": "/srv/storage/ark/artifacts/ark-storage/",
+    "manage": "user systemd ark-storage.service，enabled + Linger=yes，Restart=on-failure",
+    "address_note": "对外只写可解析节点名 linux003；内网地址只存在于节点侧部署回执，不要写进索引、Issue 或日志。"
+  },
+  "runtime": {
+    "artifact": "ark_storage.py",
+    "artifact_sha256": "387c28db76ae3bc534494f72526cd238262d3ac445ce61cc8137cd77658d5c91",
+    "unit_sha256": "714d5897dbd5f96a8036798c90e082b7d2e09104be8dcb10de2a44b33dab8e0d",
+    "config_sha256": "41a2ea265e06720aaf10ef3928f7a3b478c4a0c8de231bddc6753772d361d40c",
+    "evidence": "NOAH-84 节点侧执行回执与 74/74 自测（linux003，2026-11-16 09:37:45）",
+    "source_repo": null,
+    "source_commit": null,
+    "source_note": "服务代码是节点侧部署产物，当前没有 Git 远端；以回执里的产物 SHA-256 定位版本。"
+  },
+  "legacy": {
+    "port": 8080,
+    "unit": "ark-env-http.service",
+    "rule": "8090 在同一端口代理旧 /ark/* 行为：/health 200、无凭据 401 且保留 WWW-Authenticate、未知路径 404；旧服务本身不改动。",
+    "compat_evidence": "NOAH-84 自测 compat.* 与 proxy.* 全部通过；旧 Basic 凭据未读取、未打印。"
+  },
+  "auth": {
+    "mode": "bearer",
+    "header": "Authorization",
+    "scheme": "Bearer",
+    "scopes": ["read", "write", "evidence:write", "backup:write"],
+    "token_store": "节点侧 tokens.json 只保存 token 的 SHA-256，权限 0600；明文只在签发时交给使用方。",
+    "unauthenticated": "缺 token 或 token 不符返回 401；token 有效但 scope 不足返回 403。",
+    "scope_rule": "read 可下载/列目录；write 可写 artifacts 与 results；receipts 与 evidence 需要 evidence:write；backups 需要 backup:write。"
+  },
+  "categories": {
+    "artifacts": "任务产物与通用文件",
+    "results": "任务结果",
+    "receipts": "执行回执",
+    "evidence": "原始证据",
+    "backups": "备份包",
+    "rule": "分类是权限与保留策略的边界；上传失败或 SHA 不符的文件不得进入正式目录。"
+  },
+  "api": [
+    {
+      "name": "健康检查",
+      "method": "GET",
+      "path": "/health",
+      "scope": null,
+      "verified": "node-receipt",
+      "note": "免鉴权 200，返回 ok、version、data_root、disk_free_bytes；只用于判断服务与磁盘是否可用。"
+    },
+    {
+      "name": "旧入口兼容",
+      "method": "GET",
+      "path": "/ark/*",
+      "scope": "legacy-basic",
+      "verified": "node-receipt",
+      "note": "代理到同节点旧服务（8080）的 /ark/*，状态码与 WWW-Authenticate 原样透传；新任务不要依赖该入口。"
+    },
+    {
+      "name": "上传对象",
+      "method": "PUT",
+      "path": "/storage/v1/objects/{category}/{scope}/{key}",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "成功 201，服务端复算 SHA-256 并在响应里回传 bytes/sha256；同 key 同 SHA 幂等 200，同 key 不同 SHA 409 且不覆盖。"
+    },
+    {
+      "name": "分片上传（staging）",
+      "method": "POST/PUT/POST",
+      "path": null,
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "create → put → finalize 三步，节点自测 201/200/201 且回读 SHA 一致；具体路径以服务自述为准，使用前先确认路由。"
+    },
+    {
+      "name": "下载与 HEAD",
+      "method": "GET/HEAD",
+      "path": "/storage/v1/objects/{category}/{scope}/{key}",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "200；带 Range 返回 206 精确切片；响应头含 ETag 与 X-Content-SHA256。"
+    },
+    {
+      "name": "清单",
+      "method": "GET",
+      "path": "/storage/v1/manifests/{...}",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "返回对象清单，bytes/sha256 与对象本体一致。"
+    },
+    {
+      "name": "列目录",
+      "method": "GET",
+      "path": "/storage/v1/list",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "按分类/前缀列出对象；用于确认已上传与排查重复。"
+    },
+    {
+      "name": "TTS 公共缓存",
+      "method": "GET/PUT",
+      "path": null,
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "按 canonical cache key 查询/发布；状态机 TTS_CACHE_MISS / TTS_CACHE_HIT_PASS / TTS_PUBLISH_PASS / TTS_PUBLISH_IDEMPOTENT / TTS_PUBLISH_CONFLICT / TTS_PUBLISH_REJECTED / BLOCKED_TTS_CACHE_CORRUPT / OUTBOX_PENDING。具体路径以节点客户端为准。"
+    }
+  ],
+  "errors": [
+    {"status": 400, "code": "unsafe_path", "meaning": "路径穿越或隐藏段，未落盘"},
+    {"status": 401, "code": "unauthorized", "meaning": "缺 token 或 token 不符"},
+    {"status": 403, "code": "forbidden", "meaning": "scope 不足（如 read 写 receipts）"},
+    {"status": 404, "code": "not_found", "meaning": "对象或路由不存在"},
+    {"status": 409, "code": "conflict", "meaning": "同 key 不同 SHA，保留原对象"},
+    {"status": 413, "code": "body_too_large", "meaning": "超过服务配置的上限"},
+    {"status": 422, "code": "sha_mismatch", "meaning": "客户端声明的 SHA 与服务端复算不符，对象进入 quarantine"},
+    {"status": 503, "code": "unavailable", "meaning": "磁盘或依赖不可用，写入未成功"}
+  ],
+  "integrity": {
+    "server_sha": "客户端可声明 expected sha256；服务端复算后不一致即 422，文件只进 quarantine，正式目录不受污染。",
+    "idempotent": "同 key 同 SHA 返回 200 并复用原对象。",
+    "conflict": "同 key 不同 SHA 返回 409，不覆盖原对象，新文件进 quarantine。",
+    "readback": "下载后必须比对 bytes 与 sha256，或使用 X-Content-SHA256；不一致按 BLOCKED_STORAGE_QUARANTINE 处理。",
+    "audit": "审计日志为 JSONL，不包含 Authorization 头与请求体。"
+  },
+  "tts_cache": {
+    "purpose": "公共音频缓存与分发；音频本体只存 8090/1006，ark-kb 只存语义、规格、storage_id/evidence_ref、SHA-256 与适用范围。",
+    "cache_key_fields": [
+      "normalized_text",
+      "language",
+      "voice",
+      "model",
+      "provider_version",
+      "sample_rate",
+      "channels",
+      "format",
+      "speed",
+      "pitch"
+    ],
+    "flow": [
+      "任务需要音频时先按完整 cache key 查 8090。",
+      "命中：下载 audio 与 manifest，校验 bytes/SHA 后放进当前任务 assets/ 使用。",
+      "未命中：当前节点本地即时合成，不等待专属 Agent。",
+      "合成结果先进当前任务 assets/result，生成 manifest/cache key/SHA/receipt；发布时先 staging，服务端复算 SHA 后原子 finalize。",
+      "8090 不可用时保留本地 outbox，不伪装已共享；必须远端证据的任务标 BLOCKED_TTS_PUBLISH。"
+    ],
+    "restrictions": "敏感文本默认不进公共库，只允许任务私有或项目 scope；篡改缓存按 BLOCKED_TTS_CACHE_CORRUPT 处理，不静默修复。"
+  },
+  "backup": {
+    "enabled": true,
+    "target": "ark://backups/",
+    "scope": "backup:write",
+    "note": "备份包走同一套上传/回读契约；1006 挂载未就绪时按 BLOCKED_1006_WRITE_AUTH 处理，不得声称可恢复。"
+  },
+  "evidence_ref": {
+    "shape": "ark://<category>/<scope>/<key>",
+    "fields": ["uri", "bytes", "sha256"],
+    "rule": "任务回执里引用证据必须同时给 uri、bytes、sha256；只有路径没有校验值不算有效引用。"
+  },
+  "verification": {
+    "state": "node-receipt",
+    "receipt": "NOAH-84 执行回执与 selftest-latest.json（74/74 PASS），2026-11-16 09:37:45",
+    "probed_at": null,
+    "confirmed": [
+      "health-200",
+      "upload-201",
+      "server-sha-match",
+      "download-readback-201-200",
+      "range-206",
+      "staging-roundtrip",
+      "categories-scope-403",
+      "wrong-sha-422-quarantine",
+      "conflict-409",
+      "traversal-400",
+      "restart-persist",
+      "audit-no-token",
+      "tts-cache-hit-miss-publish"
+    ],
+    "pending": [
+      "从索引发布侧执行的在线探测回执（check-services.py --probe）",
+      "staging 与 TTS 的精确路由清单",
+      "1006 备份挂载与写入授权"
+    ],
+    "rule": "confirmed 只列节点回执里出现过的结论；没有实时探测前不得写成已验证在线。"
+  },
+  "fallback": {
+    "on_unavailable": {
+      "normal_task": "先保留本地产物与 outbox，在回执里写 BLOCKED_STORAGE_UNAVAILABLE，不得声称已归档。",
+      "high_risk": "BLOCKED_STORAGE_UNAVAILABLE，停止需要远端证据的步骤。"
+    },
+    "on_auth": "BLOCKED_STORAGE_AUTH：检查节点 token 是否存在、是否过期；不要改用共享凭据。",
+    "on_scope": "BLOCKED_STORAGE_SCOPE：申请对应 scope（evidence:write / backup:write），不要越权重试。",
+    "on_quarantine": "BLOCKED_STORAGE_QUARANTINE：保留 quarantine 路径与两端 SHA，按证据损坏处理并上报，不重新上传覆盖。",
+    "high_risk_definition": "烧录、真机操作、对外发布、删除、权限变更等不可逆或有对外影响的操作。"
+  }
+}

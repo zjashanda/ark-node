@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """校验已生成的总览三件套。
 
-默认离线：只读本地文件，检查结构、计数、依赖、链接形态与校验值。
+默认离线：只读本地文件，检查结构、计数、依赖、链接形态、双声明一致与校验值。
 加 --online：逐个匿名读取对外地址，确认可访问且校验值一致。
 加 --check-git：用 GitHub API 确认仓库存在（不抓取网页）。
+
+门禁要点（任一不满足即失败）：
+1. index.md 只允许两个一级区域，标题与 index.json 的 regions 一致；
+2. index.json 必须有 system / onboarding 两个顶层导航域；
+3. 文档与 JSON 双声明必须一致：每个条目、分组、服务、初始化步骤都要在对应区域出现；
+4. 服务地址只允许可解析节点名，禁止 RFC1918 私网地址字面量；
+5. secret_scan 与 time_lint 必须通过（--skip-tools 仅供本地调试）。
 
 退出码：0 通过，1 不通过，2 用法错误，5 网络不可用。
 """
@@ -21,8 +28,10 @@ TOOLS = REPO_ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-INDEX_SCHEMA = "ark.noahsark-index.v1"
+INDEX_SCHEMA = "ark.noahsark-index.v2"
 MANIFEST_SCHEMA = "ark.noahsark-index.manifest.v1"
+REGION_ORDER = ("system", "onboarding")
+SERVICE_KIND = "service"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -30,17 +39,38 @@ EXIT_USAGE = 2
 EXIT_NETWORK = 5
 
 HEX40 = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{40,}(?![0-9A-Za-z])")
+RFC1918 = re.compile(
+    r"10\.(?:\d{1,3}\.){2}\d{1,3}"
+    r"|172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3}"
+    r"|192\.168\.(?:\d{1,3}\.)\d{1,3}"
+)
 REQUIRED_ITEM_KEYS = (
     "id",
+    "region",
     "title",
     "kind",
     "status",
     "version",
     "path",
     "url",
+    "sha256",
+    "source_repo",
+    "source_commit",
     "roles",
     "requires",
     "summary",
+)
+REQUIRED_REGION_ITEM_KEYS = (
+    "id",
+    "region",
+    "title",
+    "kind",
+    "status",
+    "version",
+    "url",
+    "sha256",
+    "source_repo",
+    "source_commit",
 )
 
 
@@ -63,7 +93,7 @@ def read_bytes(path):
         return handle.read()
 
 
-def check_manifest(out_dir, manifest, errors):
+def check_manifest(out_dir, manifest, index, errors):
     if manifest.get("schema") != MANIFEST_SCHEMA:
         errors.append("manifest.schema 不是 %s" % MANIFEST_SCHEMA)
     for item in manifest.get("files") or []:
@@ -79,6 +109,21 @@ def check_manifest(out_dir, manifest, errors):
             errors.append("校验值不一致: %s" % item["path"])
     if not isinstance((manifest.get("git") or {}).get("commit"), str):
         errors.append("manifest.git.commit 缺失")
+    if manifest.get("version") != index.get("version"):
+        errors.append("manifest.version 与 index.version 不一致")
+    if (manifest.get("git") or {}).get("commit") != (index.get("git") or {}).get("commit"):
+        errors.append("manifest.git.commit 与 index.git.commit 不一致")
+    counts = manifest.get("counts") or {}
+    index_counts = index.get("counts") or {}
+    for key in ("items", "available", "planned", "roles", "groups", "regions", "services", "onboarding_steps"):
+        if counts.get(key) != index_counts.get(key):
+            errors.append("manifest.counts.%s 与 index.counts 不一致" % key)
+    if len(manifest.get("regions") or []) != len(REGION_ORDER):
+        errors.append("manifest.regions 不是两个区域")
+    manifest_services = {s.get("id") for s in manifest.get("services") or []}
+    index_services = {i.get("id") for i in index.get("items") or [] if i.get("kind") == SERVICE_KIND}
+    if manifest_services != index_services:
+        errors.append("manifest.services 与 index 服务条目不一致")
 
 
 def check_index(index, errors):
@@ -102,6 +147,8 @@ def check_index(index, errors):
         for key in REQUIRED_ITEM_KEYS:
             if key not in item:
                 errors.append("条目 %s 缺少字段 %s" % (iid, key))
+        if item.get("region") not in REGION_ORDER:
+            errors.append("条目 %s 的 region 非法" % iid)
         if item.get("status") == "available":
             available += 1
             if not item.get("url"):
@@ -122,12 +169,26 @@ def check_index(index, errors):
         sha = item.get("sha256")
         if sha is not None and not re.match(r"^[0-9a-f]{64}$", sha):
             errors.append("条目 %s 的 sha256 格式非法" % iid)
+        if item.get("kind") == SERVICE_KIND:
+            if not item.get("endpoint"):
+                errors.append("服务条目 %s 缺少 endpoint" % iid)
+            if not item.get("descriptor"):
+                errors.append("服务条目 %s 缺少 descriptor" % iid)
+            if item.get("endpoint") and RFC1918.search(item["endpoint"]):
+                errors.append("服务条目 %s 的 endpoint 含私网地址字面量" % iid)
+        commit = item.get("source_commit")
+        if commit is not None and not re.match(r"^[0-9a-f]{7,40}$", str(commit)):
+            errors.append("条目 %s 的 source_commit 形态非法" % iid)
 
     counts = index.get("counts") or {}
     if counts.get("items") != len(items):
         errors.append("counts.items 与实际条目数不一致")
     if counts.get("available") != available:
         errors.append("counts.available 与实际可用条目数不一致")
+    if counts.get("regions") != len(REGION_ORDER):
+        errors.append("counts.regions 不是 2")
+    if counts.get("services") != sum(1 for i in items if i.get("kind") == SERVICE_KIND):
+        errors.append("counts.services 与实际服务条目数不一致")
 
     for role in index.get("roles") or []:
         if not role.get("must_read"):
@@ -138,6 +199,102 @@ def check_index(index, errors):
     return items
 
 
+def check_regions(index, items, errors):
+    navigation = index.get("navigation") or []
+    nav_ids = [n.get("id") for n in navigation]
+    if nav_ids != list(REGION_ORDER):
+        errors.append("index.navigation 必须是 %s" % "/".join(REGION_ORDER))
+
+    groups = index.get("groups") or []
+    group_region = {g.get("id"): g.get("region") for g in groups}
+    item_by_id = {i["id"]: i for i in items}
+
+    for region_id in REGION_ORDER:
+        block = index.get(region_id)
+        if not isinstance(block, dict):
+            errors.append("index 缺少顶层导航域 %s" % region_id)
+            continue
+        if block.get("id") != region_id:
+            errors.append("index.%s.id 不正确" % region_id)
+        if not block.get("title") or not block.get("summary"):
+            errors.append("index.%s 缺少 title/summary" % region_id)
+        if not block.get("lead"):
+            errors.append("index.%s 缺少 lead" % region_id)
+        block_groups = block.get("groups") or []
+        expected_groups = [g["id"] for g in groups if g.get("region") == region_id]
+        if [g.get("id") for g in block_groups] != expected_groups:
+            errors.append("index.%s.groups 与顶层 groups 的区域划分不一致" % region_id)
+        expected_ids = [
+            i["id"] for i in items if i.get("region") == region_id
+        ]
+        refs = block.get("items") or []
+        if [r.get("id") for r in refs] != expected_ids:
+            errors.append("index.%s.items 与顶层 items 的区域划分不一致" % region_id)
+        for ref in refs:
+            for key in REQUIRED_REGION_ITEM_KEYS:
+                if key not in ref:
+                    errors.append("区域 %s 的条目 %s 缺少字段 %s" % (region_id, ref.get("id"), key))
+            if ref.get("id") not in item_by_id:
+                errors.append("区域 %s 引用了未知条目 %s" % (region_id, ref.get("id")))
+        for group in block_groups:
+            for iid in group.get("items") or []:
+                if iid not in item_by_id:
+                    errors.append("区域 %s 的分组 %s 引用了未知条目 %s" % (region_id, group.get("id"), iid))
+                elif group_region.get(group.get("id")) != region_id:
+                    errors.append("分组 %s 的区域与父区域不一致" % group.get("id"))
+
+    system = index.get("system") or {}
+    for field in ("positioning", "layers", "lifecycle", "knowledge_loop", "gates", "security", "services", "roles"):
+        if not system.get(field):
+            errors.append("index.system.%s 不能为空" % field)
+    service_ids = {s.get("id") for s in system.get("services") or []}
+    item_service_ids = {i["id"] for i in items if i.get("kind") == SERVICE_KIND}
+    if service_ids != item_service_ids:
+        errors.append("index.system.services 与服务条目不一致")
+    for svc in system.get("services") or []:
+        for key in ("id", "title", "version", "endpoint", "descriptor", "discovery", "auth", "verification"):
+            if key not in svc:
+                errors.append("服务块 %s 缺少字段 %s" % (svc.get("id"), key))
+        if svc.get("endpoint") and RFC1918.search(svc["endpoint"]):
+            errors.append("服务块 %s 的 endpoint 含私网地址字面量" % svc.get("id"))
+        descriptor = REPO_ROOT / (svc.get("descriptor") or "")
+        if not descriptor.exists():
+            errors.append("服务块 %s 的 descriptor 不存在" % svc.get("id"))
+        else:
+            data = load(descriptor)
+            if data.get("id") != svc.get("id"):
+                errors.append("服务块 %s 与 descriptor.id 不一致" % svc.get("id"))
+            if data.get("version") != svc.get("version"):
+                errors.append("服务块 %s 与 descriptor.version 不一致" % svc.get("id"))
+            if data.get("endpoint") != svc.get("endpoint"):
+                errors.append("服务块 %s 与 descriptor.endpoint 不一致" % svc.get("id"))
+
+    onboarding = index.get("onboarding") or {}
+    for field in ("automation_levels", "steps", "acceptance", "block_codes", "drift"):
+        if not onboarding.get(field):
+            errors.append("index.onboarding.%s 不能为空" % field)
+    codes = {c.get("code") for c in onboarding.get("block_codes") or []}
+    accepted = {a.get("id") for a in onboarding.get("acceptance") or []}
+    step_ids = [s.get("id") for s in onboarding.get("steps") or []]
+    if len(step_ids) != len(set(step_ids)):
+        errors.append("onboarding.steps 存在重复 id")
+    for step in onboarding.get("steps") or []:
+        if step.get("automation") not in ("auto", "confirm", "admin"):
+            errors.append("步骤 %s 的 automation 非法" % step.get("id"))
+        for dep in step.get("requires") or []:
+            if dep not in step_ids:
+                errors.append("步骤 %s 依赖未知步骤 %s" % (step.get("id"), dep))
+        for acc in step.get("acceptance") or []:
+            if acc not in accepted:
+                errors.append("步骤 %s 引用未知验收项 %s" % (step.get("id"), acc))
+        for code in step.get("block_codes") or []:
+            if code not in codes:
+                errors.append("步骤 %s 引用未登记阻塞码 %s" % (step.get("id"), code))
+    if counts := index.get("counts") or {}:
+        if counts.get("onboarding_steps") != len(step_ids):
+            errors.append("counts.onboarding_steps 与实际步骤数不一致")
+
+
 def check_index_urls(index, errors):
     base = (index.get("entry") or {}).get("markdown") or ""
     if not base:
@@ -145,6 +302,12 @@ def check_index_urls(index, errors):
     for item in index.get("items") or []:
         url = item.get("url") or ""
         if not url:
+            continue
+        if item.get("kind") == SERVICE_KIND:
+            if not url.startswith("http://") and not url.startswith("https://"):
+                errors.append("服务条目 %s 的地址形态异常" % item.get("id"))
+            if RFC1918.search(url):
+                errors.append("服务条目 %s 的地址含私网字面量" % item.get("id"))
             continue
         if not url.startswith("https://"):
             errors.append("条目 %s 的地址不是 https" % item.get("id"))
@@ -167,13 +330,63 @@ def check_markdown(out_dir, index, errors):
     hits = HEX40.findall(text)
     if hits:
         errors.append("index.md 含裸哈希串 %d 处（应只保留短前缀）" % len(hits))
-    available_urls = {i["url"] for i in index.get("items") or [] if i.get("url")}
-    for url in available_urls:
-        if url not in text:
-            errors.append("index.md 缺少可用条目地址: %s" % url)
+    if RFC1918.search(text):
+        errors.append("index.md 含私网地址字面量")
+
+    headings = re.findall(r"^# (.+)$", text, re.M)
+    regions = index.get("navigation") or []
+    expected = ["一、%s" % regions[0].get("title"), "二、%s" % regions[1].get("title")] if len(regions) == 2 else []
+    if headings != expected:
+        errors.append("index.md 一级标题必须且只能是 %s，实际 %s" % (expected, headings))
+
+    first, _, second = text.partition("# 二、")
+    groups = index.get("groups") or []
+    for group in groups:
+        marker = "### %s" % group.get("label")
+        if marker not in text:
+            errors.append("index.md 缺少分组表: %s" % group.get("label"))
+            continue
+        in_system = marker in first
+        in_onboarding = marker in second
+        if group.get("region") == "system" and not (in_system and not in_onboarding):
+            errors.append("分组 %s 未落在区域一" % group.get("id"))
+        if group.get("region") == "onboarding" and not (in_onboarding and not in_system):
+            errors.append("分组 %s 未落在区域二" % group.get("id"))
+        if not in_system and not in_onboarding:
+            errors.append("分组 %s 的表格未出现在任一区域" % group.get("id"))
+
     for item in index.get("items") or []:
+        iid = item.get("id")
+        if iid not in text:
+            errors.append("index.md 未收录条目 %s" % iid)
         if item.get("status") == "planned" and item.get("title") not in text:
-            errors.append("index.md 未标注规划中条目: %s" % item.get("id"))
+            errors.append("index.md 未标注规划中条目: %s" % iid)
+        if item.get("kind") == SERVICE_KIND:
+            if item.get("url") and item["url"] not in text:
+                errors.append("index.md 缺少服务地址: %s" % iid)
+            if item.get("version") and item["version"] not in text:
+                errors.append("index.md 缺少服务版本: %s" % iid)
+
+    onboarding = index.get("onboarding") or {}
+    for step in onboarding.get("steps") or []:
+        if step.get("id") not in second:
+            errors.append("index.md 区域二缺少初始化步骤 %s" % step.get("id"))
+        if step.get("title") not in second:
+            errors.append("index.md 区域二缺少步骤标题 %s" % step.get("id"))
+    for code in onboarding.get("block_codes") or []:
+        if code.get("code") not in text:
+            errors.append("index.md 缺少阻塞码 %s" % code.get("code"))
+    for acc in onboarding.get("acceptance") or []:
+        if acc.get("id") not in second:
+            errors.append("index.md 区域二缺少验收项 %s" % acc.get("id"))
+
+    system = index.get("system") or {}
+    for layer in system.get("layers") or []:
+        if layer.get("title") not in first:
+            errors.append("index.md 区域一缺少层职责 %s" % layer.get("id"))
+    for gate in system.get("gates") or []:
+        if gate.get("gate") not in first:
+            errors.append("index.md 区域一缺少门禁 %s" % gate.get("gate"))
 
 
 def run_tools(out_dir, errors):
@@ -209,6 +422,12 @@ def check_online(index, manifest, out_dir, errors):
         return
     if live_index.get("version") != index.get("version"):
         errors.append("线上 index.json 版本与本地产物不一致")
+    if live_index.get("title") != index.get("title"):
+        errors.append("线上 index.json 标题与本地产物不一致")
+    if (live_index.get("git") or {}).get("commit") != (index.get("git") or {}).get("commit"):
+        errors.append("线上 index.json 的 Git pin 与本地产物不一致")
+    if [n.get("id") for n in live_index.get("navigation") or []] != list(REGION_ORDER):
+        errors.append("线上 index.json 缺少两个导航域")
 
     for item in index.get("items") or []:
         url = item.get("url") or ""
@@ -232,6 +451,28 @@ def check_online(index, manifest, out_dir, errors):
             if not nested.get("version"):
                 errors.append("条目 %s 指向的清单缺少 version" % item.get("id"))
 
+    # latest 指针必须与版本条目逐项一致
+    latest_item = None
+    for item in index.get("items") or []:
+        if item.get("id") == "agent-template.latest":
+            latest_item = item
+    if latest_item and latest_item.get("url"):
+        status, body = oss_publish.anon_get(latest_item["url"])
+        if status != 200:
+            errors.append("agent-template latest 匿名读取失败: HTTP %s" % status)
+        else:
+            try:
+                latest = json.loads(body.decode("utf-8"))
+            except ValueError:
+                errors.append("agent-template latest 不是合法 JSON")
+                latest = {}
+            template_version = None
+            for item in index.get("items") or []:
+                if item.get("id") == "agent-template.template":
+                    template_version = item.get("version")
+            if latest.get("version") and template_version and latest["version"] != template_version:
+                errors.append("latest 版本 %s 与索引记录 %s 不一致" % (latest["version"], template_version))
+
     for entry in manifest.get("files") or []:
         local = out_dir / entry["path"]
         if not local.exists():
@@ -243,6 +484,8 @@ def check_online(index, manifest, out_dir, errors):
             continue
         if oss_publish.sha256_bytes(body) != entry.get("sha256"):
             errors.append("%s 线上内容与 manifest 记录不一致" % entry["object"])
+        if len(body) != entry.get("bytes"):
+            errors.append("%s 线上字节数与 manifest 记录不一致" % entry["object"])
 
 
 def check_git(index, errors, skipped=None):
@@ -298,9 +541,10 @@ def main(argv=None):
         index = load(out_dir / "index.json")
         manifest = load(out_dir / "manifest.json")
         items = check_index(index, errors) or []
+        check_regions(index, items, errors)
         check_index_urls(index, errors)
         check_markdown(out_dir, index, errors)
-        check_manifest(out_dir, manifest, errors)
+        check_manifest(out_dir, manifest, index, errors)
         if not args.skip_tools:
             run_tools(out_dir, errors)
         summary["checks"]["offline"] = not errors
@@ -333,10 +577,12 @@ def main(argv=None):
             for note in skipped:
                 print("  - %s" % note)
         else:
-            print("校验通过：%d 个条目（可用 %d），%d 个角色" % (
+            print("校验通过：%d 个条目（可用 %d），%d 个角色，%d 个服务，%d 个初始化步骤" % (
                 (index.get("counts") or {}).get("items", 0),
                 (index.get("counts") or {}).get("available", 0),
                 len(index.get("roles") or []),
+                (index.get("counts") or {}).get("services", 0),
+                (index.get("counts") or {}).get("onboarding_steps", 0),
             ))
     if errors:
         return EXIT_NETWORK if any("匿名读取失败" in e or "不可达" in e for e in errors) else EXIT_FAIL
