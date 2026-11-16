@@ -20,7 +20,7 @@ noahsark/
 ├── agent-template/     # Agent 模板（版本目录不可变）
 │   ├── latest/         # 只做指向，内容与当前版本逐字节一致
 │   ├── v1.0.0/
-│   └── v1.1.0/
+│   └── v1.7.0/
 ├── platform/           # 规划中
 ├── git/                # 规划中
 ├── storage/            # 规划中
@@ -32,21 +32,30 @@ noahsark/
 三条不变式：
 
 1. **入口地址永久不变**。升级、扩目录、调顺序都只改 `index.md` / `index.json` / `manifest.json` 三个对象。
-2. **版本目录不可变**。`v1.1.0/` 一旦发布就不再改写；`latest/` 才是可变的指针。
+2. **版本目录不可变**。`v1.7.0/` 一旦发布就不再改写；`latest/` 才是可变的指针。
 3. **未发布的内容不出现链接**。`catalog.json` 里状态为 `planned` 的条目在 `index.md` 与 `index.json` 中都没有 URL，不会产生死链。
 
 ## 3. 内容职责
 
-`index.md` 回答「我该读什么、按什么顺序读」：
+`index.md` 回答「NoahsArk 是什么、一次任务怎么走完、这台机器怎么接入」，固定两个一级区域：
 
-- 平台定位：NoahsArk 是闭环平台（派发 → 执行 → 归档 → 沉淀 → 下一轮），不是单个 Skill；
-- 三步接入：读总览 → 建任务目录 → 按角色读必读项；
-- 按角色阅读顺序（`external-reader` / `coordinator` / `node-executor` / `hardware-bench` / `knowledge-curator`），必读项有序，可选参考单列；
-- 条目总览：每个分组一张表，标出版本、状态、校验值前缀；
-- 硬规则：工作目录、时间口径、凭据、审批边界、监督契约；
-- 未发布条目与更新回滚说明。
+- **一、NoahsArk 体系介绍**：平台定位与边界（Multica 与 NoahsArk 分工）、三层职责（ark-kb /
+  8091 / 8090+1006）、执行闭环（Issue/Run → plan.md → EXECUTION_CHECK → 产物 → receipt →
+  archive → ark-kb）、角色体系、服务与版本、知识时序、门禁与降级、安全边界、硬规则；
+- **二、体系环境初始化**：工作区目录与 plan.md、runtime 识别、节点专属 Agent 绑定、Git 身份与
+  远端能力、8090 接入与 enrollment、8091 连接与查询、工具安装、TTS 节点配置、初始化验收、
+  阻塞码、回执与漂移分类。
 
-`index.json` 是同一份内容的机器视图，每个条目固定字段：`id`、`title`、`kind`、`status`、`version`、`path`、`url`、`roles`、`requires`、`summary`，可用条目额外带 `sha256`。字段集合由 `verify-index.py` 强制，缺一个就失败。
+`index.json` 是同一份内容的机器视图，顶层提供 `system` / `onboarding` 两个导航域，
+同时保留 `items` / `groups` 数组（每条带 `region`）供旧读者使用。每个条目固定字段：
+`id`、`region`、`title`、`kind`、`status`、`version`、`path`、`url`、`sha256`、
+`source_repo`、`source_commit`、`roles`、`requires`、`summary`；服务条目另有
+`endpoint` 与 `descriptor`。字段集合由 `verify-index.py` 强制，缺一个就失败。
+
+服务契约单独存放在 `templates/noahsark-index/services/*.json`：地址（只写可解析节点名）、
+鉴权与 scope、接口清单、错误码、降级规则、验证状态（`node-receipt` / `probe`）。
+`check-services.py` 负责契约漂移、ark-kb 基线、节点回执与在线探测；endpoint 出现 RFC1918
+字面量会让构建失败。
 
 `manifest.json` 记录根索引自己的身份：版本、内容提交号、生成时间、两个文件的字节数与校验值。它让「线上这份是不是最新」变成一个可判定问题，而不需要人去比对正文。
 
@@ -54,11 +63,11 @@ noahsark/
 
 | 层 | 位置 | 可变性 |
 |---|---|---|
-| 真源 | `ark-node` 仓库 `templates/noahsark-index/catalog.json` | 每次改动走提交与评审 |
+| 真源 | `ark-node` 仓库 `templates/noahsark-index/catalog.json` 与 `services/*.json` | 每次改动走提交与评审 |
 | 生成物 | `build/noahsark-index/`（不进版本库） | 可随时重建 |
 | 副本 | OSS `noahsark/index.*` | 只由 `publish-index.py` 写入 |
 
-OSS 控制台不再作为编辑入口。这样做的直接收益：变更可追溯（提交号写在 manifest 里）、可回归（29 项本地测试）、可回滚（只重写三个对象）。
+OSS 控制台不再作为编辑入口。这样做的直接收益：变更可追溯（提交号写在 manifest 里）、可回归（索引 51 项、全仓 214 项本地测试）、可回滚（只重写三个对象）。
 
 ## 5. 为什么角色是一等字段
 
@@ -108,6 +117,8 @@ OSS 控制台不再作为编辑入口。这样做的直接收益：变更可追�
 | `templates/noahsark-index/catalog.json` | 唯一手工维护源 |
 | `templates/noahsark-index/build-index.py` | 生成器（零依赖） |
 | `templates/noahsark-index/verify-index.py` | 校验器（离线 / `--online` / `--check-git`） |
+| `templates/noahsark-index/check-services.py` | 服务契约漂移 / 基线 / 回执 / 在线探测 |
+| `templates/noahsark-index/services/*.json` | 8090 与 8091 的机器可读服务契约 |
 | `templates/noahsark-index/publish-index.py` | 发布器（先测后发、匿名回读） |
 | `templates/noahsark-index/README.md` | 维护者操作手册 |
 | `tools/oss_publish.py` | 共用 OSS 客户端（签名 V1，只 PUT 与匿名 GET） |

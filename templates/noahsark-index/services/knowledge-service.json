@@ -1,0 +1,229 @@
+{
+  "schema": "ark.knowledge-service.v1",
+  "id": "svc.knowledge-service",
+  "title": "NoahsArk Knowledge Service（8091）",
+  "version": "1.0.0",
+  "endpoint": "http://bszT14:8091",
+  "host": {
+    "name": "bszT14",
+    "port": 8091,
+    "scheme": "http",
+    "bind": "0.0.0.0",
+    "scope": "internal",
+    "service_dir": "/home/zhsh/workspace/services/noahsark-knowledge/",
+    "manage": "user systemd noahsark-knowledge，enabled + Linger=yes，Restart=on-failure",
+    "address_note": "对外只写可解析节点名 bszT14；内网地址只写在节点侧部署回执里，不复制 RFC1918 地址，不在索引里回填 IP。"
+  },
+  "runtime": {
+    "artifact": "arkks（canonical 源码树）",
+    "artifact_note": "线上基线 e67cd43 + 本地提交 8a48126（proposal 校验修复，仅本地、未 push）；仓库无 GitHub 远端。",
+    "source_repo": null,
+    "source_commit": "8a48126",
+    "evidence": "NOAH-103 节点侧执行回执（bszT14，2026-11-16 12:14:06）"
+  },
+  "auth": {
+    "mode": "bearer",
+    "header": "Authorization",
+    "scheme": "Bearer",
+    "scopes": ["read", "write"],
+    "token_source": "节点侧 0600 受控文件；只从环境变量或该文件读取，值不进 Git、日志、索引、回执与评论。",
+    "unauthenticated": "读接口需要 read token；缺 token 或 token 不符返回 401 并带 WWW-Authenticate。",
+    "scope_rule": "read token 调写接口返回 403；write 隐含 read。"
+  },
+  "api": [
+    {
+      "name": "健康检查",
+      "method": "GET",
+      "path": "/healthz",
+      "scope": null,
+      "verified": "node-receipt",
+      "note": "200，返回 schema、status、service、version、freshness、commit、entries、degraded、deps；?strict=1 时降级返回 503，探针用严格模式。"
+    },
+    {
+      "name": "详细健康",
+      "method": "GET",
+      "path": "/v1/health",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "在 /healthz 上带 detail：ledger、sqlite、outbox、sync、auth。degraded 取值 ledger_unavailable、sqlite_unavailable、sync_stale、sync_unknown、sync_unavailable、auth_unavailable。"
+    },
+    {
+      "name": "知识检索",
+      "method": "GET",
+      "path": "/v1/search",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "参数 q、device、project、firmware、skill、capability、type（knowledge/method/run/bug）、top（1-50）、include_stale、sources。默认排除 stale/superseded；citation 形如 kb:<entry_id>@<commit>。"
+    },
+    {
+      "name": "条目详情",
+      "method": "GET",
+      "path": "/v1/entries/{entry_id}",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "entry_id 形如 kb-(knowledge|method|run|bug)-<12hex>，返回完整条目与 citation；格式不符 400，不存在 404，台账不可用 503。"
+    },
+    {
+      "name": "文档详情",
+      "method": "GET",
+      "path": "/v1/documents/{doc_id}",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "返回 kb.sqlite 文档行（只回标量字段）与 citation；结构探测失败 503。"
+    },
+    {
+      "name": "提交 proposal",
+      "method": "POST",
+      "path": "/v1/proposals",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "新提案 201，重复提交 200 且 deduplicated=true；proposal_id = prop-<sha256(canonical draft)[:16]>；字段白名单外直接 400 invalid_proposal；只落 outbox/proposals.jsonl（0600，append-only），不写台账。"
+    },
+    {
+      "name": "proposal 列表与详情",
+      "method": "GET",
+      "path": "/v1/proposals",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "status=pending|accepted|rejected、limit（1-500）；详情 /v1/proposals/{id} 含 draft、关闭人、entry_id、note。"
+    },
+    {
+      "name": "关闭 proposal",
+      "method": "POST",
+      "path": "/v1/proposals/{id}/close",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "body {status, entry_id, note}；entry_id 必须形如 kb-<type>-<12hex>；只允许从 pending 关闭一次，重复关闭返回当前状态不改写。"
+    },
+    {
+      "name": "同步状态",
+      "method": "GET",
+      "path": "/v1/sync/status",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "返回 source_commit、indexed_commit、head_commit、behind、freshness、age_seconds、entries、sqlite_documents、sqlite_chunks、interval_seconds；节点回执实测 entries=130。"
+    },
+    {
+      "name": "同步触发",
+      "method": "POST",
+      "path": "/v1/sync/pull",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "执行一次 fetch + fast-forward 合并，返回 ok、source_commit、indexed_commit、changed、error；失败 503 sync_failed。常规靠 900 秒定时增量，不要手工频繁触发。"
+    },
+    {
+      "name": "ark-kb 推送 webhook",
+      "method": "POST",
+      "path": "/v1/hooks/ark-kb",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "立即 202 {accepted, scheduled, coalesced}；30 秒内重复事件合并，真正 pull 在后台线程执行。"
+    }
+  ],
+  "errors": [
+    {"status": 400, "code": "empty_query / invalid_param / invalid_type / invalid_sources / invalid_json / invalid_proposal", "meaning": "请求不合法，未落盘"},
+    {"status": 401, "code": "unauthorized / invalid_token", "meaning": "缺 token 或 token 不符"},
+    {"status": 403, "code": "forbidden", "meaning": "read token 调写接口"},
+    {"status": 404, "code": "not_found / entry_not_found / document_not_found / proposal_not_found", "meaning": "不存在"},
+    {"status": 405, "code": "method_not_allowed", "meaning": "路径存在但方法不对"},
+    {"status": 413, "code": "body_too_large", "meaning": "超过 http.max_body_bytes"},
+    {"status": 503, "code": "ledger_unavailable / sqlite_unavailable / auth_unavailable / sync_failed", "meaning": "依赖不可用"}
+  ],
+  "snapshot": {
+    "record_as": "knowledge_snapshot",
+    "fields": [
+      "service_version",
+      "source_commit",
+      "indexed_commit",
+      "freshness",
+      "entry_ids",
+      "recorded_at"
+    ],
+    "rule": "任务开始查询知识后，把本次用到的 entry id 与当时的 source_commit、indexed_commit、freshness 记进 plan.md 或回执；没有快照就等于没有引用依据。"
+  },
+  "freshness": {
+    "values": ["fresh", "stale", "unknown", "unavailable"],
+    "stale_after_seconds": 3600,
+    "interval_seconds": 900,
+    "source_commit_field": "source_commit",
+    "indexed_commit_field": "indexed_commit",
+    "consistency_rule": "source_commit == indexed_commit 且 freshness=fresh 才可当权威依据；不相等说明索引落后，按 stale 处理。"
+  },
+  "fallback": {
+    "on_stale": {
+      "normal_task": "允许使用未过期快照（快照时间距今不超过 stale_after_seconds），回执必须写 freshness=stale 与使用的 commit。",
+      "high_risk": "BLOCKED_KB_STALE"
+    },
+    "on_unavailable": {
+      "normal_task": "允许使用未过期缓存并写明 KB 不可用与缓存时间；不得声称已查最新知识。",
+      "high_risk": "BLOCKED_KB_UNAVAILABLE"
+    },
+    "git_readonly": "服务不可用时可只读 ark-kb Git 镜像（clone/pull 后 tools/kb.py query），查到的事实同样记 source_commit。",
+    "high_risk_definition": "烧录、真机操作、发布、删除、权限变更等不可逆或有对外影响的操作。"
+  },
+  "source_of_truth": {
+    "repo": "zjashanda/ark-kb",
+    "role": "Git 是唯一真源；服务只是查询前端与 proposal 收集口，不改变真源。",
+    "index_paths": ["entries/", "index/", "registry/"],
+    "pending_semantics": "proposal 在 accepted 之前只是 pending，不得当 active 使用，也不得写进 index 当可用知识。"
+  },
+  "backup": {
+    "enabled": false,
+    "status": "BLOCKED_1006_WRITE_AUTH",
+    "target": "1006:/srv/storage/ark/knowledge/noahsark-knowledge-service/",
+    "note": "备份通道未打通，服务当前只有本机数据；不得写成备份已启用，也不得据此承诺可恢复。"
+  },
+  "baseline": {
+    "source": {
+      "ref": "ark-kb main",
+      "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517"
+    },
+    "indexed": {
+      "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
+      "built_at": "2026-11-16 20:09:30"
+    },
+    "observed_at": "2026-11-16 20:10:57",
+    "entries": 130,
+    "documents": 409,
+    "chunks": 7514,
+    "evidence": "NOAH-103 节点侧执行回执（bszT14）：source/indexed/head 三者一致、freshness=fresh、/healthz entries=130、degraded=[]。"
+  },
+  "verification": {
+    "state": "node-receipt",
+    "receipt": "NOAH-103 节点侧执行回执，2026-11-16 12:14:06（UTC 记录），对应北京时间 2026-11-16 20:14:06",
+    "probed_at": "2026-11-16 20:09:30",
+    "confirmed": [
+      "healthz-200",
+      "search-200",
+      "entry-detail-200",
+      "proposal-201-idempotent-200",
+      "proposal-close-200",
+      "sync-status-200",
+      "sync-pull-200",
+      "webhook-202",
+      "bearer-token-401",
+      "scope-403",
+      "invalid-proposal-400",
+      "systemd-autostart"
+    ],
+    "pending": [
+      "从索引发布侧执行的在线探测回执（check-services.py --probe）",
+      "knowledge service 源码入 Git 远端（当前只有节点本地提交 8a48126）",
+      "1006 备份启用"
+    ],
+    "rule": "confirmed 只列节点回执里出现过的结论；没有实时探测前不得写成已验证在线。"
+  },
+  "agent_flow": [
+    "任务开始先查知识：GET /healthz 确认服务可用与 freshness，再按设备/项目/固件/能力检索；没有命中就如实记录未命中。",
+    "记录 knowledge_snapshot：service_version、source_commit、indexed_commit、freshness、用到的 entry_ids、recorded_at。",
+    "执行中用 active 条目；pending 只能当线索，不能当结论。",
+    "执行后把新经验整理成 proposal（author 写 agent 名，evidence 带 uri/bytes/sha256），不直接改 ark-kb。",
+    "服务 stale 或不可用时按降级规则处理；高风险任务必须 BLOCKED_KB_STALE / BLOCKED_KB_UNAVAILABLE，不得用过期知识开工。"
+  ],
+  "kb_writeback": [
+    "proposal：执行侧提交草稿，服务只追加 outbox，不写台账。",
+    "审核：人或有权限的智能体核对证据，关闭为 accepted 或 rejected；pending 不得当 active。",
+    "Git commit / PR：条目录入 ark-kb（entries + index），走正常评审与提交。",
+    "增量索引：服务下一次 pull（900 秒）或 webhook 后刷新，source_commit 跟上 Git，indexed_commit 记录建索引的提交。"
+  ]
+}
