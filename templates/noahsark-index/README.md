@@ -182,3 +182,14 @@ python3 templates/noahsark-index/publish-index.py --allow-downgrade --apply --ye
 `agent-template.latest` 是可变的指针：模板每发布一次，它的清单字节就会变，因此根索引里记录的 `sha256`
 必须同步刷新并重发根索引。忘记刷新时 `verify-index.py --online` 会对该条目报「线上内容与记录校验值不一致」——
 这是有意的漂移告警（2026-11-16 的 2.0.1 就是修这个：两个清单对象的 SHA 停留在旧批次）。
+
+## 8090 / 8091 凭据与只读边界
+
+- 8090 `token_bootstrap`：`one-time-secret` / `operational`。节点自助 `bootstrap`（一次性 secret）、
+  `rotate`、`revoke`、`status`，服务端只存 SHA-256；`verification.observed` 是必填观测证据。
+- 8091 `token_bootstrap`：`admin-provisioned` / `partial` / `bootstrap_api=false`，只写接口用
+  write token；与 8090 不互通，parity 缺口记为 `BLOCKED_KB_BOOTSTRAP_PARITY`。
+- 8091 `auth.anonymous_read`：只读 GET 匿名（当前 `pending_service_change`），写接口仍鉴权；
+  未通过按 `BLOCKED_KB_ANON_READ` 停止，最小服务改动见 `docs/kb-anonymous-read-change.md`。
+- `check-services.py --node <节点>` 按 profile 选探测基址；`--probe` 额外匿名探测只读接口并记录
+  `anonymous_read` 观测，`pending_service_change` 阶段 401 不判失败。

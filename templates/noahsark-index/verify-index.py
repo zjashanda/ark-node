@@ -329,6 +329,32 @@ def check_regions(index, items, errors):
                     errors.append("服务块 %s 与 descriptor 固定入口引用不一致" % svc.get("id"))
             elif data.get("endpoint") != svc.get("endpoint"):
                 errors.append("服务块 %s 与 descriptor.endpoint 不一致" % svc.get("id"))
+            anon = (data.get("auth") or {}).get("anonymous_read") or {}
+            if anon:
+                block = svc.get("anonymous_read") or {}
+                if not block:
+                    errors.append("服务块 %s 缺少 anonymous_read（descriptor 已声明）" % svc.get("id"))
+                else:
+                    if block.get("status") not in ("pending_service_change", "verified"):
+                        errors.append("服务块 %s 的 anonymous_read.status 非法" % svc.get("id"))
+                    if block.get("status") != anon.get("status"):
+                        errors.append("服务块 %s 的 anonymous_read.status 与 descriptor 不一致" % svc.get("id"))
+                    if not block.get("public_api") or not block.get("protected_api"):
+                        errors.append("服务块 %s 的 anonymous_read 公开/受保护接口不能为空" % svc.get("id"))
+                    if set(block.get("public_api") or []) & set(block.get("protected_api") or []):
+                        errors.append("服务块 %s 的 anonymous_read 公开与受保护接口重叠" % svc.get("id"))
+                    if block.get("status") == "pending_service_change" and not (
+                        (block.get("service_change") or {}).get("required")
+                    ):
+                        errors.append("服务块 %s 的 anonymous_read 待改状态缺少 service_change" % svc.get("id"))
+            token = data.get("token_bootstrap") or {}
+            if token.get("status") == "operational":
+                evidence = token.get("verification") or {}
+                if not evidence.get("observed"):
+                    errors.append("服务块 %s 的 token_bootstrap 声称 operational 但无观测证据" % svc.get("id"))
+                served = svc.get("token_bootstrap") or {}
+                if not (served.get("verification") or {}).get("observed_count"):
+                    errors.append("服务块 %s 未携带 token_bootstrap 观测证据" % svc.get("id"))
 
     onboarding = index.get("onboarding") or {}
     for field in ("automation_levels", "steps", "acceptance", "block_codes", "drift"):

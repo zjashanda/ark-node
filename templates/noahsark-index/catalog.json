@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -128,7 +128,7 @@
       "id": "evidence.upload",
       "step": "2. 上传 8090 证据",
       "actor": "执行 Agent",
-      "detail": "按 evidence/results/receipts 分类写入；同 key 同 SHA 返回 200 幂等，不同 SHA 返回 409；服务端复算 SHA，失败或 SHA 不符进 quarantine。",
+      "detail": "按 evidence/results/receipts 分类写入；同 key 同 SHA 返回 200 幂等，不同 SHA 返回 409；服务端复算 SHA，失败或 SHA 不符进 quarantine。先用 8090 自助 bootstrap 取本节点 read+evidence:write token，再上传。",
       "artifact": "evidence_ref = ark://<category>/<scope>/<key> + bytes + sha256"
     },
     {
@@ -142,7 +142,7 @@
       "id": "kb.proposal",
       "step": "4. 提交 proposal",
       "actor": "执行 Agent",
-      "detail": "向 8091 POST /v1/proposals 提交草稿，草稿绑定 evidence_uri、request_id 与 idempotency_key；201 新建、200 幂等；不直接改 ark-kb。",
+      "detail": "向 8091 POST /v1/proposals 提交草稿，草稿绑定 evidence_uri、request_id 与 idempotency_key；201 新建、200 幂等；不直接改 ark-kb。只读查询不需要 token；仅本条提交使用最小 write token。",
       "artifact": "proposal_id（prop-<sha256(draft)[:16]>）+ 状态 pending"
     },
     {
@@ -170,7 +170,7 @@
       "id": "kb.verify",
       "step": "8. 复读校验",
       "actor": "另一 Agent",
-      "detail": "用非提交者的节点身份查询 /v1/search 与 /v1/entries，核对命中、citation 与 knowledge_snapshot；不复用提交者 token 的结果作证明。",
+      "detail": "另一 Agent 匿名查询 /v1/search 与 /v1/entries（不配置 read token），核对命中、citation 与 knowledge_snapshot；不复用提交者 token 的结果作证明。",
       "artifact": "检索命中 + citation kb:<entry_id>@<commit>"
     },
     {
@@ -226,6 +226,11 @@
       "gate": "审批边界",
       "rule": "推送代码、对外发布、真机操作、删除、权限变更需要明确同意；凭据存在不代表自动获批。",
       "failure": "BLOCKED_APPROVAL_REQUIRED"
+    },
+    {
+      "gate": "只读公开边界",
+      "rule": "8091 只读接口按 anonymous_read 匿名开放，写接口仍鉴权；匿名可读不等于可写。",
+      "failure": "BLOCKED_KB_ANON_READ"
     }
   ],
   "security": [
@@ -237,7 +242,8 @@
     "审计日志不记录 Authorization 与请求体；token 存储只保留 SHA-256。",
     "错误、失败、阻塞必须如实标注；不得把代码测试通过写成真机验证通过。",
     "写链路是否可用不看健康码：8090 看上传+回读 SHA，8091 看 proposal_id 与 source/indexed 追平；把 200 当写通按 EVIDENCE_GAP 处理。",
-    "token 按节点专用，只落 0600 文件（Windows 仅当前用户 ACL）或环境变量；轮换先于共享，吊销即时生效。"
+    "token 按节点专用，只落 0600 文件（Windows 仅当前用户 ACL）或环境变量；轮换先于共享，吊销即时生效。",
+    "8091 只读接口匿名开放：公开响应只含已审核 active 知识，不得含 token、凭据、服务端绝对路径、个人敏感信息或 pending 正文；写接口无 token 必须 401/403。"
   ],
   "failure_taxonomy": [
     {
@@ -295,6 +301,13 @@
       "stop": false,
       "action": "由管理员按节点在服务端 token 文件签发/轮换；parity 列为待办，不写成已实现。",
       "retry": "token 文件更新并热加载后重试。"
+    },
+    {
+      "code": "BLOCKED_KB_ANON_READ",
+      "when": "契约声明匿名的只读接口返回 401/403，或匿名响应出现凭据、绝对路径、pending 正文。",
+      "stop": true,
+      "action": "检查服务 auth.public_read 与服务版本，按最小服务改动修复；不得用签发 read token 绕过。",
+      "retry": "服务改动验收通过后重试一次。"
     }
   ],
   "roles": [
@@ -592,13 +605,15 @@
           "ACCEPT_KB_PROPOSAL",
           "ACCEPT_KB_FRESHNESS",
           "ACCEPT_KB_TOKEN",
-          "ACCEPT_DISCOVERY_PROFILE"
+          "ACCEPT_DISCOVERY_PROFILE",
+          "ACCEPT_KB_ANON_READ"
         ],
         "block_codes": [
           "BLOCKED_KB_STALE",
           "BLOCKED_KB_UNAVAILABLE",
           "BLOCKED_KB_AUTH",
-          "BLOCKED_KB_SCOPE"
+          "BLOCKED_KB_SCOPE",
+          "BLOCKED_KB_ANON_READ"
         ]
       },
       {
@@ -723,7 +738,7 @@
           "storage.enroll",
           "knowledge.connect"
         ],
-        "detail": "token 按节点专用，只存 0600 文件或进程环境（Windows 用仅当前用户 ACL）；8090 走 bootstrap/rotate/revoke，8091 由管理员改服务端 token 文件（mtime 热加载）；凭据不进入 Git、OSS、index、Issue、日志、回执与 instructions。",
+        "detail": "8090 用一次性 secret 自助 bootstrap/rotate/revoke/status（服务端只存 SHA-256）；8091 只写接口用管理员签发的 write token，按 mtime 热加载；两套 token 不互通，只落 0600/ACL 文件，不打印不复制。",
         "commands": [
           "管理员签发/轮换/吊销",
           "轮换后重跑验收"
@@ -856,12 +871,17 @@
       {
         "id": "ACCEPT_TOKEN_BOOTSTRAP",
         "title": "节点 8090 token",
-        "rule": "本节点 0600 token 文件存在，scope 覆盖 read+evidence:write，status 为 active，过程中未打印凭据值。"
+        "rule": "节点用一次性 bootstrap secret 自助兑换 token，原子写入 0600/ACL 文件，status 为 active，scope 覆盖 read+evidence:write，过程中未打印凭据值。"
       },
       {
         "id": "ACCEPT_KB_TOKEN",
         "title": "节点 8091 token",
-        "rule": "本节点 read token 可用：/v1/health 返回 auth=ok；需要提交时 write 已按需开通。"
+        "rule": "写接口 write token 可用（提交 proposal 返回 201）；只读接口匿名，不以 read token 为前置条件。"
+      },
+      {
+        "id": "ACCEPT_KB_ANON_READ",
+        "title": "只读匿名",
+        "rule": "匿名 GET /healthz、/v1/search、/v1/entries/{id}、/v1/sync/status 均 200；匿名 POST /v1/proposals 返回 401/403。"
       },
       {
         "id": "ACCEPT_DISCOVERY_PROFILE",
@@ -934,6 +954,12 @@
         "area": "knowledge",
         "meaning": "缺 token 或 token 不符",
         "action": "检查节点 read/write token。"
+      },
+      {
+        "code": "BLOCKED_KB_ANON_READ",
+        "area": "knowledge",
+        "meaning": "契约声明匿名的 8091 只读接口返回 401/403，或匿名响应泄露凭据、绝对路径、pending 正文",
+        "action": "按最小服务改动打开 auth.public_read 并验收；不得用签发 read token 绕过。"
       },
       {
         "code": "BLOCKED_KB_SCOPE",
@@ -1108,7 +1134,7 @@
           "kind": "service",
           "title": "Ark Storage Service（8090）",
           "status": "available",
-          "version": "1.1.0",
+          "version": "1.1.1",
           "roles": [
             "coordinator",
             "node-executor",
@@ -1127,7 +1153,7 @@
           "kind": "service",
           "title": "NoahsArk Knowledge Service（8091）",
           "status": "available",
-          "version": "1.1.1",
+          "version": "1.2.0",
           "roles": [
             "external-reader",
             "coordinator",

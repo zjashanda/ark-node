@@ -22,7 +22,7 @@
 5. pvm1003 是 VM/跨网段边界：它的 8090 与 8091 入口不同源，必须各用本节点实测 profile，
    禁止用一侧地址推导另一侧，也禁止把它的 profile 当全局替代。
 
-8091 的 canonical 直接就是固定入口 `http://10.11.63.42:8091`（`entry_kind=fixed-ip`），
+8091 的 canonical 直接就是固定入口 `http://10.11.63.42:8091`（`entry_kind=fixed-ip`），  <!-- noqa: secret-scan -->
 旧节点名入口已失效，不保留 alias，也不得回退；8090 仍为可解析节点名
 `http://linux003:8090`（`entry_kind=node-name`）并保留 `fixed_entry`。迁移记录见
 `docs/migration-20261118-knowledge-entry.md`。
@@ -38,7 +38,8 @@
 | `discovery`（`ark.service-discovery.v1`） | `canonical`、`resolution`、`node_profiles[]`、`vm_boundary`、`redaction` | canonical 是全局可解析地址；profile 是节点局部实测；`resolution.order` 固定 `node_profile, canonical` |
 | `token_bootstrap`（`ark.token-bootstrap.v1`） | `mode`、`per_node`、`bootstrap_api`、`minimum_scopes`、`allowed_scopes`、`storage`、`lifecycle`、`parity` | 每节点独立凭据；`parity.bootstrap_api=false` 时必须声明 `gap` |
 | `health_contract`（`ark.service-health.v1`） | `probe`、`required_fields`、`status_rule`、`degraded`、`commits`、`write_path_rule`、`stop_conditions` | 探针路径与判定规则；有 freshness 的服务必须给出 source/indexed 一致性 |
-| `failure_taxonomy` | `code`、`when`、`action`、`stop` | 失败码、触发条件、处理动作、是否必须停止 |
+| `auth.anonymous_read`（`ark.service-anonymous-read.v1`） | `status`、`public_api`、`protected_api`、`redaction`、`limits`、`service_change` | 只读匿名边界：公开接口、受保护接口、脱敏与限流、待改服务改动 |
+| `token_bootstrap.verification`（`ark.token-bootstrap.verification.v1`） | `state`、`verified_at`、`observed`、`rule` | 自助开通能力的观测证据；声称 `operational` 就必须带观测记录 |
 
 `discovery.redaction.internal_only_fields` 必须同时包含 `discovery.canonical.fixed_entry` 与
 `discovery.node_profiles[].verified_endpoint`；生成器剥离，校验器拒绝任何私网字面量。
@@ -51,22 +52,45 @@
 - 生命周期：`bootstrap` 一次性换发、`status` 只看自己的元数据、`rotate` 轮换、`revoke` 立即失效。
 - scope：先给最小集合，按需申请 `evidence:write` / `receipts:write` / `backup:write`；不足时按
   `BLOCKED_STORAGE_SCOPE` 处理，不越权重试。
-- 8090：`self-service`，有 bootstrap/rotate/status/revoke API。
-- 8091：`admin-provisioned`，只有管理侧 token 文件热加载，没有自助 bootstrap/rotate；该缺口如实
-  记为 `BLOCKED_KB_BOOTSTRAP_PARITY`，不得写成已实现。
+- 8090：`one-time-secret` / `operational`。流程固定四步：管理员预注册 `node_id`、`allowed_scopes`
+  与一次性 `bootstrap_secret` 的哈希 → 节点用该 secret 调 `POST /storage/v1/bootstrap/token`
+  自助兑换（secret 一次使用后失效，重放按 401）→ token 原子写入 0600 / 仅当前用户 ACL 文件 →
+  后续 API 只从本机文件或白名单环境变量读取。轮换 `POST /storage/v1/tokens/rotate`（旧值 300 秒
+  grace），吊销 `POST /storage/v1/tokens/revoke`（立即），状态 `GET /storage/v1/tokens/status`
+  （只返回自己的元数据，不返回 SHA 与明文）。服务端只存 SHA-256，注册表热加载。
+- 8091：`admin-provisioned` / `partial` / `bootstrap_api=false`。只读接口匿名开放后，token 只服务写
+  接口：管理员在服务端 token 文件追加 `write:<token>`，按 mtime 热加载；节点只落 0600/ACL 副本。
+  该缺口如实记为 `BLOCKED_KB_BOOTSTRAP_PARITY`，不得写成已实现。
+- **两套 token 不互通**：不得拿 8090 token 访问 8091，也不得把两者写成同一套签发。
+
+## 3.1 只读公开边界（8091）
+
+- 契约：`auth.anonymous_read`（`ark.service-anonymous-read.v1`），当前 `status=pending_service_change`。
+- 公开（匿名，不需要 read token）：`GET /healthz`、`GET /v1/search`、`GET /v1/entries/{entry_id}`、
+  `GET /v1/documents/{doc_id}`、`GET /v1/sync/status`。
+- 仍鉴权：`POST /v1/proposals`、`GET /v1/proposals`、`POST /v1/proposals/{id}/close`、
+  `POST /v1/sync/pull`、`POST /v1/hooks/ark-kb`、`GET /v1/health`。
+- 脱敏：公开响应不含 token、凭据、服务端绝对路径、个人敏感信息；只返回已审核 active 条目，
+  pending/candidate 正文不得因匿名查询泄露；错误体只回 `code`/`message`/`request_id`。
+- 限流与上限：按来源限流（超限 429）、请求体上限 262144 字节、分页上限 500、审计不记
+  Authorization 与请求体。
+- 现状：2026-11-18 实测匿名 `GET /v1/search`、`GET /v1/entries/{id}`、`GET /v1/sync/status` 仍返回
+  401，故状态保持 `pending_service_change`；最小服务改动、影响与回滚见
+  `docs/kb-anonymous-read-change.md`，验收通过后才改为 `verified`。
+- 未通过前，把匿名 401 当成 `BLOCKED_KB_ANON_READ` 上报，**不得**用临时签发 read token 绕过。
 
 ## 4. 闭环九步
 
 | # | 步骤 | 产物 | 失败码 |
 |---|---|---|---|
 | 1 | 产生证据：产物、日志、录音按任务目录落盘并脱敏 | 本地文件 + manifest（path/bytes/sha256） | `EVIDENCE_GAP` |
-| 2 | 上传 8090 证据：按 evidence/results/receipts 分类写入 | `evidence_ref`（uri/bytes/sha256） | `BLOCKED_STORAGE_AUTH`、`BLOCKED_STORAGE_SCOPE`、`BLOCKED_STORAGE_QUARANTINE` |
+| 2 | 上传 8090 证据：先用自助 bootstrap 取 read+evidence:write，再按 evidence/results/receipts 分类写入 | `evidence_ref`（uri/bytes/sha256） | `BLOCKED_STORAGE_AUTH`、`BLOCKED_STORAGE_SCOPE`、`BLOCKED_STORAGE_QUARANTINE` |
 | 3 | 写回执：记录 evidence_ref 三项与 request_id | receipt | `EVIDENCE_GAP` |
-| 4 | 提交 proposal：绑定 evidence_uri、request_id、idempotency_key | `proposal_id` + pending | `BLOCKED_KB_AUTH` |
+| 4 | 提交 proposal：用最小 write token 绑定 evidence_uri、request_id、idempotency_key | `proposal_id` + pending | `BLOCKED_KB_AUTH` |
 | 5 | 人工审核：核对证据后关闭 accepted / rejected | 审核结论 + entry_id | `SOURCE_MISSING` |
 | 6 | 写入 ark-kb：entries + index，走功能分支与 PR | 新 main 提交 | `BLOCKED_GIT_REMOTE` |
 | 7 | 增量索引：定时 pull 或 webhook 追平 source/indexed | `indexed_commit`、freshness、degraded | `STALE_INDEX` |
-| 8 | 复读校验：由非提交者用另一节点身份检索并核对 citation | 命中 + `kb:<entry_id>@<commit>` | `SOURCE_MISSING` |
+| 8 | 复读校验：由非提交者匿名检索（不配 read token）并核对 citation | 命中 + `kb:<entry_id>@<commit>` | `SOURCE_MISSING` |
 | 9 | 跨 Agent 复用：只引用 formal 且非 stale/superseded 条目 | `knowledge_snapshot` + 前置检查 | `STALE_INDEX`、`BLOCKED_KB_UNAVAILABLE` |
 
 ## 5. 失败分类与停止条件
@@ -74,7 +98,8 @@
 | 失败码 | 触发条件 | 处理 | 停止 |
 |---|---|---|---|
 | `BLOCKED_STORAGE_AUTH` | 8090 缺 token、过期、吊销或节点被禁用 | 用本节点 bootstrap/rotate 换新，不借他人 token | 停止 |
-| `BLOCKED_KB_AUTH` | 8091 返回 401/403 或本节点无 read token | 由管理员签发本节点 token，落 0600 文件 | 停止 |
+| `BLOCKED_KB_AUTH` | 8091 写接口返回 401/403，或本节点无 write token | 由管理员签发本节点 write token，落 0600 文件 | 停止 |
+| `BLOCKED_KB_ANON_READ` | 契约声明匿名的只读接口返回 401/403，或匿名响应泄露凭据、绝对路径、pending 正文 | 按最小服务改动打开 `auth.public_read` 并验收；不得签发 read token 绕过 | 停止 |
 | `STALE_INDEX` | source/indexed 不等、freshness 非 fresh 或 degraded 非空 | 等增量索引追平；普通任务可用未过期快照并标注 | 停止 |
 | `EVIDENCE_GAP` | evidence_ref 缺 uri/bytes/sha256 或用健康 200 冒充写通 | 补齐上传+回读与回执，否则不进 proposal | 停止 |
 | `SOURCE_MISSING` | ark-kb 缺条目/文档，citation 不可解析 | 回到 proposal 审核或补提交，不凭印象补写 | 停止 |

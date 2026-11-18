@@ -2,7 +2,7 @@
   "schema": "ark.storage-service.v1",
   "id": "svc.storage-service",
   "title": "Ark Storage Service（8090）",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "endpoint": "http://linux003:8090",
   "host": {
     "name": "linux003",
@@ -148,8 +148,8 @@
   },
   "token_bootstrap": {
     "schema": "ark.token-bootstrap.v1",
-    "mode": "self-service",
-    "status": "implemented",
+    "mode": "one-time-secret",
+    "status": "operational",
     "per_node": true,
     "bootstrap_api": true,
     "minimum_scopes": [
@@ -173,7 +173,7 @@
       "rule": "只从受控文件或环境变量读取；文件权限不对先修权限，不用宽松副本。"
     },
     "lifecycle": {
-      "bootstrap": "POST /storage/v1/bootstrap/token：一次性 bootstrap secret 换节点 token；默认最小权限 read，申请范围必须在节点 allowed_scopes 内。",
+      "bootstrap": "先由管理员预注册 node_id、allowed_scopes 与一次性 bootstrap_secret 的哈希；节点用该 secret 调 POST /storage/v1/bootstrap/token 自助兑换本节点 token，secret 一次使用后失效；token 原子写入 ~/.config/ark/storage.token（目录 0700、文件 0600）或 %APPDATA%\\ark\\storage.token（ACL 仅当前用户）；后续 API 只从本机文件或白名单环境变量读取。",
       "status": "GET /storage/v1/tokens/status：只看自己的 token 元数据（id、scope、到期、状态），不返回 SHA 与明文。",
       "rotate": "POST /storage/v1/tokens/rotate：旧 token 进入 300 秒 grace；跨节点轮换需要 admin:token。",
       "revoke": "POST /storage/v1/tokens/revoke：单 token 或整节点立即失效。"
@@ -183,12 +183,43 @@
       "每节点专用 token，禁止跨节点复制、转借或共用。",
       "token 值不进 Git、Issue、日志、回执、索引、URL 或命令行参数，不在终端回显。",
       "scope 不足时申请对应 scope（evidence:write / receipts:write / backup:write），不越权重试。",
-      "bootstrap secret 一次性使用；重放或节点被禁用按 401 处理。"
+      "bootstrap secret 一次性使用；重放或节点被禁用按 401 处理。",
+      "自助兑换只发起一次；重放或对已兑换 secret 重复兑换按 401 拒绝，记 BLOCKED_STORAGE_AUTH。",
+      "8090 token 与 8091 token 不互通：不得拿 8090 token 访问 8091，也不得把两者写成同一套签发。"
     ],
+    "verification": {
+      "schema": "ark.token-bootstrap.verification.v1",
+      "state": "operational",
+      "verified_at": "2026-11-18",
+      "probe_log": "node-receipt:NOAH-191/receipts/token-api-probe.log",
+      "observed": [
+        {
+          "api": "GET /health",
+          "result": "200"
+        },
+        {
+          "api": "GET /storage/v1/tokens/status",
+          "result": "401 未带 token（路由存在，鉴权生效）"
+        },
+        {
+          "api": "POST /storage/v1/bootstrap/token",
+          "result": "400 node_id and bootstrap_secret are required（路由存在，入参受校验）"
+        },
+        {
+          "api": "POST /storage/v1/tokens/rotate",
+          "result": "401 未带 token（路由存在）"
+        },
+        {
+          "api": "POST /storage/v1/tokens/revoke",
+          "result": "401 未带 token（路由存在）"
+        }
+      ],
+      "rule": "无凭据探测只证明路由存在与鉴权生效；完整兑换/轮换/吊销的端到端证据见节点回执 NOAH-190，不得用本探测冒充兑换成功。"
+    },
     "parity": {
       "bootstrap_api": true,
       "gap": null,
-      "note": "8090 自助开通已实现并验收（NOAH-190）。"
+      "note": "8090 自助开通（bootstrap/rotate/revoke/status）已实现并验收（NOAH-190）；与 8091 不构成同源签发。"
     },
     "fallback": {
       "on_missing": "BLOCKED_STORAGE_AUTH",

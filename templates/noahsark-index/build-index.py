@@ -75,6 +75,11 @@ APPROVED_INTERNAL_HOSTS = (
 DISCOVERY_SCHEMA = "ark.service-discovery.v1"
 TOKEN_BOOTSTRAP_SCHEMA = "ark.token-bootstrap.v1"
 HEALTH_SCHEMA = "ark.service-health.v1"
+ANONYMOUS_READ_SCHEMA = "ark.service-anonymous-read.v1"
+TOKEN_VERIFICATION_SCHEMA = "ark.token-bootstrap.verification.v1"
+TOKEN_MODES = ("one-time-secret", "self-service", "admin-provisioned")
+TOKEN_STATUSES = ("operational", "implemented", "partial")
+API_SCOPES = ("anonymous", "read", "write")
 INTERNAL_PATH_SUFFIXES = (".fixed_entry", ".verified_endpoint")
 
 
@@ -299,10 +304,35 @@ def validate_token_bootstrap(descriptor, eid, need):
         "服务条目 %s 的 token_bootstrap.schema 必须是 %s" % (eid, TOKEN_BOOTSTRAP_SCHEMA),
     )
     need(
-        token.get("mode") in ("self-service", "admin-provisioned"),
-        "服务条目 %s 的 token_bootstrap.mode 非法" % eid,
+        token.get("mode") in TOKEN_MODES,
+        "服务条目 %s 的 token_bootstrap.mode 非法（允许 %s）" % (eid, "/".join(TOKEN_MODES)),
+    )
+    need(
+        token.get("status") in TOKEN_STATUSES,
+        "服务条目 %s 的 token_bootstrap.status 非法（允许 %s）" % (eid, "/".join(TOKEN_STATUSES)),
     )
     need(token.get("per_node") is True, "服务条目 %s 的 token_bootstrap.per_node 必须为 true" % eid)
+
+    if token.get("status") == "operational":
+        verification = token.get("verification") or {}
+        need(
+            verification.get("schema") == TOKEN_VERIFICATION_SCHEMA,
+            "服务条目 %s 声称 token_bootstrap operational，必须带 %s 证据块"
+            % (eid, TOKEN_VERIFICATION_SCHEMA),
+        )
+        need(
+            bool(verification.get("observed")),
+            "服务条目 %s 声称 token_bootstrap operational，verification.observed 不能为空" % eid,
+        )
+        need(
+            bool(verification.get("rule")),
+            "服务条目 %s 的 token_bootstrap.verification.rule 不能为空" % eid,
+        )
+    if token.get("status") == "operational":
+        need(
+            token.get("bootstrap_api") is True,
+            "服务条目 %s 的 token_bootstrap.status=operational 时 bootstrap_api 必须为 true" % eid,
+        )
 
     minimum = token.get("minimum_scopes") or []
     allowed = token.get("allowed_scopes") or []
@@ -337,6 +367,53 @@ def validate_token_bootstrap(descriptor, eid, need):
             bool(parity.get("gap")),
             "服务条目 %s 的 token_bootstrap.parity.bootstrap_api 为 false 时 gap 不能为空" % eid,
         )
+
+
+def validate_anonymous_read(descriptor, eid, need):
+    auth = descriptor.get("auth") or {}
+    anon = auth.get("anonymous_read")
+    if not anon:
+        return
+    need(
+        anon.get("schema") == ANONYMOUS_READ_SCHEMA,
+        "服务条目 %s 的 auth.anonymous_read.schema 必须是 %s" % (eid, ANONYMOUS_READ_SCHEMA),
+    )
+    need(
+        anon.get("status") in ("pending_service_change", "verified"),
+        "服务条目 %s 的 auth.anonymous_read.status 非法" % eid,
+    )
+    public = anon.get("public_api") or []
+    protected = anon.get("protected_api") or []
+    need(bool(public), "服务条目 %s 的 auth.anonymous_read.public_api 不能为空" % eid)
+    need(bool(protected), "服务条目 %s 的 auth.anonymous_read.protected_api 不能为空" % eid)
+    need(bool(anon.get("redaction")), "服务条目 %s 的 auth.anonymous_read.redaction 不能为空" % eid)
+    limits = anon.get("limits") or {}
+    for field in ("rate_limit", "body_max_bytes", "page_max", "audit"):
+        need(bool(limits.get(field)), "服务条目 %s 的 auth.anonymous_read.limits 缺少 %s" % (eid, field))
+    need(
+        not (set(public) & set(protected)),
+        "服务条目 %s 的 anonymous_read 公开与受保护接口重叠" % eid,
+    )
+    change = anon.get("service_change") or {}
+    if anon.get("status") == "pending_service_change":
+        need(
+            change.get("required") is True,
+            "服务条目 %s 的 anonymous_read 仍是 pending_service_change，必须声明 service_change.required=true" % eid,
+        )
+        need(
+            bool(change.get("doc")),
+            "服务条目 %s 的 anonymous_read.service_change 缺少 doc" % eid,
+        )
+
+    declared = set()
+    for api in descriptor.get("api") or []:
+        if (api.get("scope") or "") == "anonymous":
+            declared.add("%s %s" % (api.get("method"), api.get("path")))
+    need(
+        declared == set(public),
+        "服务条目 %s 的 anonymous_read.public_api 与 api[].scope=anonymous 不一致（声明 %s / 实际 %s）"
+        % (eid, sorted(set(public)), sorted(declared)),
+    )
 
 
 def validate_health_contract(descriptor, eid, need):
@@ -556,8 +633,16 @@ def validate_catalog(cat):
                         need(bool(descriptor.get("auth")), "服务条目 %s 缺少 auth 契约" % eid)
                         need(bool(descriptor.get("api")), "服务条目 %s 缺少 api 列表" % eid)
                         need(bool(descriptor.get("verification")), "服务条目 %s 缺少 verification" % eid)
+                        for api in descriptor.get("api") or []:
+                            need(
+                                api.get("scope") in API_SCOPES
+                                or api.get("scope") in (None, "legacy-basic"),
+                                "服务条目 %s 的 api %s 的 scope 非法"
+                                % (eid, api.get("name") or api.get("path")),
+                            )
                         validate_discovery(descriptor, eid, need)
                         validate_token_bootstrap(descriptor, eid, need)
+                        validate_anonymous_read(descriptor, eid, need)
                         validate_health_contract(descriptor, eid, need)
         for role in entry.get("roles") or []:
             need(role in role_ids, "条目 %s 引用了不存在的角色 %s" % (eid, role))
@@ -945,12 +1030,30 @@ def service_block(item):
                 "note": token_parity.get("note"),
             },
             "fallback": dict(token.get("fallback") or {}),
+            "verification": {
+                "state": (token.get("verification") or {}).get("state"),
+                "verified_at": (token.get("verification") or {}).get("verified_at"),
+                "observed_count": len((token.get("verification") or {}).get("observed") or []),
+            },
         },
         "auth": {
             "mode": auth.get("mode"),
             "scopes": list(auth.get("scopes") or []),
             "token_rule": auth.get("token_store") or auth.get("token_source"),
         },
+        "anonymous_read": (
+            {
+                "schema": (auth.get("anonymous_read") or {}).get("schema"),
+                "status": (auth.get("anonymous_read") or {}).get("status"),
+                "public_api": list((auth.get("anonymous_read") or {}).get("public_api") or []),
+                "protected_api": list((auth.get("anonymous_read") or {}).get("protected_api") or []),
+                "rule": (auth.get("anonymous_read") or {}).get("rule"),
+                "limits": dict((auth.get("anonymous_read") or {}).get("limits") or {}),
+                "service_change": dict((auth.get("anonymous_read") or {}).get("service_change") or {}),
+            }
+            if auth.get("anonymous_read")
+            else None
+        ),
         "health": {
             "path": probe.get("path"),
             "public": probe.get("public"),
@@ -1424,6 +1527,22 @@ def build_index_md(cat, items, generated_at, content_commit):
             )
         )
         add()
+        anon = (descriptor.get("auth") or {}).get("anonymous_read") or {}
+        if anon:
+            add(
+                "只读公开边界：状态 %s；匿名可读 %s；仍需鉴权 %s；限流、分页与脱敏见 `%s#auth.anonymous_read`。"
+                % (
+                    anon.get("status") or "-",
+                    "、".join(anon.get("public_api") or []) or "-",
+                    "、".join(anon.get("protected_api") or []) or "-",
+                    item["_path"],
+                )
+            )
+            add()
+            change = anon.get("service_change") or {}
+            if change:
+                add("服务改动：%s（见 %s）。" % (clause(change.get("scope")), change.get("doc") or "-"))
+                add()
         add("失败码：%s。" % ("、".join(service_failure_codes(descriptor)) or "-"))
         add()
         add("完整契约：`%s`（机器可读，字段含 auth、api、errors、fallback、verification）。" % item["_path"])

@@ -659,9 +659,9 @@ class KnowledgeChainTest(unittest.TestCase):
             shutil.rmtree(str(root), ignore_errors=True)
 
     def test_versions_match_contract(self):
-        self.assertEqual("2.1.1", self.catalog["version"])
-        self.assertEqual("1.1.0", read_descriptor(STORAGE_DESCRIPTOR)["version"])
-        self.assertEqual("1.1.1", read_descriptor(KB_DESCRIPTOR)["version"])
+        self.assertEqual("2.2.0", self.catalog["version"])
+        self.assertEqual("1.1.1", read_descriptor(STORAGE_DESCRIPTOR)["version"])
+        self.assertEqual("1.2.0", read_descriptor(KB_DESCRIPTOR)["version"])
 
     def test_knowledge_canonical_uses_fixed_entry(self):
         canonical = read_descriptor(KB_DESCRIPTOR)["discovery"]["canonical"]
@@ -764,6 +764,84 @@ class KnowledgeChainTest(unittest.TestCase):
             HERE / "check-services.py", ["--check", "--dir", str(self.out)]
         )
         self.assertEqual(0, code, stdout + stderr)
+
+    def test_storage_token_bootstrap_is_operational(self):
+        token = read_descriptor(STORAGE_DESCRIPTOR)["token_bootstrap"]
+        self.assertEqual("one-time-secret", token["mode"])
+        self.assertEqual("operational", token["status"])
+        self.assertTrue(token["bootstrap_api"])
+        evidence = token.get("verification") or {}
+        self.assertEqual("ark.token-bootstrap.verification.v1", evidence["schema"])
+        self.assertGreaterEqual(len(evidence.get("observed") or []), 4)
+        blob = json.dumps(token, ensure_ascii=False)
+        for api in (
+            "POST /storage/v1/bootstrap/token",
+            "POST /storage/v1/tokens/rotate",
+            "POST /storage/v1/tokens/revoke",
+            "GET /storage/v1/tokens/status",
+        ):
+            self.assertIn(api, blob)
+
+    def test_kb_token_bootstrap_stays_admin_provisioned(self):
+        token = read_descriptor(KB_DESCRIPTOR)["token_bootstrap"]
+        self.assertEqual("admin-provisioned", token["mode"])
+        self.assertEqual("partial", token["status"])
+        self.assertFalse(token["bootstrap_api"])
+        self.assertEqual(["write"], token["minimum_scopes"])
+        self.assertEqual("BLOCKED_KB_BOOTSTRAP_PARITY", token["parity"]["gap"])
+        blob = json.dumps(token, ensure_ascii=False)
+        self.assertIn("不互通", blob)
+
+    def test_kb_anonymous_read_contract(self):
+        anon = read_descriptor(KB_DESCRIPTOR)["auth"]["anonymous_read"]
+        self.assertEqual("ark.service-anonymous-read.v1", anon["schema"])
+        self.assertEqual("pending_service_change", anon["status"])
+        public = set(anon["public_api"])
+        protected = set(anon["protected_api"])
+        self.assertFalse(public & protected)
+        self.assertIn("GET /v1/search", public)
+        self.assertIn("GET /v1/sync/status", public)
+        self.assertIn("POST /v1/proposals", protected)
+        declared = {
+            "%s %s" % (api["method"], api["path"])
+            for api in read_descriptor(KB_DESCRIPTOR)["api"]
+            if api.get("scope") == "anonymous"
+        }
+        self.assertEqual(public, declared)
+        self.assertTrue(anon["service_change"]["required"])
+        self.assertEqual("docs/kb-anonymous-read-change.md", anon["service_change"]["doc"])
+
+    def test_catalog_registers_anonymous_read_gate(self):
+        codes = {item["code"] for item in self.catalog["failure_taxonomy"]}
+        self.assertIn("BLOCKED_KB_ANON_READ", codes)
+        gates = " ".join(g["failure"] for g in self.catalog["gates"])
+        self.assertIn("BLOCKED_KB_ANON_READ", gates)
+        accepted = {a["id"] for a in self.catalog["onboarding"]["acceptance"]}
+        self.assertIn("ACCEPT_KB_ANON_READ", accepted)
+        blocked = {c["code"] for c in self.catalog["onboarding"]["block_codes"]}
+        self.assertIn("BLOCKED_KB_ANON_READ", blocked)
+
+    def test_knowledge_loop_verify_step_is_anonymous(self):
+        step = next(s for s in self.catalog["knowledge_loop"] if s["id"] == "kb.verify")
+        self.assertIn("匿名", step["detail"])
+
+    def test_generated_index_has_no_bearer_value(self):
+        blob = (self.out / "index.json").read_text(encoding="utf-8")
+        self.assertNotIn("Bearer ", blob)
+        for path in (self.out / "index.md", self.out / "index.json", self.out / "manifest.json"):
+            text = path.read_text(encoding="utf-8")
+            self.assertFalse(
+                re.search(r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}", text), path.name
+            )
+
+    def test_unapproved_token_mode_fails_build(self):
+        def mutate(catalog, descriptors):
+            descriptors["templates/noahsark-index/services/storage-service.json"][
+                "token_bootstrap"
+            ]["mode"] = "self-managed"
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("mode 非法" in err for err in errors), errors)
 
 
 if __name__ == "__main__":

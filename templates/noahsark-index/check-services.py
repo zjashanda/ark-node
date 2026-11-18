@@ -143,6 +143,44 @@ def check_discovery_drift(descriptor):
     return errors
 
 
+def check_anonymous_drift(descriptor):
+    sid = descriptor.get("id")
+    anon = (descriptor.get("auth") or {}).get("anonymous_read") or {}
+    if not anon:
+        return []
+    errors = []
+    if anon.get("schema") != "ark.service-anonymous-read.v1":
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read.schema 非法" % sid)
+    if anon.get("status") not in ("pending_service_change", "verified"):
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read.status 非法" % sid)
+    public = set(anon.get("public_api") or [])
+    protected = set(anon.get("protected_api") or [])
+    if not public or not protected:
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read 公开/受保护接口不能为空" % sid)
+    if public & protected:
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read 公开与受保护接口重叠" % sid)
+    declared = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in descriptor.get("api") or []
+        if api.get("scope") == "anonymous"
+    }
+    if declared != public:
+        errors.append(
+            "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read.public_api 与 api[].scope=anonymous 不一致" % sid
+        )
+    if anon.get("status") == "pending_service_change":
+        change = anon.get("service_change") or {}
+        if change.get("required") is not True or not change.get("doc"):
+            errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read 待改状态缺少 service_change" % sid)
+    token = descriptor.get("token_bootstrap") or {}
+    if token.get("status") == "operational":
+        if not (token.get("verification") or {}).get("observed"):
+            errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 token_bootstrap operational 缺少观测证据" % sid)
+        if token.get("bootstrap_api") is not True:
+            errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 token_bootstrap operational 但 bootstrap_api 非 true" % sid)
+    return errors
+
+
 def check_drift(entry, descriptor):
     errors = []
     if descriptor.get("id") != entry.get("id"):
@@ -174,6 +212,7 @@ def check_drift(entry, descriptor):
     if verification.get("state") == "probe" and not verification.get("probed_at"):
         errors.append("声称已在线探测但缺少 probed_at：%s" % entry.get("id"))
     errors.extend(check_discovery_drift(descriptor))
+    errors.extend(check_anonymous_drift(descriptor))
     return errors
 
 
@@ -360,6 +399,36 @@ def probe(descriptor, token, timeout=10, descriptor_rel=None, node=None):
         indexed_commit = sync_payload.get("indexed_commit") or indexed_commit
         freshness = sync_payload.get("freshness") or freshness
 
+    anon = (descriptor.get("auth") or {}).get("anonymous_read") or {}
+    anonymous_read = None
+    if anon:
+        observed = {}
+        for entry in anon.get("public_api") or []:
+            method, _, route = entry.partition(" ")
+            if method != "GET":
+                continue
+            if route == "/v1/search":
+                target = "/v1/search?q=probe&top=1"
+            else:
+                target = route.replace("{entry_id}", "probe-missing").replace("{doc_id}", "probe-missing")
+            code, _body = http_json(base + target, None, timeout)
+            observed[entry] = code
+        anonymous_ok = bool(observed) and all(code == 200 for code in observed.values())
+        anonymous_read = {
+            "contract": anon.get("status"),
+            "verified": anonymous_ok,
+            "observed": observed,
+            "note": "匿名探测不带任何 token；pending_service_change 阶段 401 属预期，不判失败。",
+        }
+        checks.append(
+            {
+                "id": "anonymous_read",
+                "contract": anon.get("status"),
+                "ok": anonymous_ok if anon.get("status") == "verified" else True,
+                "verified": anonymous_ok,
+            }
+        )
+
     snapshot = {
         "service": descriptor.get("id"),
         "version": version,
@@ -387,6 +456,7 @@ def probe(descriptor, token, timeout=10, descriptor_rel=None, node=None):
         "write_path_proven": False,
         "write_path_rule": health_contract.get("write_path_rule"),
         "checks": checks,
+        "anonymous_read": anonymous_read,
         "snapshot": snapshot,
         "token": "<redacted>",
         "note": "token 只用于本次请求，未写入回执；回执不含 Authorization 头。",

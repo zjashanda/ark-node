@@ -2,7 +2,7 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
@@ -32,7 +32,52 @@
     ],
     "token_source": "节点侧 0600 受控文件；只从环境变量或该文件读取，值不进 Git、日志、索引、回执与评论。",
     "unauthenticated": "读接口需要 read token；缺 token 或 token 不符返回 401 并带 WWW-Authenticate。",
-    "scope_rule": "read token 调写接口返回 403；write 隐含 read。"
+    "scope_rule": "read token 调写接口返回 403；write 隐含 read。",
+    "anonymous_read": {
+      "schema": "ark.service-anonymous-read.v1",
+      "status": "pending_service_change",
+      "public_api": [
+        "GET /healthz",
+        "GET /v1/search",
+        "GET /v1/entries/{entry_id}",
+        "GET /v1/documents/{doc_id}",
+        "GET /v1/sync/status"
+      ],
+      "protected_api": [
+        "POST /v1/proposals",
+        "GET /v1/proposals",
+        "POST /v1/proposals/{id}/close",
+        "POST /v1/sync/pull",
+        "POST /v1/hooks/ark-kb",
+        "GET /v1/health"
+      ],
+      "rule": "只读查询匿名开放：Agent 直接调 API 查询，不领取 read token；写接口、proposal 列表/关闭、sync/webhook 管理仍需 write token，缺失 401、scope 不足 403。",
+      "redaction": [
+        "公开响应不得包含 token、凭据、服务端绝对路径、个人敏感信息。",
+        "只返回已审核 active 条目；pending/candidate 正文不得因匿名查询泄露。",
+        "错误体只返回 code/message/request_id，不回内部堆栈与文件路径。"
+      ],
+      "limits": {
+        "rate_limit": "按来源限流，超限 429。",
+        "body_max_bytes": 262144,
+        "page_max": 500,
+        "audit": "审计记录来源、路径、状态码，不记录 Authorization 与请求体。"
+      },
+      "observed_20261118": {
+        "GET /healthz": 200,
+        "GET /v1/search": 401,
+        "GET /v1/entries/{entry_id}": 401,
+        "GET /v1/sync/status": 401,
+        "POST /v1/proposals": 401
+      },
+      "service_change": {
+        "required": true,
+        "scope": "arkks 认证中间件新增公开只读路由名单 + 配置开关 auth.public_read；不改台账、不改 outbox、不改写路径。",
+        "doc": "docs/kb-anonymous-read-change.md",
+        "verification": "匿名 search/detail/sync-status 200、匿名 proposal 401/403 通过后把 status 改为 verified。",
+        "rollback": "关闭 auth.public_read 并重启服务，路由恢复全量 Bearer；无数据变更，无迁移。"
+      }
+    }
   },
   "discovery": {
     "schema": "ark.service-discovery.v1",
@@ -134,7 +179,7 @@
     "per_node": true,
     "bootstrap_api": false,
     "minimum_scopes": [
-      "read"
+      "write"
     ],
     "allowed_scopes": [
       "read",
@@ -149,7 +194,7 @@
       "rule": "只从受控文件或环境变量读取；不得复用 8090 token。"
     },
     "lifecycle": {
-      "bootstrap": "由管理员在服务端 token 文件追加一行 read:<token>（需要提交他人条目时用 write:<token>）；服务按 mtime 热加载，无需重启。节点侧只落 0600 副本。",
+      "bootstrap": "只有写接口需要 token：管理员在服务端 token 文件追加一行 write:<token>（按 mtime 热加载，无需重启）；节点侧只落 0600 / Windows 仅当前用户 ACL 的副本；不得用 8090 token 代替，也不存在 8091 自助 bootstrap。",
       "status": "GET /v1/health（read）确认 auth=ok；服务端 token 文件行数即已签发 token 数。",
       "rotate": "替换服务端 token 文件对应行并更新节点副本；旧值立即失效，无 grace。",
       "revoke": "删除服务端 token 文件对应行；节点侧副本同时删除。"
@@ -159,7 +204,9 @@
       "每节点专用 token，禁止跨节点复制、转借或共用。",
       "token 值不进 Git、Issue、日志、回执、索引、URL 或命令行参数，不在终端回显。",
       "read token 调写接口返回 403；需要提交 proposal 才申请 write。",
-      "人工审核通过前 proposal 一律 pending，不得当 active 使用。"
+      "人工审核通过前 proposal 一律 pending，不得当 active 使用。",
+      "新节点默认不申请 read token；read 仅保留给已签发 token 的过渡期使用。",
+      "8091 token 与 8090 token 不互通：不得拿 8090 token 访问 8091，也不得宣称 8091 已实现自助 bootstrap。"
     ],
     "parity": {
       "bootstrap_api": false,
@@ -224,7 +271,7 @@
       "name": "健康检查",
       "method": "GET",
       "path": "/healthz",
-      "scope": null,
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "200，返回 schema、status、service、version、freshness、commit、entries、degraded、deps；?strict=1 时降级返回 503，探针用严格模式。"
     },
@@ -240,7 +287,7 @@
       "name": "知识检索",
       "method": "GET",
       "path": "/v1/search",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "参数 q、device、project、firmware、skill、capability、type（knowledge/method/run/bug）、top（1-50）、include_stale、sources。默认排除 stale/superseded；citation 形如 kb:<entry_id>@<commit>。"
     },
@@ -248,7 +295,7 @@
       "name": "条目详情",
       "method": "GET",
       "path": "/v1/entries/{entry_id}",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "entry_id 形如 kb-(knowledge|method|run|bug)-<12hex>，返回完整条目与 citation；格式不符 400，不存在 404，台账不可用 503。"
     },
@@ -256,7 +303,7 @@
       "name": "文档详情",
       "method": "GET",
       "path": "/v1/documents/{doc_id}",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "返回 kb.sqlite 文档行（只回标量字段）与 citation；结构探测失败 503。"
     },
@@ -288,7 +335,7 @@
       "name": "同步状态",
       "method": "GET",
       "path": "/v1/sync/status",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "返回 source_commit、indexed_commit、head_commit、behind、freshness、age_seconds、entries、sqlite_documents、sqlite_chunks、interval_seconds；节点回执实测 entries=130。"
     },
