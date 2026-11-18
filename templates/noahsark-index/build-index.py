@@ -47,6 +47,11 @@ RFC1918 = re.compile(
     r"|192\.168\.(?:\d{1,3}\.)\d{1,3}"
 )
 
+# 已失效的旧节点名入口：只允许出现在迁移记录里，生成物命中即失败。
+# 字面量拆分拼接，避免扫描器把检测器自身当成命中。
+LEGACY_ENTRY = re.compile(r"http://bszT14:" + "8091")
+ENTRY_KINDS = ("node-name", "fixed-ip")
+
 DEFAULT_OUT = REPO_ROOT / "build" / "noahsark-index"
 AGENT_MANIFEST = REPO_ROOT / "templates" / "agents" / "manifest.json"
 
@@ -54,6 +59,41 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
 EXIT_NO_SOURCE = 3
+
+# 已批准的固定入口：只能作为 discovery.canonical.fixed_entry 或节点 profile 的
+# verified_endpoint 出现在 descriptor 里，生成物必须剥离。
+APPROVED_INTERNAL_ENDPOINTS = (
+    "http://10.11.63.24:8090",  # noqa: secret-scan
+    "http://10.11.63.42:8091",  # noqa: secret-scan
+    "http://10.210.8.205:8090",  # noqa: secret-scan
+)
+APPROVED_INTERNAL_HOSTS = (
+    "10.11.63.24",  # noqa: secret-scan
+    "10.11.63.42",  # noqa: secret-scan
+    "10.210.8.205",  # noqa: secret-scan
+)
+DISCOVERY_SCHEMA = "ark.service-discovery.v1"
+TOKEN_BOOTSTRAP_SCHEMA = "ark.token-bootstrap.v1"
+HEALTH_SCHEMA = "ark.service-health.v1"
+ANONYMOUS_READ_SCHEMA = "ark.service-anonymous-read.v1"
+ANON_PROPOSAL_SCHEMA = "ark.service-anonymous-proposal.v1"
+ANON_PROPOSAL_GATES = ("lan_source", "evidence", "idempotency", "status", "quota", "audit")
+ANON_PROPOSAL_REQUIRED_FIELDS = (
+    "provenance.issue",
+    "provenance.run",
+    "provenance.agent",
+    "provenance.node",
+    "evidence[].bytes",
+    "evidence[].sha256",
+    "request_id",
+    "idempotency_key",
+)
+ANON_PROPOSAL_FORBIDDEN = ("review", "close", "promote", "sync", "admin")
+TOKEN_VERIFICATION_SCHEMA = "ark.token-bootstrap.verification.v1"
+TOKEN_MODES = ("one-time-secret", "self-service", "admin-provisioned")
+TOKEN_STATUSES = ("operational", "implemented", "partial")
+API_SCOPES = ("anonymous", "read", "write")
+INTERNAL_PATH_SUFFIXES = (".fixed_entry", ".verified_endpoint")
 
 
 class BuildError(Exception):
@@ -141,6 +181,364 @@ def git_file_url(owner, repo, ref, path):
 # ---------------------------------------------------------------- 校验
 
 
+def iter_internal_literals(node, path=""):
+    """递归返回 (json_path, ip)，只收集 RFC1918 命中。"""
+    hits = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            child = "%s.%s" % (path, key) if path else str(key)
+            hits.extend(iter_internal_literals(value, child))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            child = "%s[%d]" % (path, index) if path else "[%d]" % index
+            hits.extend(iter_internal_literals(value, child))
+    elif isinstance(node, str):
+        for match in RFC1918.finditer(node):
+            hits.append((path, match.group(0)))
+    return hits
+
+
+def validate_discovery(descriptor, eid, need):
+    discovery = descriptor.get("discovery") or {}
+    host = descriptor.get("host") or {}
+    canonical = discovery.get("canonical") or {}
+    resolution = discovery.get("resolution") or {}
+    profiles = discovery.get("node_profiles")
+    vm_boundary = discovery.get("vm_boundary") or {}
+    redaction = discovery.get("redaction") or {}
+
+    need(bool(descriptor.get("discovery")), "服务条目 %s 缺少 discovery 契约" % eid)
+    need(
+        discovery.get("schema") == DISCOVERY_SCHEMA,
+        "服务条目 %s 的 discovery.schema 必须是 %s" % (eid, DISCOVERY_SCHEMA),
+    )
+
+    need(
+        canonical.get("node_name") == host.get("name"),
+        "服务条目 %s 的 canonical.node_name 必须等于 host.name" % eid,
+    )
+    need(
+        canonical.get("endpoint") == descriptor.get("endpoint"),
+        "服务条目 %s 的 canonical.endpoint 必须等于 endpoint" % eid,
+    )
+    need(
+        canonical.get("port") == host.get("port"),
+        "服务条目 %s 的 canonical.port 必须等于 host.port" % eid,
+    )
+    need(
+        canonical.get("scheme") == host.get("scheme"),
+        "服务条目 %s 的 canonical.scheme 必须等于 host.scheme" % eid,
+    )
+    fixed_entry = str(canonical.get("fixed_entry") or "")
+    need(
+        fixed_entry.startswith("http://") or fixed_entry.startswith("https://"),
+        "服务条目 %s 的 canonical.fixed_entry 必须是 http(s) 地址" % eid,
+    )
+    need(bool(canonical.get("fixed_entry_since")), "服务条目 %s 的 fixed_entry_since 不能为空" % eid)
+    need(
+        bool(canonical.get("fixed_entry_approval")),
+        "服务条目 %s 的 fixed_entry_approval 不能为空" % eid,
+    )
+    need(
+        fixed_entry in APPROVED_INTERNAL_ENDPOINTS,
+        "服务条目 %s 的 canonical.fixed_entry 是未批准的固定入口" % eid,
+    )
+
+    need(
+        resolution.get("order") == ["node_profile", "canonical"],
+        "服务条目 %s 的 resolution.order 必须是 node_profile → canonical" % eid,
+    )
+    need(bool(resolution.get("rule")), "服务条目 %s 的 resolution.rule 不能为空" % eid)
+    need(
+        bool(resolution.get("fixed_entry_rule")),
+        "服务条目 %s 的 resolution.fixed_entry_rule 不能为空" % eid,
+    )
+
+    need(isinstance(profiles, list) and bool(profiles), "服务条目 %s 的 node_profiles 必须是非空列表" % eid)
+    node_names = []
+    for index, profile in enumerate(profiles if isinstance(profiles, list) else []):
+        if not isinstance(profile, dict):
+            need(False, "服务条目 %s 的 node_profiles[%d] 必须是对象" % (eid, index))
+            continue
+        for field in ("node", "os", "verified_endpoint", "verified_at", "receipt", "scope", "note"):
+            need(
+                bool(profile.get(field)),
+                "服务条目 %s 的 node_profiles[%d] 缺少 %s" % (eid, index, field),
+            )
+        node = profile.get("node")
+        if node:
+            need(node not in node_names, "服务条目 %s 的 node_profiles 节点 %s 重复" % (eid, node))
+            node_names.append(node)
+        verified = str(profile.get("verified_endpoint") or "")
+        need(
+            verified.startswith("http://") or verified.startswith("https://"),
+            "服务条目 %s 的 node_profiles[%d].verified_endpoint 必须是 http(s) 地址" % (eid, index),
+        )
+        need(
+            profile.get("scope") == "node-local",
+            "服务条目 %s 的 node_profiles[%d].scope 必须是 node-local" % (eid, index),
+        )
+
+    need(bool(vm_boundary.get("rule")), "服务条目 %s 的 vm_boundary.rule 不能为空" % eid)
+    for node in vm_boundary.get("nodes") or []:
+        need(
+            node in node_names,
+            "服务条目 %s 的 vm_boundary.nodes 引用了不存在的节点 %s" % (eid, node),
+        )
+
+    need(bool(redaction.get("rule")), "服务条目 %s 的 redaction.rule 不能为空" % eid)
+    internal_fields = redaction.get("internal_only_fields") or []
+    need(
+        "discovery.canonical.fixed_entry" in internal_fields,
+        "服务条目 %s 的 redaction.internal_only_fields 必须包含 fixed_entry" % eid,
+    )
+    need(
+        "discovery.node_profiles[].verified_endpoint" in internal_fields,
+        "服务条目 %s 的 redaction.internal_only_fields 必须包含 verified_endpoint" % eid,
+    )
+
+    entry_kind = canonical.get("entry_kind") or "node-name"
+    fixed_ip_paths = ("endpoint", "discovery.canonical.endpoint") if entry_kind == "fixed-ip" else ()
+    for json_path, ip in iter_internal_literals(descriptor):
+        allowed = ip in APPROVED_INTERNAL_HOSTS and (
+            json_path.endswith(INTERNAL_PATH_SUFFIXES) or json_path in fixed_ip_paths
+        )
+        need(
+            allowed,
+            "服务条目 %s 的 %s 出现未批准的私网字面量 %s" % (eid, json_path, ip),
+        )
+
+
+def validate_token_bootstrap(descriptor, eid, need):
+    token = descriptor.get("token_bootstrap") or {}
+    need(bool(descriptor.get("token_bootstrap")), "服务条目 %s 缺少 token_bootstrap 契约" % eid)
+    need(
+        token.get("schema") == TOKEN_BOOTSTRAP_SCHEMA,
+        "服务条目 %s 的 token_bootstrap.schema 必须是 %s" % (eid, TOKEN_BOOTSTRAP_SCHEMA),
+    )
+    need(
+        token.get("mode") in TOKEN_MODES,
+        "服务条目 %s 的 token_bootstrap.mode 非法（允许 %s）" % (eid, "/".join(TOKEN_MODES)),
+    )
+    need(
+        token.get("status") in TOKEN_STATUSES,
+        "服务条目 %s 的 token_bootstrap.status 非法（允许 %s）" % (eid, "/".join(TOKEN_STATUSES)),
+    )
+    need(token.get("per_node") is True, "服务条目 %s 的 token_bootstrap.per_node 必须为 true" % eid)
+
+    if token.get("status") == "operational":
+        verification = token.get("verification") or {}
+        need(
+            verification.get("schema") == TOKEN_VERIFICATION_SCHEMA,
+            "服务条目 %s 声称 token_bootstrap operational，必须带 %s 证据块"
+            % (eid, TOKEN_VERIFICATION_SCHEMA),
+        )
+        need(
+            bool(verification.get("observed")),
+            "服务条目 %s 声称 token_bootstrap operational，verification.observed 不能为空" % eid,
+        )
+        need(
+            bool(verification.get("rule")),
+            "服务条目 %s 的 token_bootstrap.verification.rule 不能为空" % eid,
+        )
+    if token.get("status") == "operational":
+        need(
+            token.get("bootstrap_api") is True,
+            "服务条目 %s 的 token_bootstrap.status=operational 时 bootstrap_api 必须为 true" % eid,
+        )
+
+    minimum = token.get("minimum_scopes") or []
+    allowed = token.get("allowed_scopes") or []
+    need(bool(minimum), "服务条目 %s 的 token_bootstrap.minimum_scopes 不能为空" % eid)
+    for scope in minimum:
+        need(
+            scope in allowed,
+            "服务条目 %s 的 token_bootstrap.minimum_scopes 含未授权 scope %s" % (eid, scope),
+        )
+
+    storage = token.get("storage") or {}
+    for field in ("linux", "windows", "env", "rule"):
+        need(bool(storage.get(field)), "服务条目 %s 的 token_bootstrap.storage 缺少 %s" % (eid, field))
+
+    lifecycle = token.get("lifecycle") or {}
+    for field in ("bootstrap", "status", "rotate", "revoke"):
+        need(
+            bool(lifecycle.get(field)),
+            "服务条目 %s 的 token_bootstrap.lifecycle 缺少 %s" % (eid, field),
+        )
+
+    need(bool(token.get("rules")), "服务条目 %s 的 token_bootstrap.rules 不能为空" % eid)
+
+    parity = token.get("parity") or {}
+    need(
+        isinstance(parity.get("bootstrap_api"), bool),
+        "服务条目 %s 的 token_bootstrap.parity.bootstrap_api 必须是布尔值" % eid,
+    )
+    need(bool(parity.get("note")), "服务条目 %s 的 token_bootstrap.parity.note 不能为空" % eid)
+    if parity.get("bootstrap_api") is False:
+        need(
+            bool(parity.get("gap")),
+            "服务条目 %s 的 token_bootstrap.parity.bootstrap_api 为 false 时 gap 不能为空" % eid,
+        )
+
+
+def validate_anonymous_read(descriptor, eid, need):
+    auth = descriptor.get("auth") or {}
+    anon = auth.get("anonymous_read")
+    if not anon:
+        return
+    need(
+        anon.get("schema") == ANONYMOUS_READ_SCHEMA,
+        "服务条目 %s 的 auth.anonymous_read.schema 必须是 %s" % (eid, ANONYMOUS_READ_SCHEMA),
+    )
+    need(
+        anon.get("status") in ("pending_service_change", "verified"),
+        "服务条目 %s 的 auth.anonymous_read.status 非法" % eid,
+    )
+    public = anon.get("public_api") or []
+    protected = anon.get("protected_api") or []
+    need(bool(public), "服务条目 %s 的 auth.anonymous_read.public_api 不能为空" % eid)
+    need(bool(protected), "服务条目 %s 的 auth.anonymous_read.protected_api 不能为空" % eid)
+    need(bool(anon.get("redaction")), "服务条目 %s 的 auth.anonymous_read.redaction 不能为空" % eid)
+    limits = anon.get("limits") or {}
+    for field in ("rate_limit", "body_max_bytes", "page_max", "audit"):
+        need(bool(limits.get(field)), "服务条目 %s 的 auth.anonymous_read.limits 缺少 %s" % (eid, field))
+    need(
+        not (set(public) & set(protected)),
+        "服务条目 %s 的 anonymous_read 公开与受保护接口重叠" % eid,
+    )
+    change = anon.get("service_change") or {}
+    if anon.get("status") == "pending_service_change":
+        need(
+            change.get("required") is True,
+            "服务条目 %s 的 anonymous_read 仍是 pending_service_change，必须声明 service_change.required=true" % eid,
+        )
+        need(
+            bool(change.get("doc")),
+            "服务条目 %s 的 anonymous_read.service_change 缺少 doc" % eid,
+        )
+
+    declared = set()
+    for api in descriptor.get("api") or []:
+        if (api.get("scope") or "") == "anonymous" and (api.get("method") or "").upper() == "GET":
+            declared.add("%s %s" % (api.get("method"), api.get("path")))
+    need(
+        declared == set(public),
+        "服务条目 %s 的 anonymous_read.public_api 与 api[].scope=anonymous 不一致（声明 %s / 实际 %s）"
+        % (eid, sorted(set(public)), sorted(declared)),
+    )
+
+
+
+def validate_anonymous_proposal(descriptor, eid, need):
+    proposal = (descriptor.get("auth") or {}).get("anonymous_proposal")
+    apis = descriptor.get("api") or []
+    anonymous_posts = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in apis
+        if (api.get("scope") or "") == "anonymous" and (api.get("method") or "").upper() == "POST"
+    }
+    if not proposal:
+        need(
+            not anonymous_posts,
+            "服务条目 %s 有匿名 POST 接口 %s，必须声明 auth.anonymous_proposal"
+            % (eid, sorted(anonymous_posts)),
+        )
+        return
+    need(
+        proposal.get("schema") == ANON_PROPOSAL_SCHEMA,
+        "服务条目 %s 的 auth.anonymous_proposal.schema 必须是 %s" % (eid, ANON_PROPOSAL_SCHEMA),
+    )
+    need(
+        proposal.get("status") in ("pending_service_change", "verified"),
+        "服务条目 %s 的 auth.anonymous_proposal.status 非法" % eid,
+    )
+    endpoint = str(proposal.get("endpoint") or "")
+    need(
+        endpoint == "POST /v1/proposals",
+        "服务条目 %s 的 auth.anonymous_proposal.endpoint 必须是 POST /v1/proposals" % eid,
+    )
+    need(
+        list(proposal.get("allowed_status") or []) == ["pending"],
+        "服务条目 %s 的 auth.anonymous_proposal.allowed_status 必须是 ['pending']" % eid,
+    )
+    fields = set(proposal.get("required_fields") or [])
+    for field in ANON_PROPOSAL_REQUIRED_FIELDS:
+        need(
+            field in fields,
+            "服务条目 %s 的 anonymous_proposal.required_fields 缺少 %s" % (eid, field),
+        )
+    gates = proposal.get("gates") or {}
+    for gate in ANON_PROPOSAL_GATES:
+        need(bool(gates.get(gate)), "服务条目 %s 的 anonymous_proposal.gates 缺少 %s" % (eid, gate))
+    forbidden = set(proposal.get("forbidden") or [])
+    for action in ANON_PROPOSAL_FORBIDDEN:
+        need(
+            action in forbidden,
+            "服务条目 %s 的 anonymous_proposal.forbidden 缺少 %s" % (eid, action),
+        )
+    change = proposal.get("service_change") or {}
+    need(
+        change.get("required") is True,
+        "服务条目 %s 的 anonymous_proposal 必须声明 service_change.required=true（含 verified）" % eid,
+    )
+    doc = change.get("doc")
+    need(
+        bool(doc),
+        "服务条目 %s 的 anonymous_proposal.service_change 缺少 doc" % eid,
+    )
+    if doc:
+        need(
+            (REPO_ROOT / doc).exists(),
+            "服务条目 %s 的 anonymous_proposal.service_change.doc 不存在: %s" % (eid, doc),
+        )
+    declared = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in apis
+        if (api.get("scope") or "") == "anonymous"
+    }
+    need(
+        endpoint in declared,
+        "服务条目 %s 的 %s 必须在 api[] 中标记 scope=anonymous（实际匿名接口 %s）"
+        % (eid, endpoint, sorted(declared)),
+    )
+
+def validate_health_contract(descriptor, eid, need):
+    health = descriptor.get("health_contract") or {}
+    need(bool(descriptor.get("health_contract")), "服务条目 %s 缺少 health_contract 契约" % eid)
+    need(
+        health.get("schema") == HEALTH_SCHEMA,
+        "服务条目 %s 的 health_contract.schema 必须是 %s" % (eid, HEALTH_SCHEMA),
+    )
+    probe = health.get("probe") or {}
+    path = str(probe.get("path") or "")
+    need(path.startswith("/"), "服务条目 %s 的 health_contract.probe.path 必须以 / 开头" % eid)
+    need(
+        probe.get("method") == "GET",
+        "服务条目 %s 的 health_contract.probe.method 必须是 GET" % eid,
+    )
+    need(
+        bool(health.get("required_fields")),
+        "服务条目 %s 的 health_contract.required_fields 不能为空" % eid,
+    )
+    need(bool(health.get("status_rule")), "服务条目 %s 的 health_contract.status_rule 不能为空" % eid)
+    need(
+        bool(health.get("write_path_rule")),
+        "服务条目 %s 的 health_contract.write_path_rule 不能为空" % eid,
+    )
+    if descriptor.get("freshness"):
+        commits = health.get("commits") or {}
+        for field in ("source_field", "indexed_field", "consistency"):
+            need(
+                bool(commits.get(field)),
+                "服务条目 %s 的 health_contract.commits 缺少 %s" % (eid, field),
+            )
+        need(
+            bool((health.get("degraded") or {}).get("field")),
+            "服务条目 %s 的 health_contract.degraded.field 不能为空" % eid,
+        )
+
+
 def validate_catalog(cat):
     errors = []
 
@@ -151,6 +549,9 @@ def validate_catalog(cat):
     need(cat.get("schema") == CATALOG_SCHEMA, "catalog.schema 必须是 %s" % CATALOG_SCHEMA)
     need(bool(cat.get("version")), "catalog.version 不能为空")
     need(bool(cat.get("title")), "catalog.title 不能为空")
+
+    for json_path, ip in iter_internal_literals(cat):
+        need(False, "catalog 的 %s 出现私网地址字面量 %s（catalog 不允许任何私网地址）" % (json_path, ip))
 
     oss = cat.get("oss") or {}
     for field in ("bucket", "endpoint", "prefix", "visibility"):
@@ -277,27 +678,60 @@ def validate_catalog(cat):
                             "服务条目 %s 的版本与 descriptor 不一致" % eid,
                         )
                         endpoint = str(descriptor.get("endpoint") or "")
+                        host_conf = descriptor.get("host") or {}
+                        host = host_conf.get("name") or ""
+                        canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+                        entry_kind = canonical.get("entry_kind") or "node-name"
+                        need(
+                            entry_kind in ENTRY_KINDS,
+                            "服务条目 %s 的 entry_kind 非法：%s" % (eid, entry_kind),
+                        )
+                        need(
+                            host_conf.get("entry_kind", entry_kind) == entry_kind,
+                            "服务条目 %s 的 host.entry_kind 与 canonical.entry_kind 不一致" % eid,
+                        )
                         need(
                             endpoint.startswith("http://") or endpoint.startswith("https://"),
                             "服务条目 %s 的 endpoint 必须是 http(s) 地址" % eid,
                         )
-                        need(
-                            not RFC1918.search(endpoint),
-                            "服务条目 %s 的 endpoint 含私网地址字面量" % eid,
-                        )
-                        host = (descriptor.get("host") or {}).get("name") or ""
                         need(bool(host), "服务条目 %s 的 host.name 不能为空" % eid)
+                        if entry_kind == "fixed-ip":
+                            need(
+                                endpoint in APPROVED_INTERNAL_ENDPOINTS,
+                                "服务条目 %s 的 fixed-ip endpoint 不在批准清单内" % eid,
+                            )
+                            need(
+                                host == canonical.get("node_name"),
+                                "服务条目 %s 的 fixed-ip host.name 必须等于 canonical.node_name" % eid,
+                            )
+                        else:
+                            need(
+                                not RFC1918.search(endpoint),
+                                "服务条目 %s 的 endpoint 含私网地址字面量" % eid,
+                            )
+                            need(
+                                bool(host) and host in endpoint,
+                                "服务条目 %s 的 endpoint 必须使用可解析节点名 %s" % (eid, host),
+                            )
                         need(
-                            bool(host) and host in endpoint,
-                            "服务条目 %s 的 endpoint 必须使用可解析节点名 %s" % (eid, host),
-                        )
-                        need(
-                            (descriptor.get("host") or {}).get("port") == extract_port(endpoint),
+                            host_conf.get("port") == extract_port(endpoint),
                             "服务条目 %s 的 endpoint 端口与 host.port 不一致" % eid,
                         )
                         need(bool(descriptor.get("auth")), "服务条目 %s 缺少 auth 契约" % eid)
                         need(bool(descriptor.get("api")), "服务条目 %s 缺少 api 列表" % eid)
                         need(bool(descriptor.get("verification")), "服务条目 %s 缺少 verification" % eid)
+                        for api in descriptor.get("api") or []:
+                            need(
+                                api.get("scope") in API_SCOPES
+                                or api.get("scope") in (None, "legacy-basic"),
+                                "服务条目 %s 的 api %s 的 scope 非法"
+                                % (eid, api.get("name") or api.get("path")),
+                            )
+                        validate_discovery(descriptor, eid, need)
+                        validate_token_bootstrap(descriptor, eid, need)
+                        validate_anonymous_read(descriptor, eid, need)
+                        validate_anonymous_proposal(descriptor, eid, need)
+                        validate_health_contract(descriptor, eid, need)
         for role in entry.get("roles") or []:
             need(role in role_ids, "条目 %s 引用了不存在的角色 %s" % (eid, role))
         for dep in entry.get("requires") or []:
@@ -443,8 +877,11 @@ def resolve_entries(cat):
             if entry.get("kind") == SERVICE_KIND:
                 descriptor_rel = entry["descriptor"]
                 descriptor = load_json(REPO_ROOT / descriptor_rel)
+                canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+                entry_kind = canonical.get("entry_kind") or "node-name"
                 item["_descriptor"] = descriptor
-                item["_url"] = descriptor.get("endpoint")
+                item["_entry_kind"] = entry_kind
+                item["_url"] = None if entry_kind == "fixed-ip" else descriptor.get("endpoint")
                 item["_path"] = descriptor_rel
                 runtime = descriptor.get("runtime") or {}
                 item["_sha"] = runtime.get("artifact_sha256")
@@ -502,6 +939,19 @@ def status_label(status):
     return "可用" if status == "available" else "规划中"
 
 
+def block_code_meaning(code):
+    return code.get("meaning") or code.get("title") or code.get("when") or "-"
+
+
+def block_code_action(code):
+    return code.get("action") or code.get("rule") or "-"
+
+
+def clause(text):
+    value = (text or "-").strip()
+    return value[:-1] if value.endswith("。") else value
+
+
 def md_link(text, url, extra=None):
     if not url:
         return text
@@ -540,7 +990,11 @@ def item_payload(item, content_commit, cat):
     }
     if item["kind"] == SERVICE_KIND:
         payload["descriptor"] = item["_path"]
-        payload["endpoint"] = item["_url"]
+        payload["entry_kind"] = item.get("_entry_kind") or "node-name"
+        if payload["entry_kind"] == "fixed-ip":
+            payload["endpoint_ref"] = "descriptor:%s#discovery.canonical.fixed_entry" % item["_path"]
+        else:
+            payload["endpoint"] = item["_url"]
     return payload
 
 
@@ -567,35 +1021,165 @@ def service_block(item):
     host = descriptor.get("host") or {}
     auth = descriptor.get("auth") or {}
     verification = descriptor.get("verification") or {}
-    health = None
-    for api in descriptor.get("api") or []:
-        if api.get("name", "").startswith("健康检查"):
-            health = api.get("path")
-            break
     fallback = descriptor.get("fallback") or {}
-    return {
+    discovery = descriptor.get("discovery") or {}
+    canonical = discovery.get("canonical") or {}
+    resolution = discovery.get("resolution") or {}
+    vm_boundary = discovery.get("vm_boundary") or {}
+    redaction = discovery.get("redaction") or {}
+    token = descriptor.get("token_bootstrap") or {}
+    token_storage = token.get("storage") or {}
+    token_parity = token.get("parity") or {}
+    health = descriptor.get("health_contract") or {}
+    probe = health.get("probe") or {}
+    degraded = health.get("degraded") or {}
+
+    node_profiles = []
+    for profile in discovery.get("node_profiles") or []:
+        node_profiles.append(
+            {
+                "node": profile.get("node"),
+                "os": profile.get("os"),
+                "verified": True,
+                "verified_at": profile.get("verified_at"),
+                "receipt": profile.get("receipt"),
+                "scope": profile.get("scope"),
+                "note": profile.get("note"),
+            }
+        )
+
+    entry_kind = canonical.get("entry_kind") or "node-name"
+    endpoint_ref = "descriptor:%s#discovery.canonical.fixed_entry" % item["_path"]
+
+    block = {
         "id": descriptor.get("id"),
         "title": descriptor.get("title"),
         "version": descriptor.get("version"),
         "kind": SERVICE_KIND,
         "status": "available",
-        "endpoint": descriptor.get("endpoint"),
+        "entry_kind": entry_kind,
         "descriptor": item["_path"],
         "descriptor_sha256": sha256_file(REPO_ROOT / item["_path"]),
         "discovery": {
             "host": host.get("name"),
             "port": host.get("port"),
             "scheme": host.get("scheme"),
-            "rule": "只写可解析节点名；真实地址查节点侧部署回执，不从索引反推内网拓扑。",
+            "canonical": {
+                "node_name": canonical.get("node_name"),
+                "entry_kind": entry_kind,
+                "port": canonical.get("port"),
+                "scheme": canonical.get("scheme"),
+                "public_display": canonical.get("public_display"),
+                "fixed_entry_present": bool(canonical.get("fixed_entry")),
+                "fixed_entry_ref": "descriptor:discovery.canonical.fixed_entry",
+                "fixed_entry_since": canonical.get("fixed_entry_since"),
+                "fixed_entry_approval": canonical.get("fixed_entry_approval"),
+                "fixed_entry_usage": canonical.get("fixed_entry_usage"),
+            },
+            "resolution": {
+                "schema": resolution.get("schema"),
+                "order": list(resolution.get("order") or []),
+                "rule": resolution.get("rule"),
+                "fixed_entry_rule": resolution.get("fixed_entry_rule"),
+            },
+            "node_profiles": node_profiles,
+            "vm_boundary": {
+                "rule": vm_boundary.get("rule"),
+                "nodes": list(vm_boundary.get("nodes") or []),
+                "note": vm_boundary.get("note"),
+            },
+            "redaction": {
+                "rule": redaction.get("rule"),
+                "internal_only_fields": list(redaction.get("internal_only_fields") or []),
+                "public_fields": list(redaction.get("public_fields") or []),
+            },
+            "rule": "先节点 profile 后 canonical；profile 是节点局部事实，不构成全局替代。",
+        },
+        "token_bootstrap": {
+            "schema": token.get("schema"),
+            "mode": token.get("mode"),
+            "status": token.get("status"),
+            "per_node": token.get("per_node"),
+            "bootstrap_api": token.get("bootstrap_api"),
+            "minimum_scopes": list(token.get("minimum_scopes") or []),
+            "allowed_scopes": list(token.get("allowed_scopes") or []),
+            "storage": {
+                "linux": token_storage.get("linux"),
+                "windows": token_storage.get("windows"),
+                "env": list(token_storage.get("env") or []),
+                "rule": token_storage.get("rule"),
+            },
+            "lifecycle": dict(token.get("lifecycle") or {}),
+            "server_store": token.get("server_store"),
+            "rules": list(token.get("rules") or []),
+            "parity": {
+                "bootstrap_api": token_parity.get("bootstrap_api"),
+                "gap": token_parity.get("gap"),
+                "note": token_parity.get("note"),
+            },
+            "fallback": dict(token.get("fallback") or {}),
+            "verification": {
+                "state": (token.get("verification") or {}).get("state"),
+                "verified_at": (token.get("verification") or {}).get("verified_at"),
+                "observed_count": len((token.get("verification") or {}).get("observed") or []),
+            },
         },
         "auth": {
             "mode": auth.get("mode"),
             "scopes": list(auth.get("scopes") or []),
             "token_rule": auth.get("token_store") or auth.get("token_source"),
         },
+        "anonymous_read": (
+            {
+                "schema": (auth.get("anonymous_read") or {}).get("schema"),
+                "status": (auth.get("anonymous_read") or {}).get("status"),
+                "public_api": list((auth.get("anonymous_read") or {}).get("public_api") or []),
+                "protected_api": list((auth.get("anonymous_read") or {}).get("protected_api") or []),
+                "rule": (auth.get("anonymous_read") or {}).get("rule"),
+                "limits": dict((auth.get("anonymous_read") or {}).get("limits") or {}),
+                "service_change": dict((auth.get("anonymous_read") or {}).get("service_change") or {}),
+            }
+            if auth.get("anonymous_read")
+            else None
+        ),
+        "anonymous_proposal": (
+            {
+                "schema": (auth.get("anonymous_proposal") or {}).get("schema"),
+                "status": (auth.get("anonymous_proposal") or {}).get("status"),
+                "endpoint": (auth.get("anonymous_proposal") or {}).get("endpoint"),
+                "allowed_status": list(
+                    (auth.get("anonymous_proposal") or {}).get("allowed_status") or []
+                ),
+                "required_fields": list(
+                    (auth.get("anonymous_proposal") or {}).get("required_fields") or []
+                ),
+                "gates": dict((auth.get("anonymous_proposal") or {}).get("gates") or {}),
+                "forbidden": list((auth.get("anonymous_proposal") or {}).get("forbidden") or []),
+                "service_change": dict(
+                    (auth.get("anonymous_proposal") or {}).get("service_change") or {}
+                ),
+            }
+            if auth.get("anonymous_proposal")
+            else None
+        ),
         "health": {
-            "path": health,
-            "public": item["id"] == "svc.storage-service",
+            "path": probe.get("path"),
+            "public": probe.get("public"),
+            "schema": health.get("schema"),
+            "method": probe.get("method"),
+            "strict_query": probe.get("strict_query"),
+            "strict_rule": probe.get("strict_rule"),
+            "required_fields": list(health.get("required_fields") or []),
+            "status_rule": health.get("status_rule"),
+            "version_field": health.get("version_field"),
+            "degraded": {
+                "field": degraded.get("field"),
+                "values": list(degraded.get("values") or []),
+                "pass_rule": degraded.get("pass_rule"),
+            },
+            "commits": health.get("commits"),
+            "write_path_rule": health.get("write_path_rule"),
+            "stop_conditions": list(health.get("stop_conditions") or []),
         },
         "verification": {
             "state": verification.get("state"),
@@ -607,6 +1191,43 @@ def service_block(item):
         "source_repo": item["_source_repo"],
         "source_commit": item["_source_commit"],
     }
+    if entry_kind == "fixed-ip":
+        block["endpoint_ref"] = endpoint_ref
+        block["host"] = {
+            "name": host.get("name"),
+            "port": host.get("port"),
+            "scheme": host.get("scheme"),
+        }
+        block["discovery"]["canonical"]["endpoint_ref"] = endpoint_ref
+    else:
+        block["endpoint"] = descriptor.get("endpoint")
+        block["discovery"]["canonical"]["endpoint"] = canonical.get("endpoint")
+    return block
+
+
+FAILURE_CODE = re.compile(
+    r"\b(?:BLOCKED_[A-Z0-9_]+|STALE_INDEX|EVIDENCE_GAP|SOURCE_MISSING|SERVICE_DISCOVERY_DRIFT|PUBLISH_METADATA_DRIFT)\b"
+)
+
+
+def service_failure_codes(descriptor):
+    codes = []
+
+    def absorb(value):
+        if isinstance(value, str):
+            for code in FAILURE_CODE.findall(value):
+                if code not in codes:
+                    codes.append(code)
+        elif isinstance(value, dict):
+            for sub in value.values():
+                absorb(sub)
+        elif isinstance(value, list):
+            for sub in value:
+                absorb(sub)
+
+    absorb(descriptor.get("fallback") or {})
+    absorb((descriptor.get("health_contract") or {}).get("stop_conditions") or [])
+    return codes
 
 
 def group_payload(group, items_by_group):
@@ -665,6 +1286,12 @@ def build_index_json(cat, items, generated_at, content_commit):
             "knowledge_loop": list(cat.get("knowledge_loop") or []),
             "gates": list(cat.get("gates") or []),
             "security": list(cat.get("security") or []),
+            "failure_taxonomy": list(cat.get("failure_taxonomy") or []),
+            "service_discovery": {
+                "schema": DISCOVERY_SCHEMA,
+                "resolution": ["node_profile", "canonical"],
+                "rule": "索引只渲染公开字段；固定入口与节点 profile 的内网地址只存在于 descriptor 与节点回执。",
+            },
             "services": services,
             "roles": [
                 {
@@ -766,6 +1393,8 @@ def build_index_md(cat, items, generated_at, content_commit):
                         label += "（文件 %s）" % item["file"]
                     if item.get("section") and item["kind"] == "rule":
                         label += "（见 %s）" % item["section"]
+                elif item["kind"] == SERVICE_KIND and item.get("_entry_kind") == "fixed-ip":
+                    label += "（固定入口，节点侧登记）"
                 else:
                     label += "（规划中，未发布）"
                 add(
@@ -857,8 +1486,8 @@ def build_index_md(cat, items, generated_at, content_commit):
 
     add("## 服务与版本")
     add()
-    add("| 服务 | 版本 | 可解析地址 | 鉴权 | 健康/新鲜度 | 降级 |")
-    add("| --- | --- | --- | --- | --- | --- |")
+    add("| 服务 | 版本 | 可解析地址 | 鉴权 | 健康/新鲜度 | 降级 | 固定入口 |")
+    add("| --- | --- | --- | --- | --- | --- | --- |")
     for item in items:
         if item["kind"] != SERVICE_KIND:
             continue
@@ -866,32 +1495,37 @@ def build_index_md(cat, items, generated_at, content_commit):
         auth = descriptor.get("auth") or {}
         verification = descriptor.get("verification") or {}
         fallback = descriptor.get("fallback") or {}
-        health = "-"
-        for api in descriptor.get("api") or []:
-            if api.get("name", "").startswith("健康检查"):
-                health = api.get("path") or "-"
-                break
+        health = (descriptor.get("health_contract") or {}).get("probe", {}).get("path") or "-"
+        fixed_entry = (descriptor.get("discovery") or {}).get("canonical", {}).get("fixed_entry")
+        fixed_ip = item.get("_entry_kind") == "fixed-ip"
+        service_cell = item["title"] if fixed_ip else md_link(item["title"], item["_url"])
+        address_cell = "固定入口（节点侧登记）" if fixed_ip else item["_url"]
         degrade = []
         if descriptor.get("id") == "svc.knowledge-service":
             degrade = ["BLOCKED_KB_STALE", "BLOCKED_KB_UNAVAILABLE"]
         else:
             degrade = ["BLOCKED_STORAGE_UNAVAILABLE", "BLOCKED_STORAGE_QUARANTINE"]
         add(
-            "| %s | %s | %s | %s（%s） | %s；%s | %s |"
+            "| %s | %s | %s | %s（%s） | %s；%s | %s | %s |"
             % (
-                md_link(item["title"], item["_url"]),
+                service_cell,
                 item.get("version") or "-",
-                item["_url"],
+                address_cell,
                 auth.get("mode") or "-",
                 "、".join(auth.get("scopes") or []) or "-",
                 health,
                 "已确认 %d 项 / 待确认 %d 项"
                 % (len(verification.get("confirmed") or []), len(verification.get("pending") or [])),
                 "、".join(degrade),
+                "已登记（仅节点侧）" if fixed_entry else "-",
             )
         )
     add()
-    add("服务地址一律写可解析节点名；真实内网地址只存在于节点侧部署回执。")
+    add(
+        "服务地址按 descriptor 的 entry_kind 渲染：node-name 服务写可解析节点名，"
+        "fixed-ip 服务只写「固定入口（节点侧登记）」；固定入口与节点 profile 的内网地址"
+        "只登记在 descriptor 与节点回执，生成物不含私网地址。"
+    )
     add()
 
     for item in items:
@@ -902,6 +1536,13 @@ def build_index_md(cat, items, generated_at, content_commit):
         add()
         add(item["summary"])
         add()
+        if item.get("_entry_kind") == "fixed-ip":
+            descriptor_name = item["_path"].rsplit("/", 1)[-1]
+            add(
+                "入口：固定入口（节点侧登记，见 descriptor:%s#discovery.canonical.fixed_entry）"
+                % descriptor_name
+            )
+            add()
         add("| 接口 | 方法 | 路径 | scope | 说明 |")
         add("| --- | --- | --- | --- | --- |")
         for api in descriptor.get("api") or []:
@@ -943,6 +1584,98 @@ def build_index_md(cat, items, generated_at, content_commit):
         if descriptor.get("snapshot"):
             add("查询快照：%s" % descriptor["snapshot"].get("rule"))
             add()
+        discovery = descriptor.get("discovery") or {}
+        canonical = discovery.get("canonical") or {}
+        resolution = discovery.get("resolution") or {}
+        profiles = discovery.get("node_profiles") or []
+        vm_boundary = discovery.get("vm_boundary") or {}
+        canonical_display = (
+            "固定入口（节点侧登记）"
+            if (canonical.get("entry_kind") or "node-name") == "fixed-ip"
+            else (canonical.get("endpoint") or "-")
+        )
+        add(
+            "服务发现：canonical %s，端口 %s，解析顺序 %s；节点 profile：%s；VM 边界：%s。"
+            "固定入口仅登记于 descriptor:discovery.canonical.fixed_entry，不进入索引与 OSS。"
+            % (
+                canonical_display,
+                canonical.get("port") or "-",
+                " → ".join(resolution.get("order") or []),
+                "、".join(p.get("node") or "-" for p in profiles) or "-",
+                "、".join(vm_boundary.get("nodes") or []) or "-",
+            )
+        )
+        add()
+        health_contract = descriptor.get("health_contract") or {}
+        add(
+            "健康契约：探针 %s，所需字段 %s，判定规则：%s；写链路不看健康码：%s"
+            % (
+                (health_contract.get("probe") or {}).get("path") or "-",
+                "、".join(health_contract.get("required_fields") or []) or "-",
+                clause(health_contract.get("status_rule")),
+                clause(health_contract.get("write_path_rule")),
+            )
+        )
+        add()
+        token = descriptor.get("token_bootstrap") or {}
+        token_storage = token.get("storage") or {}
+        token_lifecycle = token.get("lifecycle") or {}
+        add(
+            "Token bootstrap：mode=%s，status=%s，自助 API=%s，最小 scope=%s，存储位置=%s / %s；"
+            "rotate：%s；revoke：%s。"
+            % (
+                token.get("mode") or "-",
+                token.get("status") or "-",
+                "是" if token.get("bootstrap_api") else "否",
+                "、".join(token.get("minimum_scopes") or []) or "-",
+                token_storage.get("linux") or "-",
+                token_storage.get("windows") or "-",
+                clause(token_lifecycle.get("rotate")),
+                clause(token_lifecycle.get("revoke")),
+            )
+        )
+        add()
+        anon = (descriptor.get("auth") or {}).get("anonymous_read") or {}
+        proposal = (descriptor.get("auth") or {}).get("anonymous_proposal") or {}
+        if anon:
+            add(
+                "只读公开边界：状态 %s；匿名可读 %s；仍需鉴权 %s；限流、分页与脱敏见 `%s#auth.anonymous_read`。"
+                % (
+                    anon.get("status") or "-",
+                    "、".join(anon.get("public_api") or []) or "-",
+                    "、".join(anon.get("protected_api") or []) or "-",
+                    item["_path"],
+                )
+            )
+            add()
+            if proposal:
+                add(
+                    "匿名提案：状态 %s；入口 %s；只允许 %s；"
+                    "必填 provenance(issue/run/agent/node)、evidence(bytes/sha256)、request_id、idempotency_key；"
+                    "审核/入库/sync/admin 仍需 write token（见 descriptor:auth.anonymous_proposal）。"
+                    % (
+                        proposal.get("status") or "-",
+                        proposal.get("endpoint") or "-",
+                        "、".join(proposal.get("allowed_status") or []) or "-",
+                    )
+                )
+                add()
+            change = anon.get("service_change") or {}
+            proposal_change = proposal.get("service_change") or {}
+            scope_source = proposal_change if proposal_change.get("scope") else change
+            if scope_source.get("scope"):
+                docs = "、".join(
+                    dict.fromkeys(
+                        doc
+                        for doc in (change.get("doc"), proposal_change.get("doc"))
+                        if doc
+                    )
+                )
+                scope_text = str(scope_source.get("scope")).rstrip("。")
+                add("服务改动：%s（见 %s）。" % (clause(scope_text), docs or "-"))
+                add()
+        add("失败码：%s。" % ("、".join(service_failure_codes(descriptor)) or "-"))
+        add()
         add("完整契约：`%s`（机器可读，字段含 auth、api、errors、fallback、verification）。" % item["_path"])
         add()
 
@@ -960,6 +1693,22 @@ def build_index_md(cat, items, generated_at, content_commit):
     add("| --- | --- | --- |")
     for gate in cat.get("gates") or []:
         add("| %s | %s | %s |" % (gate["gate"], gate["rule"], gate["failure"]))
+    add()
+
+    add("## 失败分类与停止条件")
+    add()
+    add("| 失败码 | 触发条件 | 处理 | 停止 |")
+    add("| --- | --- | --- | --- |")
+    for rule in cat.get("failure_taxonomy") or []:
+        add(
+            "| %s | %s | %s | %s |"
+            % (
+                rule.get("code") or "-",
+                rule.get("when") or "-",
+                rule.get("action") or "-",
+                "停止" if rule.get("stop") else "降级继续",
+            )
+        )
     add()
 
     add("## 安全边界")
@@ -1068,7 +1817,7 @@ def build_index_md(cat, items, generated_at, content_commit):
         )
         add(
             "- 失败：%s。"
-            % "；".join("%s（%s）" % (c, (codes.get(c) or {}).get("meaning", "")) for c in step["block_codes"])
+            % "；".join("%s（%s）" % (c, block_code_meaning(codes.get(c) or {})) for c in step["block_codes"])
         )
         add()
 
@@ -1087,7 +1836,7 @@ def build_index_md(cat, items, generated_at, content_commit):
     for code in onboarding.get("block_codes") or []:
         add(
             "| %s | %s | %s | %s |"
-            % (code["code"], code["area"], code["meaning"], code["action"])
+            % (code["code"], code.get("area") or "knowledge", block_code_meaning(code), block_code_action(code))
         )
     add()
 
@@ -1139,16 +1888,21 @@ def build_manifest(cat, items, generated_at, content_commit, files, extra=None):
     template_versions = sorted(
         {i.get("version") for i in items if i["id"].startswith("agent-template.") and i.get("version")}
     )
-    services = [
-        {
+    services = []
+    for i in items:
+        if i["kind"] != SERVICE_KIND:
+            continue
+        entry = {
             "id": i["id"],
             "version": i.get("version"),
-            "endpoint": i["_url"],
+            "entry_kind": i.get("_entry_kind") or "node-name",
             "descriptor": i["_path"],
         }
-        for i in items
-        if i["kind"] == SERVICE_KIND
-    ]
+        if entry["entry_kind"] == "fixed-ip":
+            entry["endpoint_ref"] = "descriptor:%s#discovery.canonical.fixed_entry" % i["_path"]
+        else:
+            entry["endpoint"] = i["_url"]
+        services.append(entry)
     regions = [
         {
             "id": region["id"],
@@ -1207,6 +1961,7 @@ def build_manifest(cat, items, generated_at, content_commit, files, extra=None):
             "入口地址永久固定；重发只覆盖 index.md、index.json、manifest.json。",
             "回滚只还原这三个文件，不删除任何版本目录。",
             "服务地址只写可解析节点名；真实内网地址只存在于节点侧回执。",
+            "固定入口与节点 profile 只存在于节点侧 descriptor 与回执，生成物不含私网地址。",
         ],
     }
 
@@ -1251,6 +2006,25 @@ def render(cat, content_commit, generated_at, out_dir, extra=None):
         },
     ]
     manifest = build_manifest(cat, resolved, generated_at, content_commit, files, extra)
+    manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+
+    for name, blob in (
+        ("index.json", json_text),
+        ("index.md", index_md),
+        ("manifest.json", manifest_text),
+    ):
+        hit = RFC1918.search(blob)
+        if hit:
+            raise BuildError(
+                EXIT_FAILED,
+                "生成物 %s 含私网地址字面量 %s（固定入口未剥离）" % (name, hit.group(0)),
+            )
+        legacy = LEGACY_ENTRY.search(blob)
+        if legacy:
+            raise BuildError(
+                EXIT_FAILED,
+                "生成物 %s 含已失效旧入口 %s（必须使用固定入口 endpoint_ref）" % (name, legacy.group(0)),
+            )
 
     write_text(out_dir / "index.md", index_md)
     write_text(out_dir / "index.json", json_text)

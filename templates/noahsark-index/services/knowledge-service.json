@@ -2,17 +2,18 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.0.0",
-  "endpoint": "http://bszT14:8091",
+  "version": "1.3.0",
+  "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
     "port": 8091,
     "scheme": "http",
+    "entry_kind": "fixed-ip",
     "bind": "0.0.0.0",
     "scope": "internal",
     "service_dir": "/home/zhsh/workspace/services/noahsark-knowledge/",
     "manage": "user systemd noahsark-knowledge，enabled + Linger=yes，Restart=on-failure",
-    "address_note": "对外只写可解析节点名 bszT14；内网地址只写在节点侧部署回执里，不复制 RFC1918 地址，不在索引里回填 IP。"
+    "address_note": "8091 使用已批准固定入口；对外生成物只写固定入口（节点侧登记）与 endpoint_ref，不复制 RFC1918 地址，不在索引里回填 IP。"
   },
   "runtime": {
     "artifact": "arkks（canonical 源码树）",
@@ -25,17 +26,328 @@
     "mode": "bearer",
     "header": "Authorization",
     "scheme": "Bearer",
-    "scopes": ["read", "write"],
+    "scopes": [
+      "read",
+      "write"
+    ],
     "token_source": "节点侧 0600 受控文件；只从环境变量或该文件读取，值不进 Git、日志、索引、回执与评论。",
     "unauthenticated": "读接口需要 read token；缺 token 或 token 不符返回 401 并带 WWW-Authenticate。",
-    "scope_rule": "read token 调写接口返回 403；write 隐含 read。"
+    "scope_rule": "read token 调写接口返回 403；write 隐含 read。",
+    "anonymous_read": {
+      "schema": "ark.service-anonymous-read.v1",
+      "status": "verified",
+      "public_api": [
+        "GET /healthz",
+        "GET /v1/search",
+        "GET /v1/entries/{entry_id}",
+        "GET /v1/documents/{doc_id}",
+        "GET /v1/sync/status"
+      ],
+      "protected_api": [
+        "GET /v1/proposals",
+        "POST /v1/proposals/{id}/close",
+        "POST /v1/sync/pull",
+        "POST /v1/hooks/ark-kb",
+        "GET /v1/health",
+        "POST /v1/webhook/github"
+      ],
+      "rule": "只读查询匿名开放：Agent 直接调 API 查询，不领取 read token；写接口、proposal 列表/关闭、sync/webhook 管理仍需 write token，缺失 401、scope 不足 403。匿名只读仅返回 active 条目；pending/stale/superseded 不匿名返回。",
+      "redaction": [
+        "公开响应不得包含 token、凭据、服务端绝对路径、个人敏感信息。",
+        "只返回已审核 active 条目；pending/candidate 正文不得因匿名查询泄露。",
+        "错误体只返回 code/message/request_id，不回内部堆栈与文件路径。"
+      ],
+      "limits": {
+        "rate_limit": "按来源限流，超限 429。",
+        "body_max_bytes": 262144,
+        "page_max": 500,
+        "audit": "审计记录来源、路径、状态码，不记录 Authorization 与请求体。"
+      },
+      "observed_20261118": {
+        "GET /healthz": 200,
+        "GET /v1/search": 200,
+        "GET /v1/entries/{entry_id}": 200,
+        "GET /v1/documents/{doc_id}": 200,
+        "GET /v1/sync/status": 200
+      },
+      "service_change": {
+        "required": true,
+        "scope": "公开只读路由名单 + auth.public_read 开关（默认 false）；台账、审核与 ark-kb 写入路径不变",
+        "doc": "docs/kb-anonymous-read-change.md",
+        "verification": "匿名 search/detail/sync-status 200、匿名 proposal 401/403 通过后把 status 改为 verified。",
+        "rollback": "关闭 auth.public_read 并重启服务，路由恢复全量 Bearer；无数据变更，无迁移。"
+      },
+      "verified_20261118": {
+        "state": "verified",
+        "verified_at": "2026-11-18 17:23:10",
+        "service_version": "1.0.0",
+        "receipt": "NOAH-191/receipts/reload-8091-verify.log",
+        "receipt_sha256": "cf5b5e59754b0bad8936c70f4c1815437f65998d20fb930c010562776489cc07",
+        "restart": "systemctl --user restart noahsark-knowledge.service（仅该 unit，主进程已更换）",
+        "checks": [
+          "匿名 search 200，仅返回 active（q=CSK 匿名 4 条全 active，带 token 8 条含 pending）",
+          "匿名 active 条目 200；匿名 pending 条目 404",
+          "匿名 /v1/sync/status 200，source_commit == indexed_commit == 3083923",
+          "匿名 GET /v1/proposals、GET /v1/health、POST /v1/sync/pull、POST /v1/hooks/ark-kb 均 401",
+          "带 write token 查询 200，行为未回归"
+        ],
+        "note": "重载后发生 1 次同步 pull，拉到同一 commit，head 未变，索引仍 fresh、degraded=[]"
+      }
+    },
+    "anonymous_proposal": {
+      "schema": "ark.service-anonymous-proposal.v1",
+      "status": "verified",
+      "endpoint": "POST /v1/proposals",
+      "allowed_status": [
+        "pending"
+      ],
+      "required_fields": [
+        "provenance.issue",
+        "provenance.run",
+        "provenance.agent",
+        "provenance.node",
+        "evidence[].kind",
+        "evidence[].ref",
+        "evidence[].bytes",
+        "evidence[].sha256",
+        "request_id",
+        "idempotency_key"
+      ],
+      "gates": {
+        "lan_source": "来源 IP 必须命中已批准局域网网段（auth.anonymous_nets），否则 401。",
+        "evidence": "evidence 缺失或缺 bytes/sha256 一律 4xx，不落候选。",
+        "idempotency": "相同 idempotency_key 不产生重复 proposal，重复提交返回已有 proposal_id。",
+        "status": "新建状态只能是 pending；匿名不得 review/accept/reject/close/promote。",
+        "quota": "请求体上限、分页上限、来源速率（每分钟）与 outbox 待审总量上限，超限 429。",
+        "audit": "日志只记录 proposal_id、来源、provenance 标识与状态码，不记录正文与任何凭据。"
+      },
+      "forbidden": [
+        "review",
+        "accept",
+        "reject",
+        "close",
+        "promote",
+        "sync",
+        "admin"
+      ],
+      "service_change": {
+        "required": true,
+        "scope": "arkks 认证中间件：公开路由名单扩展 + auth.public_read / auth.anonymous_proposal / auth.anonymous_nets 三个开关（默认 false）+ 匿名 proposal 门禁。",
+        "doc": "docs/kb-anonymous-read-change.md",
+        "verification": "重载后匿名 GET 4 类 200、匿名 POST pending 201、匿名 close/sync/admin 401/403，才把 status 改 verified。",
+        "rollback": "开关回 false 并重启服务，路由恢复全量 Bearer；无数据迁移。"
+      },
+      "verified_20261118": {
+        "state": "verified",
+        "verified_at": "2026-11-18 17:23:10",
+        "service_version": "1.0.0",
+        "receipt": "NOAH-191/receipts/reload-8091-verify.log",
+        "receipt_sha256": "cf5b5e59754b0bad8936c70f4c1815437f65998d20fb930c010562776489cc07",
+        "checks": [
+          "匿名 POST /v1/proposals 201，状态 pending，proposal_id 稳定",
+          "同一 idempotency_key 重复提交 200 created=false、proposal_id 相同",
+          "缺 provenance/evidence、evidence 无 bytes/sha256 一律 400，未落候选",
+          "匿名 POST /v1/proposals/{id}/close、/v1/sync/pull、/v1/hooks/ark-kb 均 401",
+          "待审总量与每分钟限流生效（429）"
+        ],
+        "note": "验收产生的 pending 提案保留在 outbox，等待人工审核，不自动 promote"
+      }
+    }
+  },
+  "discovery": {
+    "schema": "ark.service-discovery.v1",
+    "canonical": {
+      "node_name": "bszT14",
+      "endpoint": "http://10.11.63.42:8091",
+      "entry_kind": "fixed-ip",
+      "port": 8091,
+      "scheme": "http",
+      "scope": "global",
+      "public_display": "bszT14 端口 8091 固定入口（节点侧登记）",
+      "fixed_entry": "http://10.11.63.42:8091",
+      "fixed_entry_since": "2026-11-18",
+      "fixed_entry_approval": "Stage 4 / NOAH-191（郑保山确认固定入口）",
+      "fixed_entry_usage": "8091 的 canonical 即已批准固定入口；旧节点名入口已失效，不保留 alias 与 fallback；地址只登记在本 descriptor，生成物剥离。"
+    },
+    "resolution": {
+      "schema": "ark.service-discovery.resolution.v1",
+      "order": [
+        "node_profile",
+        "canonical"
+      ],
+      "rule": "解析顺序固定为 node_profile → canonical：先取本节点 profile 的 verified_endpoint（本机实测、有回执），没有 profile 才用 canonical.endpoint。profile 是节点局部事实，只在本节点生效，不得回写 canonical，也不得复制到其他节点。",
+      "fixed_entry_rule": "8091 的固定入口同时是 canonical；出现解析差异按 SERVICE_DISCOVERY_DRIFT 处理，不静默改 canonical。",
+      "entry_kind_rule": "8091 canonical 直接使用固定入口，旧节点名入口已失效，不得回退。"
+    },
+    "node_profiles": [
+      {
+        "node": "bszT14",
+        "os": "linux",
+        "verified_endpoint": "http://10.11.63.42:8091",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-202",
+        "scope": "node-local",
+        "note": "服务宿主机本机入口。"
+      },
+      {
+        "node": "linux003",
+        "os": "linux",
+        "verified_endpoint": "http://10.11.63.42:8091",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-203",
+        "scope": "node-local",
+        "note": "固定入口可用。"
+      },
+      {
+        "node": "lsaswx",
+        "os": "linux",
+        "verified_endpoint": "http://10.11.63.42:8091",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-205",
+        "scope": "node-local",
+        "note": "固定入口可用，复核 NOAH-207。"
+      },
+      {
+        "node": "win003",
+        "os": "windows",
+        "verified_endpoint": "http://10.11.63.42:8091",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-206",
+        "scope": "node-local",
+        "note": "固定入口可用。"
+      },
+      {
+        "node": "pvm1003",
+        "os": "windows",
+        "verified_endpoint": "http://10.11.63.42:8091",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-204",
+        "scope": "node-local",
+        "note": "VM 边界节点；8091 可直接走固定入口，但 8090 必须走 pvm1003 自己的 8090 profile，两者不互推。"
+      }
+    ],
+    "vm_boundary": {
+      "rule": "虚拟机或跨网段节点按本机实测入口记录 profile；只有该节点使用该入口，canonical 与其他 profile 不变。",
+      "nodes": [
+        "pvm1003"
+      ],
+      "note": "pvm1003 8091 与 8090 入口不同源，禁止用 8090 的网关地址推导 8091，反之亦然。"
+    },
+    "redaction": {
+      "rule": "discovery 中只有 canonical.endpoint、canonical.node_name、canonical.port、canonical.scheme 可进入 index.json / index.md / OSS；fixed_entry 与 node_profiles[].verified_endpoint 是内网事实，只留在本 descriptor 与节点侧回执，生成器必须剥离，校验器必须拒绝任何私网字面量出现在生成物里。",
+      "internal_only_fields": [
+        "discovery.canonical.fixed_entry",
+        "discovery.node_profiles[].verified_endpoint"
+      ],
+      "public_fields": [
+        "discovery.canonical.node_name",
+        "discovery.canonical.endpoint",
+        "discovery.canonical.port",
+        "discovery.canonical.scheme"
+      ]
+    }
+  },
+  "token_bootstrap": {
+    "schema": "ark.token-bootstrap.v1",
+    "mode": "admin-provisioned",
+    "status": "partial",
+    "per_node": true,
+    "bootstrap_api": false,
+    "minimum_scopes": [
+      "write"
+    ],
+    "allowed_scopes": [
+      "read",
+      "write"
+    ],
+    "storage": {
+      "linux": "~/.config/ark/knowledge.token（目录 0700，文件 0600）",
+      "windows": "%APPDATA%\\ark\\knowledge.token（ACL 仅当前用户）",
+      "env": [
+        "ARK_KB_TOKEN"
+      ],
+      "rule": "只从受控文件或环境变量读取；不得复用 8090 token。"
+    },
+    "lifecycle": {
+      "bootstrap": "只有写接口需要 token：管理员在服务端 token 文件追加一行 write:<token>（按 mtime 热加载，无需重启）；节点侧只落 0600 / Windows 仅当前用户 ACL 的副本；不得用 8090 token 代替，也不存在 8091 自助 bootstrap。",
+      "status": "GET /v1/health（read）确认 auth=ok；服务端 token 文件行数即已签发 token 数。",
+      "rotate": "替换服务端 token 文件对应行并更新节点副本；旧值立即失效，无 grace。",
+      "revoke": "删除服务端 token 文件对应行；节点侧副本同时删除。"
+    },
+    "server_store": "服务端 token 文件按行保存 read:/write: token（最小长度 24）；文件必须 0600，权限过宽会告警。",
+    "rules": [
+      "每节点专用 token，禁止跨节点复制、转借或共用。",
+      "token 值不进 Git、Issue、日志、回执、索引、URL 或命令行参数，不在终端回显。",
+      "read token 调写接口返回 403；需要提交 proposal 才申请 write。",
+      "人工审核通过前 proposal 一律 pending，不得当 active 使用。",
+      "新节点默认不申请 read token；read 仅保留给已签发 token 的过渡期使用。",
+      "8091 token 与 8090 token 不互通：不得拿 8090 token 访问 8091，也不得宣称 8091 已实现自助 bootstrap。",
+      "8091 token 只用于 review/close、sync/pull、hooks 与管理接口；只读与匿名 pending 提案不需要 token。"
+    ],
+    "parity": {
+      "bootstrap_api": false,
+      "gap": "BLOCKED_KB_BOOTSTRAP_PARITY",
+      "note": "8091 尚无自助 bootstrap/rotate API，签发与轮换由管理员改服务端 token 文件完成；与 8090 的 parity 列为待办，不在文档里写成已实现。"
+    },
+    "fallback": {
+      "on_missing": "BLOCKED_KB_AUTH",
+      "on_scope": "BLOCKED_KB_SCOPE"
+    }
+  },
+  "health_contract": {
+    "schema": "ark.service-health.v1",
+    "probe": {
+      "path": "/healthz",
+      "method": "GET",
+      "public": true,
+      "strict_query": "?strict=1",
+      "strict_rule": "带 strict=1 时降级返回 503；探针用严格模式。",
+      "timeout_seconds": 8
+    },
+    "required_fields": [
+      "schema",
+      "service",
+      "version",
+      "status",
+      "commit",
+      "entries",
+      "freshness",
+      "degraded"
+    ],
+    "status_rule": "status=ok、degraded=[]、freshness=fresh 才算健康；HTTP 200 不足以判定。",
+    "version_field": "version",
+    "degraded": {
+      "field": "degraded",
+      "values": [
+        "ledger_unavailable",
+        "sqlite_unavailable",
+        "sync_stale",
+        "sync_unknown",
+        "sync_unavailable",
+        "auth_unavailable"
+      ],
+      "pass_rule": "degraded 必须为空数组；非空按对应降级规则处理，不重试掩盖。"
+    },
+    "commits": {
+      "source_field": "source_commit",
+      "indexed_field": "indexed_commit",
+      "consistency": "source_commit == indexed_commit 且 freshness=fresh 才能当权威依据；不等即 STALE_INDEX。",
+      "status_api": "GET /v1/sync/status（read）"
+    },
+    "write_path_rule": "健康 200 只证明可读；写链路必须由 POST /v1/proposals 返回 proposal_id（201 新建 / 200 幂等）、pending 状态与审核回执证明。",
+    "stop_conditions": [
+      "BLOCKED_KB_UNAVAILABLE",
+      "BLOCKED_KB_AUTH",
+      "BLOCKED_KB_SCOPE",
+      "STALE_INDEX"
+    ]
   },
   "api": [
     {
       "name": "健康检查",
       "method": "GET",
       "path": "/healthz",
-      "scope": null,
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "200，返回 schema、status、service、version、freshness、commit、entries、degraded、deps；?strict=1 时降级返回 503，探针用严格模式。"
     },
@@ -51,7 +363,7 @@
       "name": "知识检索",
       "method": "GET",
       "path": "/v1/search",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "参数 q、device、project、firmware、skill、capability、type（knowledge/method/run/bug）、top（1-50）、include_stale、sources。默认排除 stale/superseded；citation 形如 kb:<entry_id>@<commit>。"
     },
@@ -59,7 +371,7 @@
       "name": "条目详情",
       "method": "GET",
       "path": "/v1/entries/{entry_id}",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "entry_id 形如 kb-(knowledge|method|run|bug)-<12hex>，返回完整条目与 citation；格式不符 400，不存在 404，台账不可用 503。"
     },
@@ -67,7 +379,7 @@
       "name": "文档详情",
       "method": "GET",
       "path": "/v1/documents/{doc_id}",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "返回 kb.sqlite 文档行（只回标量字段）与 citation；结构探测失败 503。"
     },
@@ -75,9 +387,9 @@
       "name": "提交 proposal",
       "method": "POST",
       "path": "/v1/proposals",
-      "scope": "write",
+      "scope": "anonymous",
       "verified": "node-receipt",
-      "note": "新提案 201，重复提交 200 且 deduplicated=true；proposal_id = prop-<sha256(canonical draft)[:16]>；字段白名单外直接 400 invalid_proposal；只落 outbox/proposals.jsonl（0600，append-only），不写台账。"
+      "note": "匿名可创建 pending（需 provenance/evidence/幂等键，来源须命中局域网网段）；带 write token 仍可创建并管理；审核/关闭必须带 token。"
     },
     {
       "name": "proposal 列表与详情",
@@ -99,7 +411,7 @@
       "name": "同步状态",
       "method": "GET",
       "path": "/v1/sync/status",
-      "scope": "read",
+      "scope": "anonymous",
       "verified": "node-receipt",
       "note": "返回 source_commit、indexed_commit、head_commit、behind、freshness、age_seconds、entries、sqlite_documents、sqlite_chunks、interval_seconds；节点回执实测 entries=130。"
     },
@@ -121,13 +433,41 @@
     }
   ],
   "errors": [
-    {"status": 400, "code": "empty_query / invalid_param / invalid_type / invalid_sources / invalid_json / invalid_proposal", "meaning": "请求不合法，未落盘"},
-    {"status": 401, "code": "unauthorized / invalid_token", "meaning": "缺 token 或 token 不符"},
-    {"status": 403, "code": "forbidden", "meaning": "read token 调写接口"},
-    {"status": 404, "code": "not_found / entry_not_found / document_not_found / proposal_not_found", "meaning": "不存在"},
-    {"status": 405, "code": "method_not_allowed", "meaning": "路径存在但方法不对"},
-    {"status": 413, "code": "body_too_large", "meaning": "超过 http.max_body_bytes"},
-    {"status": 503, "code": "ledger_unavailable / sqlite_unavailable / auth_unavailable / sync_failed", "meaning": "依赖不可用"}
+    {
+      "status": 400,
+      "code": "empty_query / invalid_param / invalid_type / invalid_sources / invalid_json / invalid_proposal",
+      "meaning": "请求不合法，未落盘"
+    },
+    {
+      "status": 401,
+      "code": "unauthorized / invalid_token",
+      "meaning": "缺 token 或 token 不符"
+    },
+    {
+      "status": 403,
+      "code": "forbidden",
+      "meaning": "read token 调写接口"
+    },
+    {
+      "status": 404,
+      "code": "not_found / entry_not_found / document_not_found / proposal_not_found",
+      "meaning": "不存在"
+    },
+    {
+      "status": 405,
+      "code": "method_not_allowed",
+      "meaning": "路径存在但方法不对"
+    },
+    {
+      "status": 413,
+      "code": "body_too_large",
+      "meaning": "超过 http.max_body_bytes"
+    },
+    {
+      "status": 503,
+      "code": "ledger_unavailable / sqlite_unavailable / auth_unavailable / sync_failed",
+      "meaning": "依赖不可用"
+    }
   ],
   "snapshot": {
     "record_as": "knowledge_snapshot",
@@ -142,7 +482,12 @@
     "rule": "任务开始查询知识后，把本次用到的 entry id 与当时的 source_commit、indexed_commit、freshness 记进 plan.md 或回执；没有快照就等于没有引用依据。"
   },
   "freshness": {
-    "values": ["fresh", "stale", "unknown", "unavailable"],
+    "values": [
+      "fresh",
+      "stale",
+      "unknown",
+      "unavailable"
+    ],
     "stale_after_seconds": 3600,
     "interval_seconds": 900,
     "source_commit_field": "source_commit",
@@ -164,7 +509,11 @@
   "source_of_truth": {
     "repo": "zjashanda/ark-kb",
     "role": "Git 是唯一真源；服务只是查询前端与 proposal 收集口，不改变真源。",
-    "index_paths": ["entries/", "index/", "registry/"],
+    "index_paths": [
+      "entries/",
+      "index/",
+      "registry/"
+    ],
     "pending_semantics": "proposal 在 accepted 之前只是 pending，不得当 active 使用，也不得写进 index 当可用知识。"
   },
   "backup": {

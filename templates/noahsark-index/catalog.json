@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.0.1",
+  "version": "2.3.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -27,7 +27,7 @@
       "summary": "平台边界、三层职责、执行闭环、角色体系、服务入口、知识时序与门禁。只读这一节就能判断某项工作该走哪一层。",
       "lead": [
         "本区域回答「NoahsArk 是什么、由谁负责什么、一次任务怎么走完、知识从哪里来」。",
-        "服务地址一律使用可解析节点名，不写内网地址字面量；需要真实地址时查节点侧部署回执。"
+        "服务地址在索引里一律使用可解析节点名；固定入口与节点 profile 只存在于节点侧 descriptor 与回执，生成物不得出现私网字面量。"
       ]
     },
     {
@@ -46,7 +46,8 @@
     "Git 仓库是唯一真源；OSS 上的 noahsark/ 目录只是对外分发副本，本页由 ark-node 的 templates/noahsark-index 生成，不手工维护。",
     "三层职责固定：ark-kb 是唯一审核知识真源；8091 Knowledge Service 是在线查询与 proposal 入口；8090 Ark Storage Service 与 1006 存放原始证据、资产与备份。",
     "入口地址永久不变：外部工作区只记 noahsark/index.md，其余内容按本页入口进入，不需要理解内部仓库与节点结构。",
-    "本页不含 token、私钥、口令或内网地址字面量；服务发现使用可解析节点名和 services/*.json 机器可读契约。"
+    "本页不含 token、私钥、口令或内网地址字面量；服务发现以 descriptor 的 discovery.canonical 为准：entry_kind=node-name 写可解析节点名，entry_kind=fixed-ip 写已批准固定入口；固定入口字面量只允许存在于 descriptor，生成物与公开对象一律剥离。",
+    "服务发现是机器可读契约：services/*.json 的 discovery 给出 canonical、节点 profile、解析顺序与 VM 边界；索引只渲染公开字段，fixed-ip 服务用 endpoint_ref 指针代替地址。"
   ],
   "layers": [
     {
@@ -117,45 +118,66 @@
   ],
   "knowledge_loop": [
     {
+      "id": "evidence.produce",
       "step": "1. 产生证据",
       "actor": "执行 Agent",
-      "detail": "任务产物、日志、回执按任务目录规范落盘，敏感数据先脱敏。",
+      "detail": "任务产物、日志、录音按任务目录规范落盘，敏感数据先脱敏，生成 manifest（path/bytes/sha256）。",
       "artifact": "本地文件 + manifest"
     },
     {
-      "step": "2. 上传 8090",
+      "id": "evidence.upload",
+      "step": "2. 上传 8090 证据",
       "actor": "执行 Agent",
-      "detail": "按分类写入 evidence/results/receipts，服务端复算 SHA-256；失败或 SHA 不符进 quarantine，不进正式目录。",
+      "detail": "按 evidence/results/receipts 分类写入；同 key 同 SHA 返回 200 幂等，不同 SHA 返回 409；服务端复算 SHA，失败或 SHA 不符进 quarantine。先用 8090 自助 bootstrap 取本节点 read+evidence:write token，再上传。",
       "artifact": "evidence_ref = ark://<category>/<scope>/<key> + bytes + sha256"
     },
     {
-      "step": "3. 提交 proposal",
+      "id": "evidence.receipt",
+      "step": "3. 写回执",
       "actor": "执行 Agent",
-      "detail": "向 8091 POST /v1/proposals 提交草稿；返回 pending，重复提交幂等；不直接改 ark-kb。",
-      "artifact": "proposal_id（prop-<sha256(draft)[:16]>）"
+      "detail": "回执必须同时记录 evidence_ref 的 uri、bytes、sha256 与幂等键 request_id；只有路径没有校验值按 EVIDENCE_GAP 处理。",
+      "artifact": "receipt（evidence_ref 三项 + request_id）"
     },
     {
-      "step": "4. 审核",
+      "id": "kb.proposal",
+      "step": "4. 提交 proposal",
+      "actor": "执行 Agent",
+      "detail": "执行 Agent 向 8091 POST /v1/proposals 提交草稿：局域网内可匿名创建 pending，必须带 provenance（issue/run/agent/node）、evidence（uri/bytes/sha256）、request_id 与 idempotency_key；201 新建、200 幂等；不直接改 ark-kb。",
+      "artifact": "proposal_id（prop-<sha256(draft)[:16]>）+ 状态 pending"
+    },
+    {
+      "id": "kb.review",
+      "step": "5. 人工审核",
       "actor": "人 / 授权 Agent",
-      "detail": "核对证据引用与结论，关闭为 accepted 或 rejected；pending 不得当 active 使用。",
+      "detail": "核对 evidence_ref 与结论，关闭为 accepted 或 rejected；pending 不得当 active 使用，审核人、时间、原话留痕。审核/接受/拒绝/关闭必须带 write token，匿名请求一律 401/403。",
       "artifact": "审核结论 + entry_id"
     },
     {
-      "step": "5. 写入 ark-kb",
+      "id": "kb.commit",
+      "step": "6. 写入 ark-kb",
       "actor": "知识沉淀角色",
-      "detail": "条目落 entries/ 与 index/，走功能分支与 PR；合并后 Git 才成为真源。",
+      "detail": "条目落 entries/ 与 index/，走功能分支与 PR；合并后 Git 才成为真源，source_commit 随之前进。",
       "artifact": "ark-kb commit（新 main）"
     },
     {
-      "step": "6. 增量索引",
+      "id": "kb.index",
+      "step": "7. 增量索引",
       "actor": "8091 Knowledge Service",
-      "detail": "900 秒定时 pull 或 ark-kb webhook 触发；source_commit 与 indexed_commit 追平且 freshness=fresh。",
-      "artifact": "indexed_commit + freshness"
+      "detail": "900 秒定时 pull 或 ark-kb webhook 触发；必须追到 source_commit == indexed_commit、freshness=fresh、degraded=[]，否则按 STALE_INDEX 停。",
+      "artifact": "indexed_commit + freshness + degraded"
     },
     {
-      "step": "7. 跨 Agent 复用",
+      "id": "kb.verify",
+      "step": "8. 复读校验",
+      "actor": "另一 Agent",
+      "detail": "另一 Agent 匿名查询 /v1/search 与 /v1/entries（不配置 read token），核对命中、citation 与 knowledge_snapshot；不复用提交者 token 的结果作证明。",
+      "artifact": "检索命中 + citation kb:<entry_id>@<commit>"
+    },
+    {
+      "id": "kb.reuse",
+      "step": "9. 跨 Agent 复用",
       "actor": "任意 Agent",
-      "detail": "查询命中后生成同类任务前置检查；回执记录 knowledge_snapshot；stale/unavailable 按降级规则。",
+      "detail": "同类任务前置检查只引用 formal 且非 stale/superseded 条目；回执记录 knowledge_snapshot（service_version、source_commit、indexed_commit、freshness、entry_ids）。",
       "artifact": "knowledge_snapshot + 前置检查"
     }
   ],
@@ -186,6 +208,16 @@
       "failure": "BLOCKED_STORAGE_AUTH / BLOCKED_STORAGE_SCOPE / BLOCKED_KB_AUTH"
     },
     {
+      "gate": "服务发现一致性",
+      "rule": "canonical 与节点 profile 单点定义；固定入口只在 descriptor/profile 与节点回执，生成物出现私网字面量或 profile 被复制到其他节点即失败。",
+      "failure": "SERVICE_DISCOVERY_DRIFT"
+    },
+    {
+      "gate": "写链路证据",
+      "rule": "健康 200 只代表可读；写链路必须 evidence_ref 三项 + proposal 回执 + source/indexed 追平，缺一即失败。",
+      "failure": "EVIDENCE_GAP / STALE_INDEX"
+    },
+    {
       "gate": "TTS 公共缓存",
       "rule": "cache key 必须覆盖文本、语言、voice、模型、供应商版本、采样率、声道、格式、语速、音调；命中先校验 bytes/SHA。",
       "failure": "BLOCKED_TTS_CACHE_CORRUPT / BLOCKED_TTS_PUBLISH"
@@ -194,16 +226,97 @@
       "gate": "审批边界",
       "rule": "推送代码、对外发布、真机操作、删除、权限变更需要明确同意；凭据存在不代表自动获批。",
       "failure": "BLOCKED_APPROVAL_REQUIRED"
+    },
+    {
+      "gate": "只读公开边界",
+      "rule": "8091 只读接口匿名开放，匿名可创建 pending proposal；审核/入库/sync/admin 仍鉴权，匿名可读不等于可写。",
+      "failure": "BLOCKED_KB_ANON_READ / BLOCKED_KB_ANON_PROPOSAL"
     }
   ],
   "security": [
     "凭据只来自进程环境变量或权限 0600 的受控文件；变量名限定 GITHUB_TOKEN、ACCESS_KEY_ID、ACCESS_KEY_SECRET、LSTTS_TTS_TOKEN 等白名单。",
     "任何凭据值不得进入 Git、OSS、index、Issue、日志、回执或 Agent instructions，也不得拼进 URL 或经命令行传口令。",
-    "索引与公开对象不写 RFC1918 地址、主机清单或 Authorization 头；服务发现使用可解析节点名。",
+    "索引与公开对象不写 RFC1918 地址、主机清单或 Authorization 头；服务发现以 descriptor 的 discovery.canonical 为准：entry_kind=node-name 写可解析节点名，entry_kind=fixed-ip 写已批准固定入口；固定入口字面量只允许存在于 descriptor，生成器必须剥离并用 endpoint_ref 指向，校验器必须拒绝。",
     "8090/8091 服务进程不持有 GitHub 写 token；Git 写操作只由部署/代码任务的节点级凭据执行。",
     "敏感文本不进公共 TTS 库；需要项目或权限 scope 与保留策略。",
     "审计日志不记录 Authorization 与请求体；token 存储只保留 SHA-256。",
-    "错误、失败、阻塞必须如实标注；不得把代码测试通过写成真机验证通过。"
+    "错误、失败、阻塞必须如实标注；不得把代码测试通过写成真机验证通过。",
+    "写链路是否可用不看健康码：8090 看上传+回读 SHA，8091 看 proposal_id 与 source/indexed 追平；把 200 当写通按 EVIDENCE_GAP 处理。",
+    "token 按节点专用，只落 0600 文件（Windows 仅当前用户 ACL）或环境变量；轮换先于共享，吊销即时生效。",
+    "8091 只读接口匿名开放：公开响应只含已审核 active 知识，不得含 token、凭据、服务端绝对路径、个人敏感信息或 pending 正文；写接口无 token 必须 401/403。",
+    "匿名 proposal 只能落在 pending，不得触碰审核、入库与 sync；匿名请求体、分页与频率受限，日志只记标识与状态码。"
+  ],
+  "failure_taxonomy": [
+    {
+      "code": "BLOCKED_STORAGE_AUTH",
+      "when": "8090 缺 token、token 过期或被吊销、bootstrap secret 重放或节点被禁用。",
+      "stop": true,
+      "action": "用本节点 bootstrap/rotate 取新 token，不借他人 token，不改用宽松凭据。",
+      "retry": "拿到本节点 token 并 status 显示 active 后重试。"
+    },
+    {
+      "code": "BLOCKED_STORAGE_SCOPE",
+      "when": "token 有效但 scope 不足（如 read 写 evidence）。",
+      "stop": true,
+      "action": "按需申请 evidence:write / receipts:write / backup:write，不越权重试。",
+      "retry": "scope 生效后重试同一请求。"
+    },
+    {
+      "code": "BLOCKED_KB_AUTH",
+      "when": "8091 返回 401/403，或节点没有本节点 read token。",
+      "stop": true,
+      "action": "由管理员签发本节点 read token（需要提交再给 write），落 0600 文件。",
+      "retry": "/v1/health 显示 auth=ok 后重试。"
+    },
+    {
+      "code": "STALE_INDEX",
+      "when": "source_commit != indexed_commit、freshness != fresh 或 degraded 非空。",
+      "stop": true,
+      "action": "等增量索引追平或触发 /v1/sync/pull；普通任务可用未过期快照并标注，高风险任务停。",
+      "retry": "commits 相等且 degraded=[] 后重试。"
+    },
+    {
+      "code": "EVIDENCE_GAP",
+      "when": "evidence_ref 缺 uri/bytes/sha256、回执与对象不一致，或只用健康 200 声称写通。",
+      "stop": true,
+      "action": "补齐上传+回读 SHA 与回执；不补证不得进入 proposal。",
+      "retry": "证据三项齐备后重试。"
+    },
+    {
+      "code": "SOURCE_MISSING",
+      "when": "ark-kb 缺条目/文档，或 entry_id / citation 查不到。",
+      "stop": true,
+      "action": "回到 proposal 审核或补提交；不得凭印象补写结论。",
+      "retry": "条目合并并索引后重试。"
+    },
+    {
+      "code": "SERVICE_DISCOVERY_DRIFT",
+      "when": "canonical 与节点 profile 不一致、固定入口出现在生成物、profile 被复制到其他节点。",
+      "stop": false,
+      "action": "按本节点 profile 解析并上报漂移；不静默改 canonical，不把 profile 当全局地址。",
+      "retry": "修正 descriptor 并重建索引后重试。"
+    },
+    {
+      "code": "BLOCKED_KB_BOOTSTRAP_PARITY",
+      "when": "节点期望 8091 自助 bootstrap/rotate，而服务只有管理侧 token 文件开通。",
+      "stop": false,
+      "action": "由管理员按节点在服务端 token 文件签发/轮换；parity 列为待办，不写成已实现。",
+      "retry": "token 文件更新并热加载后重试。"
+    },
+    {
+      "code": "BLOCKED_KB_ANON_READ",
+      "when": "契约声明匿名的只读接口返回 401/403，或匿名响应出现凭据、绝对路径、pending 正文。",
+      "stop": true,
+      "action": "检查服务 auth.public_read 与服务版本，按最小服务改动修复；不得用签发 read token 绕过。",
+      "retry": "服务改动验收通过后重试一次。"
+    },
+    {
+      "code": "BLOCKED_KB_ANON_PROPOSAL",
+      "when": "匿名 proposal 被拒（401/403/4xx）或写入后状态不是 pending，或响应泄露正文/凭据。",
+      "stop": true,
+      "action": "核对来源网段、provenance/evidence/幂等键与开关状态；不得改用 write token 静默绕过。",
+      "retry": "门禁修正后重试一次，仍失败转人工。"
+    }
   ],
   "roles": [
     {
@@ -463,15 +576,17 @@
         "requires": [
           "git.identity"
         ],
-        "detail": "服务发现用节点名 linux003:8090；节点 enrollment 时每节点签发独立 token 与 scope（read/write/evidence:write/backup:write），明文只在签发时下发到 0600 受控文件。轮换与吊销由管理员执行，旧 token 立即失效。",
+        "detail": "服务发现按节点 profile → canonical 解析；token 用 POST /storage/v1/bootstrap/token 自助开通，默认最小权限 read，按需申请 evidence:write/receipts:write；token 原子写入 ~/.config/ark/storage.token（0700/0600），服务端只存 SHA-256。",
         "commands": [
-          "GET /health 确认 200",
-          "用独立 token 做一次 objects 上传/下载回读"
+          "POST /storage/v1/bootstrap/token（一次性 secret）",
+          "GET /storage/v1/tokens/status",
+          "GET /health 确认版本与 ok"
         ],
         "acceptance": [
           "ACCEPT_STORAGE_ROUNDTRIP",
           "ACCEPT_STORAGE_SCOPE",
-          "ACCEPT_STORAGE_QUARANTINE"
+          "ACCEPT_STORAGE_QUARANTINE",
+          "ACCEPT_TOKEN_BOOTSTRAP"
         ],
         "block_codes": [
           "BLOCKED_STORAGE_UNAVAILABLE",
@@ -487,22 +602,54 @@
         "requires": [
           "storage.enroll"
         ],
-        "detail": "服务发现用节点名 bszT14:8091；用 read token 查 /healthz 与 /v1/search，记录 knowledge_snapshot；需要沉淀的节点另配 write token 提交 proposal。pending 只能当线索。",
+        "detail": "服务发现按节点 profile → canonical 解析（pvm1003 等 VM 边界节点用本机实测入口）；用本节点 read token 查 /healthz、/v1/search 与 /v1/sync/status，记录 source/indexed commit、freshness、degraded；需要沉淀的节点另配 write token 提交 proposal。",
         "commands": [
-          "GET /healthz",
-          "GET /v1/search?device=<node>",
-          "GET /v1/sync/status"
+          "GET /healthz（严格模式 ?strict=1）",
+          "GET /v1/sync/status",
+          "GET /v1/search?project=<project>"
         ],
         "acceptance": [
           "ACCEPT_KB_QUERY",
           "ACCEPT_KB_PROPOSAL",
-          "ACCEPT_KB_FRESHNESS"
+          "ACCEPT_KB_FRESHNESS",
+          "ACCEPT_KB_TOKEN",
+          "ACCEPT_DISCOVERY_PROFILE",
+          "ACCEPT_KB_ANON_READ",
+          "ACCEPT_KB_ANON_PROPOSAL"
         ],
         "block_codes": [
           "BLOCKED_KB_STALE",
           "BLOCKED_KB_UNAVAILABLE",
           "BLOCKED_KB_AUTH",
-          "BLOCKED_KB_SCOPE"
+          "BLOCKED_KB_SCOPE",
+          "BLOCKED_KB_ANON_READ",
+          "BLOCKED_KB_ANON_PROPOSAL"
+        ]
+      },
+      {
+        "id": "kb.write-path.verify",
+        "scope": "node",
+        "title": "写链路闭环校验",
+        "automation": "auto",
+        "requires": [
+          "storage.enroll",
+          "knowledge.connect"
+        ],
+        "detail": "用本节点 token 走一次 evidence 上传+回读、proposal 提交与 /v1/sync/status 核对；只认 evidence_ref 三项、proposal_id 与 source==indexed，不拿健康 200 顶替。",
+        "commands": [
+          "PUT 对象 + GET 回读比对 SHA",
+          "POST /v1/proposals 并取回 proposal_id",
+          "GET /v1/sync/status 比对 commits"
+        ],
+        "acceptance": [
+          "ACCEPT_WRITE_PATH",
+          "ACCEPT_KB_FRESHNESS"
+        ],
+        "block_codes": [
+          "EVIDENCE_GAP",
+          "STALE_INDEX",
+          "BLOCKED_STORAGE_AUTH",
+          "BLOCKED_KB_AUTH"
         ]
       },
       {
@@ -601,7 +748,7 @@
           "storage.enroll",
           "knowledge.connect"
         ],
-        "detail": "token 只存 0600 文件或进程环境；轮换按节点维度执行，旧 token 立即吊销；凭据不进入 Git、OSS、index、Issue、日志、回执与 instructions。",
+        "detail": "8090 用一次性 secret 自助 bootstrap/rotate/revoke/status（服务端只存 SHA-256）；8091 只写接口用管理员签发的 write token，按 mtime 热加载；两套 token 不互通，只落 0600/ACL 文件，不打印不复制。8091 只读与匿名 pending 提案不需要 token；write token 只给审核/关闭/sync/admin。",
         "commands": [
           "管理员签发/轮换/吊销",
           "轮换后重跑验收"
@@ -730,6 +877,36 @@
         "id": "ACCEPT_FLEET_SYNC",
         "title": "Fleet 同步",
         "rule": "逐 Agent 版本盘点完成；运行中 Run 保持 pinned；至少一个非 Mika Agent 查询成功。"
+      },
+      {
+        "id": "ACCEPT_TOKEN_BOOTSTRAP",
+        "title": "节点 8090 token",
+        "rule": "节点用一次性 bootstrap secret 自助兑换 token，原子写入 0600/ACL 文件，status 为 active，scope 覆盖 read+evidence:write，过程中未打印凭据值。"
+      },
+      {
+        "id": "ACCEPT_KB_TOKEN",
+        "title": "节点 8091 token",
+        "rule": "写接口 write token 可用（提交 proposal 返回 201）；只读接口匿名，不以 read token 为前置条件。"
+      },
+      {
+        "id": "ACCEPT_KB_ANON_READ",
+        "title": "只读匿名",
+        "rule": "匿名 GET /healthz、/v1/search、/v1/entries/{id}、/v1/sync/status 均 200；匿名 POST /v1/proposals 返回 401/403。"
+      },
+      {
+        "id": "ACCEPT_KB_ANON_PROPOSAL",
+        "title": "匿名提案待审",
+        "rule": "匿名 POST /v1/proposals 返回 201 且 status=pending、带 proposal_id；同幂等键重复提交返回 200 且同一 proposal_id；匿名 close/review 返回 401/403。"
+      },
+      {
+        "id": "ACCEPT_DISCOVERY_PROFILE",
+        "title": "服务发现解析",
+        "rule": "本节点先取 profile.verified_endpoint，canonical 未被改写，profile 未被复制到其他节点。"
+      },
+      {
+        "id": "ACCEPT_WRITE_PATH",
+        "title": "写链路闭环",
+        "rule": "evidence_ref 三项齐全 + proposal_id 回执 + source==indexed 且 fresh，才算写链路通过。"
       }
     ],
     "block_codes": [
@@ -794,6 +971,18 @@
         "action": "检查节点 read/write token。"
       },
       {
+        "code": "BLOCKED_KB_ANON_READ",
+        "area": "knowledge",
+        "meaning": "契约声明匿名的 8091 只读接口返回 401/403，或匿名响应泄露凭据、绝对路径、pending 正文",
+        "action": "按最小服务改动打开 auth.public_read 并验收；不得用签发 read token 绕过。"
+      },
+      {
+        "code": "BLOCKED_KB_ANON_PROPOSAL",
+        "area": "knowledge",
+        "meaning": "匿名 proposal 被拒、状态不是 pending，或响应泄露正文/凭据",
+        "action": "核对来源网段、provenance/evidence/幂等键与开关状态；不得改用 write token 静默绕过。"
+      },
+      {
         "code": "BLOCKED_KB_SCOPE",
         "area": "knowledge",
         "meaning": "read token 调写接口",
@@ -852,6 +1041,31 @@
         "area": "publish",
         "meaning": "版本/URL/pin/latest/bytes/SHA 不一致",
         "action": "停止发布并修元数据，重跑校验。"
+      },
+      {
+        "code": "STALE_INDEX",
+        "title": "知识索引未追平",
+        "rule": "source_commit 与 indexed_commit 不等或 freshness 非 fresh 时，高风险任务停止，普通任务只可用带标注快照。"
+      },
+      {
+        "code": "EVIDENCE_GAP",
+        "title": "证据链缺口",
+        "rule": "evidence_ref 缺 uri/bytes/sha256 或用健康 200 冒充写通。"
+      },
+      {
+        "code": "SOURCE_MISSING",
+        "title": "真源缺条目",
+        "rule": "ark-kb 无对应条目/文档，citation 不可解析。"
+      },
+      {
+        "code": "SERVICE_DISCOVERY_DRIFT",
+        "title": "服务发现漂移",
+        "rule": "canonical/profile 冲突、固定入口进入生成物、profile 被跨节点复制。"
+      },
+      {
+        "code": "BLOCKED_KB_BOOTSTRAP_PARITY",
+        "title": "8091 自助开通缺口",
+        "rule": "8091 只有管理侧 token 文件开通，无 bootstrap/rotate API。"
       }
     ],
     "drift": {
@@ -933,7 +1147,7 @@
     {
       "id": "services",
       "label": "服务入口",
-      "summary": "8090 存储与 8091 知识的在线入口；服务发现用可解析节点名，不接受内网地址字面量。",
+      "summary": "8090 存储与 8091 知识的在线入口；服务发现以 descriptor 的 entry_kind 分流：节点名入口与已批准固定入口，生成物不接受内网地址字面量。",
       "region": "system",
       "entries": [
         {
@@ -941,7 +1155,7 @@
           "kind": "service",
           "title": "Ark Storage Service（8090）",
           "status": "available",
-          "version": "1.0.0",
+          "version": "1.1.1",
           "roles": [
             "coordinator",
             "node-executor",
@@ -960,7 +1174,7 @@
           "kind": "service",
           "title": "NoahsArk Knowledge Service（8091）",
           "status": "available",
-          "version": "1.0.0",
+          "version": "1.3.0",
           "roles": [
             "external-reader",
             "coordinator",

@@ -100,6 +100,10 @@ printf '%s' "$ARK_HTTP_PASS" | ark-node env --pass-stdin --apply
 - 所有写盘走原子写 + 600；所有 JSON 输出经 `redact` 过一遍才落地。
 - `tools/secret_scan.py` 可在提交前自查：`python3 tools/secret_scan.py ark_node config docs templates tests tools`
   （`sha256` 摘要字段按内容指纹放行，其余高熵串一律拦截）。
+- 8091 匿名边界：只读接口可匿名查询；`POST /v1/proposals` 允许匿名创建，但只落 `pending`，
+  必须带 provenance、evidence（bytes/sha256）、`request_id` 与 `idempotency_key`；审核/入库/sync/admin
+  仍需 write token。被拒或状态不是 pending 按 `BLOCKED_KB_ANON_PROPOSAL` 上报，契约见
+  `templates/noahsark-index/services/knowledge-service.json#auth.anonymous_proposal`。
 - `tools/time_lint.py` 拦截违反时间契约的写法（`T` 分隔、`Z` 后缀、数字时区偏移、小数秒/毫秒、带时区序列化）：`python3 tools/time_lint.py`，0 违规才允许提交。`tests/test_time_contract.py` 保证新输出始终是 `YYYY-MM-DD HH:MM:SS`。
 
 ## 智能体模板

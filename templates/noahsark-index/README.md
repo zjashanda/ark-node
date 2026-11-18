@@ -25,6 +25,12 @@ https://listenai-test-internal.oss-cn-beijing.aliyuncs.com/noahsark/index.md
 - `index.json` —— 机器导航，顶层 `system` / `onboarding` 两个导航域，每条含 id、标题、状态、版本、地址、`source_repo`、`source_commit`、`sha256`；
 - `manifest.json` —— 根索引自身的版本、提交号、区域与服务摘要、两个文件的校验值与生成时间。
 
+- 服务契约新增三类机器可读块：`discovery`（canonical/节点 profile/VM 边界）、`token_bootstrap`（每节点凭据与 scope）、`health_contract`（探针、source/indexed、degraded）；固定入口只留在 descriptor。
+- `discovery.canonical.entry_kind` 决定生成物形态：`node-name` 输出 `endpoint` 字面量；`fixed-ip` 不输出地址，只输出 `endpoint_ref`（`descriptor:<相对路径>#discovery.canonical.fixed_entry`），markdown 渲染为「固定入口（节点侧登记）」。
+- `failure_taxonomy` 与 9 步 `knowledge_loop` 进入索引：失败码 → 触发条件 → 处理 → 是否停止。
+- `build-index.py` 写盘前做最终防线：`index.md`/`index.json` 命中 RFC1918 即失败；`verify-index.py` 再校验一次。
+- `check-services.py --probe --node <node>` 按节点 profile 探测；`--check` 同时报 `SERVICE_DISCOVERY_DRIFT`。
+
 ## 1.1 信息架构（固定）
 
 | 区域 | 回答的问题 | JSON 域 |
@@ -115,7 +121,7 @@ python3 templates/noahsark-index/verify-index.py --online
 - `status` 只有 `available` / `planned`。**没发布的东西必须是 `planned`**，且不得带 `oss`、`git`、`descriptor`、`version` —— 校验器会直接拒绝，避免死链。
 - `local` 指向仓库内同名文件时，生成器会现算 sha256，并与 `templates/agents/manifest.json` 交叉核对；两边不一致即失败。
 - `git` 条目写 `zjashanda/<repo>`，可选 `file` 生成 blob 链接。
-- 服务条目的 `version`、`endpoint`、`host.name`、`host.port` 必须与 `services/*.json` 逐字一致；endpoint 只允许可解析节点名，出现 RFC1918 字面量直接失败。
+- 服务条目的 `version` 必须与 `services/*.json` 逐字一致。地址规则按 `discovery.canonical.entry_kind` 分流：`node-name` 要求 `endpoint` 为可解析节点名且 `host.name` 是其子串；`fixed-ip` 要求 `endpoint` 是已批准固定入口且 `host.name == canonical.node_name`。生成物对 `fixed-ip` 只写 `endpoint_ref`，出现 RFC1918 或旧入口字面量直接失败。
 - `requires` 必须指向存在的 id，且不许成环。
 - 分组必须声明 `region: system|onboarding`；`onboarding.steps` 引用的验收项与阻塞码必须已登记。
 
@@ -176,3 +182,14 @@ python3 templates/noahsark-index/publish-index.py --allow-downgrade --apply --ye
 `agent-template.latest` 是可变的指针：模板每发布一次，它的清单字节就会变，因此根索引里记录的 `sha256`
 必须同步刷新并重发根索引。忘记刷新时 `verify-index.py --online` 会对该条目报「线上内容与记录校验值不一致」——
 这是有意的漂移告警（2026-11-16 的 2.0.1 就是修这个：两个清单对象的 SHA 停留在旧批次）。
+
+## 8090 / 8091 凭据与只读边界
+
+- 8090 `token_bootstrap`：`one-time-secret` / `operational`。节点自助 `bootstrap`（一次性 secret）、
+  `rotate`、`revoke`、`status`，服务端只存 SHA-256；`verification.observed` 是必填观测证据。
+- 8091 `token_bootstrap`：`admin-provisioned` / `partial` / `bootstrap_api=false`，只写接口用
+  write token；与 8090 不互通，parity 缺口记为 `BLOCKED_KB_BOOTSTRAP_PARITY`。
+- 8091 `auth.anonymous_read`：只读 GET 匿名（当前 `pending_service_change`），写接口仍鉴权；
+  未通过按 `BLOCKED_KB_ANON_READ` 停止，最小服务改动见 `docs/kb-anonymous-read-change.md`。
+- `check-services.py --node <节点>` 按 profile 选探测基址；`--probe` 额外匿名探测只读接口并记录
+  `anonymous_read` 观测，`pending_service_change` 阶段 401 不判失败。

@@ -29,6 +29,19 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 INDEX_SCHEMA = "ark.noahsark-index.v2"
+ANON_PROPOSAL_SCHEMA = "ark.service-anonymous-proposal.v1"
+ANON_PROPOSAL_GATES = ("lan_source", "evidence", "idempotency", "status", "quota", "audit")
+ANON_PROPOSAL_REQUIRED_FIELDS = (
+    "provenance.issue",
+    "provenance.run",
+    "provenance.agent",
+    "provenance.node",
+    "evidence[].bytes",
+    "evidence[].sha256",
+    "request_id",
+    "idempotency_key",
+)
+ANON_PROPOSAL_FORBIDDEN = ("review", "close", "promote", "sync", "admin")
 MANIFEST_SCHEMA = "ark.noahsark-index.manifest.v1"
 REGION_ORDER = ("system", "onboarding")
 SERVICE_KIND = "service"
@@ -44,6 +57,9 @@ RFC1918 = re.compile(
     r"|172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3}"
     r"|192\.168\.(?:\d{1,3}\.)\d{1,3}"
 )
+LEGACY_ENTRY = re.compile(r"http://bszT14:" + "8091")
+ENDPOINT_REF = re.compile(r"^descriptor:templates/.*#discovery\.canonical\.fixed_entry$")
+ENTRY_KINDS = ("node-name", "fixed-ip")
 REQUIRED_ITEM_KEYS = (
     "id",
     "region",
@@ -151,7 +167,10 @@ def check_index(index, errors):
             errors.append("条目 %s 的 region 非法" % iid)
         if item.get("status") == "available":
             available += 1
-            if not item.get("url"):
+            if item.get("kind") == SERVICE_KIND:
+                if not item.get("url") and not item.get("endpoint_ref"):
+                    errors.append("可用服务条目 %s 缺少地址或 endpoint_ref" % iid)
+            elif not item.get("url"):
                 errors.append("可用条目 %s 缺少地址" % iid)
             if not item.get("version"):
                 errors.append("可用条目 %s 缺少版本" % iid)
@@ -170,12 +189,21 @@ def check_index(index, errors):
         if sha is not None and not re.match(r"^[0-9a-f]{64}$", sha):
             errors.append("条目 %s 的 sha256 格式非法" % iid)
         if item.get("kind") == SERVICE_KIND:
-            if not item.get("endpoint"):
-                errors.append("服务条目 %s 缺少 endpoint" % iid)
             if not item.get("descriptor"):
                 errors.append("服务条目 %s 缺少 descriptor" % iid)
-            if item.get("endpoint") and RFC1918.search(item["endpoint"]):
+            entry_kind = item.get("entry_kind")
+            if entry_kind not in ENTRY_KINDS:
+                errors.append("服务条目 %s 的 entry_kind 非法" % iid)
+            has_endpoint = bool(item.get("endpoint"))
+            has_ref = bool(item.get("endpoint_ref"))
+            if has_endpoint == has_ref:
+                errors.append("服务条目 %s 的 endpoint 与 endpoint_ref 必须恰有其一" % iid)
+            if has_endpoint and RFC1918.search(item["endpoint"]):
                 errors.append("服务条目 %s 的 endpoint 含私网地址字面量" % iid)
+            if has_ref and not ENDPOINT_REF.match(item["endpoint_ref"]):
+                errors.append("服务条目 %s 的 endpoint_ref 形态非法" % iid)
+            if entry_kind == "fixed-ip" and has_endpoint:
+                errors.append("fixed-ip 服务条目 %s 不得输出 endpoint" % iid)
         commit = item.get("source_commit")
         if commit is not None and not re.match(r"^[0-9a-f]{7,40}$", str(commit)):
             errors.append("条目 %s 的 source_commit 形态非法" % iid)
@@ -244,19 +272,59 @@ def check_regions(index, items, errors):
                     errors.append("分组 %s 的区域与父区域不一致" % group.get("id"))
 
     system = index.get("system") or {}
-    for field in ("positioning", "layers", "lifecycle", "knowledge_loop", "gates", "security", "services", "roles"):
+    for field in (
+        "positioning",
+        "layers",
+        "lifecycle",
+        "knowledge_loop",
+        "gates",
+        "security",
+        "failure_taxonomy",
+        "service_discovery",
+        "services",
+        "roles",
+    ):
         if not system.get(field):
             errors.append("index.system.%s 不能为空" % field)
+    check_failure_taxonomy(index, errors)
     service_ids = {s.get("id") for s in system.get("services") or []}
     item_service_ids = {i["id"] for i in items if i.get("kind") == SERVICE_KIND}
     if service_ids != item_service_ids:
         errors.append("index.system.services 与服务条目不一致")
     for svc in system.get("services") or []:
-        for key in ("id", "title", "version", "endpoint", "descriptor", "discovery", "auth", "verification"):
+        for key in (
+            "id",
+            "title",
+            "version",
+            "entry_kind",
+            "descriptor",
+            "discovery",
+            "token_bootstrap",
+            "health",
+            "auth",
+            "anonymous_proposal",
+            "verification",
+        ):
             if key not in svc:
                 errors.append("服务块 %s 缺少字段 %s" % (svc.get("id"), key))
-        if svc.get("endpoint") and RFC1918.search(svc["endpoint"]):
+        entry_kind = svc.get("entry_kind")
+        if entry_kind not in ENTRY_KINDS:
+            errors.append("服务块 %s 的 entry_kind 非法" % svc.get("id"))
+        has_endpoint = "endpoint" in svc
+        has_ref = "endpoint_ref" in svc
+        if has_endpoint == has_ref:
+            errors.append("服务块 %s 的 endpoint 与 endpoint_ref 必须恰有其一" % svc.get("id"))
+        if has_endpoint and RFC1918.search(svc["endpoint"]):
             errors.append("服务块 %s 的 endpoint 含私网地址字面量" % svc.get("id"))
+        if has_ref and not ENDPOINT_REF.match(str(svc["endpoint_ref"])):
+            errors.append("服务块 %s 的 endpoint_ref 形态非法" % svc.get("id"))
+        if entry_kind == "fixed-ip" and has_endpoint:
+            errors.append("fixed-ip 服务块 %s 不得输出 endpoint" % svc.get("id"))
+        check_service_discovery(svc, errors)
+        health = svc.get("health") or {}
+        for key in ("path", "required_fields", "status_rule", "write_path_rule"):
+            if not health.get(key):
+                errors.append("服务块 %s 的 health 缺少 %s" % (svc.get("id"), key))
         descriptor = REPO_ROOT / (svc.get("descriptor") or "")
         if not descriptor.exists():
             errors.append("服务块 %s 的 descriptor 不存在" % svc.get("id"))
@@ -266,8 +334,43 @@ def check_regions(index, items, errors):
                 errors.append("服务块 %s 与 descriptor.id 不一致" % svc.get("id"))
             if data.get("version") != svc.get("version"):
                 errors.append("服务块 %s 与 descriptor.version 不一致" % svc.get("id"))
-            if data.get("endpoint") != svc.get("endpoint"):
+            descriptor_kind = (
+                (data.get("discovery") or {}).get("canonical") or {}
+            ).get("entry_kind") or "node-name"
+            if descriptor_kind == "fixed-ip":
+                expected_ref = "descriptor:%s#discovery.canonical.fixed_entry" % svc.get("descriptor")
+                if svc.get("endpoint_ref") != expected_ref:
+                    errors.append("服务块 %s 与 descriptor 固定入口引用不一致" % svc.get("id"))
+            elif data.get("endpoint") != svc.get("endpoint"):
                 errors.append("服务块 %s 与 descriptor.endpoint 不一致" % svc.get("id"))
+            anon = (data.get("auth") or {}).get("anonymous_read") or {}
+            if anon:
+                block = svc.get("anonymous_read") or {}
+                if not block:
+                    errors.append("服务块 %s 缺少 anonymous_read（descriptor 已声明）" % svc.get("id"))
+                else:
+                    if block.get("status") not in ("pending_service_change", "verified"):
+                        errors.append("服务块 %s 的 anonymous_read.status 非法" % svc.get("id"))
+                    if block.get("status") != anon.get("status"):
+                        errors.append("服务块 %s 的 anonymous_read.status 与 descriptor 不一致" % svc.get("id"))
+                    if not block.get("public_api") or not block.get("protected_api"):
+                        errors.append("服务块 %s 的 anonymous_read 公开/受保护接口不能为空" % svc.get("id"))
+                    if set(block.get("public_api") or []) & set(block.get("protected_api") or []):
+                        errors.append("服务块 %s 的 anonymous_read 公开与受保护接口重叠" % svc.get("id"))
+                    if block.get("status") == "pending_service_change" and not (
+                        (block.get("service_change") or {}).get("required")
+                    ):
+                        errors.append("服务块 %s 的 anonymous_read 待改状态缺少 service_change" % svc.get("id"))
+            check_anonymous_proposal(svc, data, errors)
+            check_anonymous_scope(data, svc.get("id"), errors)
+            token = data.get("token_bootstrap") or {}
+            if token.get("status") == "operational":
+                evidence = token.get("verification") or {}
+                if not evidence.get("observed"):
+                    errors.append("服务块 %s 的 token_bootstrap 声称 operational 但无观测证据" % svc.get("id"))
+                served = svc.get("token_bootstrap") or {}
+                if not (served.get("verification") or {}).get("observed_count"):
+                    errors.append("服务块 %s 未携带 token_bootstrap 观测证据" % svc.get("id"))
 
     onboarding = index.get("onboarding") or {}
     for field in ("automation_levels", "steps", "acceptance", "block_codes", "drift"):
@@ -293,6 +396,145 @@ def check_regions(index, items, errors):
     if counts := index.get("counts") or {}:
         if counts.get("onboarding_steps") != len(step_ids):
             errors.append("counts.onboarding_steps 与实际步骤数不一致")
+
+
+
+def check_anonymous_proposal(svc, data, errors):
+    sid = svc.get("id")
+    proposal = (data.get("auth") or {}).get("anonymous_proposal") or {}
+    block = svc.get("anonymous_proposal") or {}
+    if not proposal:
+        if block:
+            errors.append("服务块 %s 输出 anonymous_proposal 但 descriptor 未声明" % sid)
+        return
+    if not block:
+        errors.append("服务块 %s 缺少 anonymous_proposal（descriptor 已声明）" % sid)
+        return
+    if block.get("schema") != ANON_PROPOSAL_SCHEMA:
+        errors.append("服务块 %s 的 anonymous_proposal.schema 非法" % sid)
+    if block.get("status") not in ("pending_service_change", "verified"):
+        errors.append("服务块 %s 的 anonymous_proposal.status 非法" % sid)
+    if block.get("status") != proposal.get("status"):
+        errors.append("服务块 %s 的 anonymous_proposal.status 与 descriptor 不一致" % sid)
+    if block.get("endpoint") != "POST /v1/proposals":
+        errors.append("服务块 %s 的 anonymous_proposal.endpoint 非法" % sid)
+    if list(block.get("allowed_status") or []) != ["pending"]:
+        errors.append("服务块 %s 的 anonymous_proposal.allowed_status 必须是 ['pending']" % sid)
+    fields = set(block.get("required_fields") or [])
+    for field in ANON_PROPOSAL_REQUIRED_FIELDS:
+        if field not in fields:
+            errors.append("服务块 %s 的 anonymous_proposal.required_fields 缺少 %s" % (sid, field))
+    gates = block.get("gates") or {}
+    for gate in ANON_PROPOSAL_GATES:
+        if not gates.get(gate):
+            errors.append("服务块 %s 的 anonymous_proposal.gates 缺少 %s" % (sid, gate))
+    forbidden = set(block.get("forbidden") or [])
+    for action in ANON_PROPOSAL_FORBIDDEN:
+        if action not in forbidden:
+            errors.append("服务块 %s 的 anonymous_proposal.forbidden 缺少 %s" % (sid, action))
+    if not (block.get("service_change") or {}).get("required"):
+        errors.append("服务块 %s 的 anonymous_proposal 缺少 service_change" % sid)
+    if not (proposal.get("service_change") or {}).get("required"):
+        errors.append("服务块 %s 的 descriptor anonymous_proposal 缺少 service_change" % sid)
+
+
+def check_anonymous_scope(data, sid, errors):
+    apis = data.get("api") or []
+    anon = (data.get("auth") or {}).get("anonymous_read") or {}
+    if anon:
+        declared = {
+            "%s %s" % (api.get("method"), api.get("path"))
+            for api in apis
+            if (api.get("scope") or "") == "anonymous"
+            and (api.get("method") or "").upper() == "GET"
+        }
+        if declared != set(anon.get("public_api") or []):
+            errors.append(
+                "服务块 %s 的 anonymous_read.public_api 与 api[] 匿名 GET 条目不一致" % sid
+            )
+    posts = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in apis
+        if (api.get("scope") or "") == "anonymous"
+        and (api.get("method") or "").upper() == "POST"
+    }
+    proposal = (data.get("auth") or {}).get("anonymous_proposal")
+    if proposal:
+        if proposal.get("endpoint") not in posts:
+            errors.append(
+                "服务块 %s 的 anonymous_proposal.endpoint 未在 api[] 标记 scope=anonymous" % sid
+            )
+    elif posts:
+        errors.append("服务块 %s 存在匿名 POST 接口但未声明 anonymous_proposal" % sid)
+
+def check_service_discovery(svc, errors):
+    sid = svc.get("id")
+    discovery = svc.get("discovery") or {}
+    for key in ("canonical", "resolution", "node_profiles", "redaction"):
+        if key not in discovery:
+            errors.append("服务块 %s 的 discovery 缺少 %s" % (sid, key))
+    canonical = discovery.get("canonical") or {}
+    for key in (
+        "node_name",
+        "port",
+        "scheme",
+        "entry_kind",
+        "fixed_entry_present",
+        "fixed_entry_ref",
+    ):
+        if key not in canonical:
+            errors.append("服务块 %s 的 discovery.canonical 缺少 %s" % (sid, key))
+    entry_kind = canonical.get("entry_kind")
+    if entry_kind not in ENTRY_KINDS:
+        errors.append("服务块 %s 的 discovery.canonical.entry_kind 非法" % sid)
+    if entry_kind == "fixed-ip":
+        if "endpoint" in canonical:
+            errors.append("fixed-ip 服务块 %s 的 canonical 不得含 endpoint" % sid)
+    elif "endpoint" not in canonical:
+        errors.append("服务块 %s 的 discovery.canonical 缺少 endpoint" % sid)
+    resolution = discovery.get("resolution") or {}
+    if resolution.get("order") != ["node_profile", "canonical"]:
+        errors.append("服务块 %s 的 discovery.resolution.order 非法" % sid)
+    profiles = discovery.get("node_profiles") or []
+    if not profiles:
+        errors.append("服务块 %s 的 discovery.node_profiles 不能为空" % sid)
+    for profile in profiles:
+        for key in ("node", "verified", "receipt", "scope"):
+            if key not in profile:
+                errors.append("服务块 %s 的 node_profiles 缺少 %s" % (sid, key))
+        if "verified_endpoint" in profile:
+            errors.append("服务块 %s 的 node_profiles 不得含 verified_endpoint" % sid)
+    internal = (discovery.get("redaction") or {}).get("internal_only_fields") or []
+    for field in ("discovery.canonical.fixed_entry", "discovery.node_profiles[].verified_endpoint"):
+        if field not in internal:
+            errors.append("服务块 %s 的 discovery.redaction.internal_only_fields 缺少 %s" % (sid, field))
+
+
+def check_failure_taxonomy(index, errors):
+    rules = ((index.get("system") or {}).get("failure_taxonomy")) or []
+    codes = [rule.get("code") for rule in rules]
+    if len(codes) != len(set(codes)):
+        errors.append("failure_taxonomy 存在重复 code")
+    for rule in rules:
+        for key in ("code", "when", "action"):
+            if not rule.get(key):
+                errors.append("failure_taxonomy 条目缺少 %s" % key)
+        if not isinstance(rule.get("stop"), bool):
+            errors.append("failure_taxonomy %s 的 stop 必须是布尔" % rule.get("code"))
+    onboarding_codes = {
+        code.get("code") for code in ((index.get("onboarding") or {}).get("block_codes") or [])
+    }
+    for code in codes:
+        if code not in onboarding_codes:
+            errors.append("failure_taxonomy 的 %s 未登记在 onboarding.block_codes" % code)
+
+
+def check_json_literals(index, errors):
+    blob = json.dumps(index, ensure_ascii=False)
+    if RFC1918.search(blob):
+        errors.append("index.json 含私网地址字面量")
+    if LEGACY_ENTRY.search(blob):
+        errors.append("index.json 含已失效旧入口（应为固定入口 endpoint_ref）")
 
 
 def check_index_urls(index, errors):
@@ -332,6 +574,8 @@ def check_markdown(out_dir, index, errors):
         errors.append("index.md 含裸哈希串 %d 处（应只保留短前缀）" % len(hits))
     if RFC1918.search(text):
         errors.append("index.md 含私网地址字面量")
+    if LEGACY_ENTRY.search(text):
+        errors.append("index.md 含已失效旧入口（应为固定入口占位文本）")
 
     headings = re.findall(r"^# (.+)$", text, re.M)
     regions = index.get("navigation") or []
@@ -541,6 +785,7 @@ def main(argv=None):
         index = load(out_dir / "index.json")
         manifest = load(out_dir / "manifest.json")
         items = check_index(index, errors) or []
+        check_json_literals(index, errors)
         check_regions(index, items, errors)
         check_index_urls(index, errors)
         check_markdown(out_dir, index, errors)

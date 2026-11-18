@@ -15,6 +15,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -111,7 +112,11 @@ class CatalogTest(unittest.TestCase):
         for svc in self.catalog["services"]:
             descriptor = read_descriptor(REPO_ROOT / svc["descriptor"])
             self.assertEqual(svc["id"], descriptor["id"])
-            self.assertNotRegex(descriptor["endpoint"], services.RFC1918)
+            canonical = descriptor["discovery"]["canonical"]
+            if canonical.get("entry_kind") == "fixed-ip":
+                self.assertIn(descriptor["endpoint"], build.APPROVED_INTERNAL_ENDPOINTS)
+            else:
+                self.assertNotRegex(descriptor["endpoint"], services.RFC1918)
 
     def test_onboarding_has_steps_acceptance_and_block_codes(self):
         onboarding = self.catalog["onboarding"]
@@ -267,11 +272,16 @@ class RenderTest(unittest.TestCase):
         for item in self.index["items"]:
             with self.subTest(item=item["id"]):
                 if item["status"] == "available":
-                    self.assertTrue(item["url"], item["id"])
-                    if item["kind"] == "service":
-                        self.assertTrue(item["url"].startswith("http"))
+                    if item["kind"] == "service" and item.get("entry_kind") == "fixed-ip":
+                        self.assertIsNone(item.get("url"))
+                        self.assertNotIn("endpoint", item)
+                        self.assertTrue(item.get("endpoint_ref"))
                     else:
-                        self.assertTrue(item["url"].startswith("https://"))
+                        self.assertTrue(item["url"], item["id"])
+                        if item["kind"] == "service":
+                            self.assertTrue(item["url"].startswith("http"))
+                        else:
+                            self.assertTrue(item["url"].startswith("https://"))
                     self.assertTrue(item["version"])
                 else:
                     self.assertIsNone(item["url"])
@@ -302,10 +312,18 @@ class RenderTest(unittest.TestCase):
         for block in self.index["system"]["services"]:
             descriptor = read_descriptor(REPO_ROOT / block["descriptor"])
             self.assertEqual(descriptor["version"], block["version"])
-            self.assertEqual(descriptor["endpoint"], block["endpoint"])
+            if block["entry_kind"] == "fixed-ip":
+                self.assertNotIn("endpoint", block)
+                self.assertNotIn("endpoint", block["discovery"]["canonical"])
+                self.assertEqual(
+                    "descriptor:%s#discovery.canonical.fixed_entry" % block["descriptor"],
+                    block["endpoint_ref"],
+                )
+            else:
+                self.assertEqual(descriptor["endpoint"], block["endpoint"])
+                self.assertNotRegex(block["endpoint"], services.RFC1918)
             self.assertTrue(block["auth"]["scopes"])
             self.assertTrue(block["verification"]["confirmed"])
-            self.assertNotRegex(block["endpoint"], services.RFC1918)
 
     def test_manifest_lists_index_files_with_digests(self):
         names = {item["path"] for item in self.manifest["files"]}
@@ -361,6 +379,16 @@ class RenderTest(unittest.TestCase):
         planned = [item for item in self.index["items"] if item["status"] == "planned"]
         self.assertTrue(planned)
         self.assertIn("规划中", self.markdown)
+
+    def test_no_legacy_entry_in_generated_artifacts(self):
+        legacy = "http://bszT14:" + "8091"
+        blobs = [
+            self.markdown,
+            (self.out / "index.json").read_text(encoding="utf-8"),
+            (self.out / "manifest.json").read_text(encoding="utf-8"),
+        ]
+        for blob in blobs:
+            self.assertNotIn(legacy, blob)
 
     def test_markdown_documents_workdirs(self):
         self.assertIn("tasks", self.markdown)
@@ -459,8 +487,8 @@ class ServiceGateTest(unittest.TestCase):
         receipt = {
             "schema": "ark.service-probe.v1",
             "service": "svc.knowledge-service",
-            "endpoint": "http://bszT14:8091",
-            "contract_version": "1.0.0",
+            "endpoint": "http://10.11.63.42:8091",
+            "contract_version": read_descriptor(KB_DESCRIPTOR)["version"],
             "ok": True,
             "checks": [{"id": "health", "http": 200, "ok": True}],
             "note": "fixture",
@@ -499,9 +527,52 @@ class GateTest(unittest.TestCase):
             out = Path(tmp)
             build.render(read_catalog(), FAKE_COMMIT, FAKE_TIME, out)
             targets = [str(out / name) for name in ("index.md", "index.json", "manifest.json")]
-            targets += [str(CATALOG_PATH), str(STORAGE_DESCRIPTOR), str(KB_DESCRIPTOR)]
+            targets.append(str(CATALOG_PATH))
             code, out_text, err = run(TOOLS / "secret_scan.py", targets)
             self.assertEqual(0, code, out_text + err)
+
+    def test_descriptors_only_hold_approved_internal_literals(self):
+        for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):
+            data = read_descriptor(path)
+            canonical = (data.get("discovery") or {}).get("canonical") or {}
+            fixed_ip_paths = (
+                ("endpoint", "discovery.canonical.endpoint")
+                if canonical.get("entry_kind") == "fixed-ip"
+                else ()
+            )
+            for json_path, ip in build.iter_internal_literals(data):
+                with self.subTest(descriptor=path.name, path=json_path):
+                    self.assertTrue(
+                        json_path.endswith(build.INTERNAL_PATH_SUFFIXES)
+                        or json_path in fixed_ip_paths
+                    )
+                    self.assertIn(ip, build.APPROVED_INTERNAL_HOSTS)
+
+    def test_no_legacy_entry_in_repo_sources(self):
+        legacy = "http://bszT14:" + "8091"
+        proc = subprocess.run(
+            ["git", "ls-files"],
+            cwd=str(REPO_ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr.decode("utf-8", "replace"))
+        skip_prefixes = ("result/", "receipts/", "logs/")
+        skip_exact = {"docs/migration-20261118-knowledge-entry.md"}
+        hits = []
+        for rel in proc.stdout.decode("utf-8").splitlines():
+            if rel in skip_exact or rel.startswith(skip_prefixes):
+                continue
+            path = REPO_ROOT / rel
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if legacy in text:
+                hits.append(rel)
+        self.assertEqual([], hits)
 
     def test_sources_pass_time_lint(self):
         targets = [
@@ -543,6 +614,331 @@ class GateTest(unittest.TestCase):
         source = (HERE / "publish-index.py").read_text(encoding="utf-8")
         self.assertIn("ACCESS_KEY_SECRET", source)
         self.assertNotIn("open(", source.split("def credentials")[1].split("def apply_plan")[0])
+
+
+class KnowledgeChainTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.catalog = read_catalog()
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.out = Path(cls.tmp.name)
+        build.render(cls.catalog, FAKE_COMMIT, FAKE_TIME, cls.out)
+        cls.index = json.loads((cls.out / "index.json").read_text(encoding="utf-8"))
+        cls.markdown = (cls.out / "index.md").read_text(encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def _validate_temp_tree(self, mutate):
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / "templates" / "noahsark-index" / "services").mkdir(parents=True)
+            catalog = copy.deepcopy(self.catalog)
+            descriptors = {
+                "templates/noahsark-index/services/storage-service.json": read_descriptor(
+                    STORAGE_DESCRIPTOR
+                ),
+                "templates/noahsark-index/services/knowledge-service.json": read_descriptor(
+                    KB_DESCRIPTOR
+                ),
+            }
+            mutate(catalog, descriptors)
+            (root / "templates/noahsark-index/catalog.json").write_text(
+                json.dumps(catalog, ensure_ascii=False), encoding="utf-8"
+            )
+            for rel, data in descriptors.items():
+                (root / rel).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            saved = build.REPO_ROOT
+            build.REPO_ROOT = root
+            try:
+                return build.validate_catalog(catalog)
+            finally:
+                build.REPO_ROOT = saved
+        finally:
+            shutil.rmtree(str(root), ignore_errors=True)
+
+    def test_versions_match_contract(self):
+        self.assertEqual("2.3.0", self.catalog["version"])
+        self.assertEqual("1.1.1", read_descriptor(STORAGE_DESCRIPTOR)["version"])
+        self.assertEqual("1.3.0", read_descriptor(KB_DESCRIPTOR)["version"])
+
+    def test_knowledge_canonical_uses_fixed_entry(self):
+        canonical = read_descriptor(KB_DESCRIPTOR)["discovery"]["canonical"]
+        self.assertEqual("http://10.11.63.42:8091", canonical["endpoint"])
+        self.assertEqual("fixed-ip", canonical["entry_kind"])
+
+    def test_generated_service_uses_endpoint_ref(self):
+        block = next(
+            s for s in self.index["system"]["services"] if s["id"] == "svc.knowledge-service"
+        )
+        self.assertEqual("fixed-ip", block["entry_kind"])
+        self.assertIn("endpoint_ref", block)
+        self.assertNotIn("endpoint", block)
+        blob = json.dumps(block, ensure_ascii=False)
+        self.assertNotIn("10.11.63.42", blob)
+        self.assertNotIn("bszT14:" + "8091", blob)
+
+    def test_descriptors_have_all_three_contracts(self):
+        for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):
+            descriptor = read_descriptor(path)
+            with self.subTest(descriptor=path.name):
+                self.assertEqual(
+                    "ark.service-discovery.v1", descriptor["discovery"]["schema"]
+                )
+                self.assertEqual(
+                    "ark.token-bootstrap.v1", descriptor["token_bootstrap"]["schema"]
+                )
+                self.assertEqual(
+                    "ark.service-health.v1", descriptor["health_contract"]["schema"]
+                )
+
+    def test_pvm1003_uses_measured_storage_endpoint(self):
+        descriptor = read_descriptor(STORAGE_DESCRIPTOR)
+        discovery = descriptor["discovery"]
+        profiles = {p["node"]: p for p in discovery["node_profiles"]}
+        endpoint = profiles["pvm1003"]["verified_endpoint"]
+        self.assertEqual("http://10.210.8.205:8090", endpoint)  # noqa: secret-scan
+        self.assertIn("pvm1003", discovery["vm_boundary"]["nodes"])
+
+    def test_generated_artifacts_have_no_rfc1918(self):
+        for blob in (self.markdown, json.dumps(self.index, ensure_ascii=False)):
+            self.assertIsNone(build.RFC1918.search(blob))
+
+    def test_service_node_profiles_strip_verified_endpoint(self):
+        for service in self.index["system"]["services"]:
+            self.assertTrue(service["discovery"]["node_profiles"])
+            for profile in service["discovery"]["node_profiles"]:
+                self.assertNotIn("verified_endpoint", profile)
+                self.assertTrue(profile["verified"])
+            canonical = service["discovery"]["canonical"]
+            self.assertTrue(canonical["fixed_entry_present"])
+            self.assertEqual(
+                "descriptor:discovery.canonical.fixed_entry", canonical["fixed_entry_ref"]
+            )
+
+    def test_failure_taxonomy_has_required_codes(self):
+        codes = {rule["code"] for rule in self.index["system"]["failure_taxonomy"]}
+        for code in (
+            "BLOCKED_STORAGE_AUTH",
+            "BLOCKED_KB_AUTH",
+            "STALE_INDEX",
+            "EVIDENCE_GAP",
+            "SOURCE_MISSING",
+            "SERVICE_DISCOVERY_DRIFT",
+            "BLOCKED_KB_BOOTSTRAP_PARITY",
+        ):
+            self.assertIn(code, codes)
+
+    def test_knowledge_loop_has_nine_unique_steps(self):
+        loop = self.catalog["knowledge_loop"]
+        ids = [step["id"] for step in loop]
+        self.assertEqual(9, len(loop))
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual("evidence.produce", ids[0])
+        self.assertEqual("kb.reuse", ids[-1])
+
+    def test_unapproved_fixed_entry_fails_build(self):
+        def mutate(_catalog, descriptors):
+            storage = descriptors["templates/noahsark-index/services/storage-service.json"]
+            storage["discovery"]["canonical"]["fixed_entry"] = "http://10.1.2.3:8090"  # noqa: secret-scan
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("未批准的固定入口" in err for err in errors), errors)
+
+    def test_private_literal_outside_allowlist_fails_build(self):
+        def mutate(_catalog, descriptors):
+            storage = descriptors["templates/noahsark-index/services/storage-service.json"]
+            storage["discovery"]["node_profiles"][0]["note"] = "10.9.9.9"  # noqa: secret-scan
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("私网字面量" in err for err in errors), errors)
+
+    def test_write_path_rule_says_health_is_not_write_proof(self):
+        for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):
+            descriptor = read_descriptor(path)
+            self.assertIn("写链路", descriptor["health_contract"]["write_path_rule"])
+
+    def test_check_services_passes_in_repo(self):
+        code, stdout, stderr = run(
+            HERE / "check-services.py", ["--check", "--dir", str(self.out)]
+        )
+        self.assertEqual(0, code, stdout + stderr)
+
+    def test_storage_token_bootstrap_is_operational(self):
+        token = read_descriptor(STORAGE_DESCRIPTOR)["token_bootstrap"]
+        self.assertEqual("one-time-secret", token["mode"])
+        self.assertEqual("operational", token["status"])
+        self.assertTrue(token["bootstrap_api"])
+        evidence = token.get("verification") or {}
+        self.assertEqual("ark.token-bootstrap.verification.v1", evidence["schema"])
+        self.assertGreaterEqual(len(evidence.get("observed") or []), 4)
+        blob = json.dumps(token, ensure_ascii=False)
+        for api in (
+            "POST /storage/v1/bootstrap/token",
+            "POST /storage/v1/tokens/rotate",
+            "POST /storage/v1/tokens/revoke",
+            "GET /storage/v1/tokens/status",
+        ):
+            self.assertIn(api, blob)
+
+    def test_kb_token_bootstrap_stays_admin_provisioned(self):
+        token = read_descriptor(KB_DESCRIPTOR)["token_bootstrap"]
+        self.assertEqual("admin-provisioned", token["mode"])
+        self.assertEqual("partial", token["status"])
+        self.assertFalse(token["bootstrap_api"])
+        self.assertEqual(["write"], token["minimum_scopes"])
+        self.assertEqual("BLOCKED_KB_BOOTSTRAP_PARITY", token["parity"]["gap"])
+        blob = json.dumps(token, ensure_ascii=False)
+        self.assertIn("不互通", blob)
+
+    def test_kb_anonymous_read_contract(self):
+        anon = read_descriptor(KB_DESCRIPTOR)["auth"]["anonymous_read"]
+        self.assertEqual("ark.service-anonymous-read.v1", anon["schema"])
+        self.assertIn(anon["status"], ("pending_service_change", "verified"))
+        if anon["status"] == "verified":
+            evidence = anon.get("verified_20261118") or {}
+            self.assertEqual("verified", evidence.get("state"))
+            self.assertTrue(evidence.get("receipt"))
+            self.assertTrue(evidence.get("checks"))
+        public = set(anon["public_api"])
+        protected = set(anon["protected_api"])
+        self.assertFalse(public & protected)
+        self.assertIn("GET /v1/search", public)
+        self.assertIn("GET /v1/sync/status", public)
+        self.assertNotIn("POST /v1/proposals", protected)
+        self.assertIn("POST /v1/webhook/github", protected)
+        declared = {
+            "%s %s" % (api["method"], api["path"])
+            for api in read_descriptor(KB_DESCRIPTOR)["api"]
+            if api.get("scope") == "anonymous" and api["method"] == "GET"
+        }
+        self.assertEqual(public, declared)
+        self.assertTrue(anon["service_change"]["required"])
+        self.assertEqual("docs/kb-anonymous-read-change.md", anon["service_change"]["doc"])
+
+    def test_catalog_registers_anonymous_read_gate(self):
+        codes = {item["code"] for item in self.catalog["failure_taxonomy"]}
+        self.assertIn("BLOCKED_KB_ANON_READ", codes)
+        gates = " ".join(g["failure"] for g in self.catalog["gates"])
+        self.assertIn("BLOCKED_KB_ANON_READ", gates)
+        accepted = {a["id"] for a in self.catalog["onboarding"]["acceptance"]}
+        self.assertIn("ACCEPT_KB_ANON_READ", accepted)
+        blocked = {c["code"] for c in self.catalog["onboarding"]["block_codes"]}
+        self.assertIn("BLOCKED_KB_ANON_READ", blocked)
+
+    def test_knowledge_loop_verify_step_is_anonymous(self):
+        step = next(s for s in self.catalog["knowledge_loop"] if s["id"] == "kb.verify")
+        self.assertIn("匿名", step["detail"])
+
+    def test_generated_index_has_no_bearer_value(self):
+        blob = (self.out / "index.json").read_text(encoding="utf-8")
+        self.assertNotIn("Bearer ", blob)
+        for path in (self.out / "index.md", self.out / "index.json", self.out / "manifest.json"):
+            text = path.read_text(encoding="utf-8")
+            self.assertFalse(
+                re.search(r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}", text), path.name
+            )
+
+    def test_unapproved_token_mode_fails_build(self):
+        def mutate(catalog, descriptors):
+            descriptors["templates/noahsark-index/services/storage-service.json"][
+                "token_bootstrap"
+            ]["mode"] = "self-managed"
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("mode 非法" in err for err in errors), errors)
+
+    def test_kb_anonymous_proposal_contract(self):
+        proposal = read_descriptor(KB_DESCRIPTOR)["auth"]["anonymous_proposal"]
+        self.assertEqual("ark.service-anonymous-proposal.v1", proposal["schema"])
+        self.assertIn(proposal["status"], ("pending_service_change", "verified"))
+        if proposal["status"] == "verified":
+            evidence = proposal.get("verified_20261118") or {}
+            self.assertEqual("verified", evidence.get("state"))
+            self.assertTrue(evidence.get("receipt"))
+            self.assertTrue(evidence.get("checks"))
+        self.assertEqual("POST /v1/proposals", proposal["endpoint"])
+        self.assertEqual(["pending"], proposal["allowed_status"])
+        self.assertEqual(
+            {"lan_source", "evidence", "idempotency", "status", "quota", "audit"},
+            set(proposal["gates"]),
+        )
+        for action in ("review", "close", "promote", "sync", "admin"):
+            self.assertIn(action, proposal["forbidden"])
+        fields = set(proposal["required_fields"])
+        for field in (
+            "provenance.issue",
+            "provenance.run",
+            "provenance.agent",
+            "provenance.node",
+            "evidence[].kind",
+            "evidence[].ref",
+            "evidence[].bytes",
+            "evidence[].sha256",
+            "request_id",
+            "idempotency_key",
+        ):
+            self.assertIn(field, fields)
+
+    def test_anonymous_proposal_scope_and_read_consistency(self):
+        descriptor = read_descriptor(KB_DESCRIPTOR)
+        apis = descriptor["api"]
+        post = next(a for a in apis if a["method"] == "POST" and a["path"] == "/v1/proposals")
+        self.assertEqual("anonymous", post["scope"])
+        proposal = descriptor["auth"]["anonymous_proposal"]
+        self.assertEqual("%s %s" % (post["method"], post["path"]), proposal["endpoint"])
+        public = set(descriptor["auth"]["anonymous_read"]["public_api"])
+        get_anon = {
+            "%s %s" % (a["method"], a["path"]) for a in apis if a["scope"] == "anonymous" and a["method"] == "GET"
+        }
+        self.assertEqual(public, get_anon)
+
+    def test_catalog_registers_anonymous_proposal_gate(self):
+        codes = {item["code"] for item in self.catalog["failure_taxonomy"]}
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", codes)
+        gate = next(g for g in self.catalog["gates"] if g["gate"] == "只读公开边界")
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", gate["failure"])
+        self.assertIn("BLOCKED_KB_ANON_READ", gate["failure"])
+        accepted = {a["id"] for a in self.catalog["onboarding"]["acceptance"]}
+        self.assertIn("ACCEPT_KB_ANON_PROPOSAL", accepted)
+        blocked = {c["code"] for c in self.catalog["onboarding"]["block_codes"]}
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", blocked)
+        step = next(
+            s for s in self.catalog["onboarding"]["steps"] if s["id"] == "knowledge.connect"
+        )
+        self.assertIn("ACCEPT_KB_ANON_PROPOSAL", step["acceptance"])
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", step["block_codes"])
+        security = " ".join(self.catalog["security"])
+        self.assertIn("匿名 proposal", security)
+
+    def test_anonymous_proposal_verified_without_service_change_fails_build(self):
+        def mutate(_catalog, descriptors):
+            proposal = descriptors[
+                "templates/noahsark-index/services/knowledge-service.json"
+            ]["auth"]["anonymous_proposal"]
+            proposal["status"] = "verified"
+            proposal.pop("service_change", None)
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("service_change" in err for err in errors), errors)
+
+    def test_generated_artifacts_have_no_private_literal_and_versions_match(self):
+        catalog = read_catalog()
+        self.assertEqual("2.3.0", catalog["version"])
+        self.assertEqual("1.3.0", read_descriptor(KB_DESCRIPTOR)["version"])
+        entry = next(
+            e
+            for g in catalog["groups"]
+            for e in g["entries"]
+            if e.get("id") == "svc.knowledge-service"
+        )
+        self.assertEqual("1.3.0", entry["version"])
+        for name in ("index.md", "index.json", "manifest.json"):
+            text = (self.out / name).read_text(encoding="utf-8")
+            self.assertFalse(
+                re.search(r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}", text), name
+            )
 
 
 if __name__ == "__main__":
