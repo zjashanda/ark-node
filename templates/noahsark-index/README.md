@@ -26,6 +26,7 @@ https://listenai-test-internal.oss-cn-beijing.aliyuncs.com/noahsark/index.md
 - `manifest.json` —— 根索引自身的版本、提交号、区域与服务摘要、两个文件的校验值与生成时间。
 
 - 服务契约新增三类机器可读块：`discovery`（canonical/节点 profile/VM 边界）、`token_bootstrap`（每节点凭据与 scope）、`health_contract`（探针、source/indexed、degraded）；固定入口只留在 descriptor。
+- `discovery.canonical.entry_kind` 决定生成物形态：`node-name` 输出 `endpoint` 字面量；`fixed-ip` 不输出地址，只输出 `endpoint_ref`（`descriptor:<相对路径>#discovery.canonical.fixed_entry`），markdown 渲染为「固定入口（节点侧登记）」。
 - `failure_taxonomy` 与 9 步 `knowledge_loop` 进入索引：失败码 → 触发条件 → 处理 → 是否停止。
 - `build-index.py` 写盘前做最终防线：`index.md`/`index.json` 命中 RFC1918 即失败；`verify-index.py` 再校验一次。
 - `check-services.py --probe --node <node>` 按节点 profile 探测；`--check` 同时报 `SERVICE_DISCOVERY_DRIFT`。
@@ -120,7 +121,7 @@ python3 templates/noahsark-index/verify-index.py --online
 - `status` 只有 `available` / `planned`。**没发布的东西必须是 `planned`**，且不得带 `oss`、`git`、`descriptor`、`version` —— 校验器会直接拒绝，避免死链。
 - `local` 指向仓库内同名文件时，生成器会现算 sha256，并与 `templates/agents/manifest.json` 交叉核对；两边不一致即失败。
 - `git` 条目写 `zjashanda/<repo>`，可选 `file` 生成 blob 链接。
-- 服务条目的 `version`、`endpoint`、`host.name`、`host.port` 必须与 `services/*.json` 逐字一致；endpoint 只允许可解析节点名，出现 RFC1918 字面量直接失败。
+- 服务条目的 `version` 必须与 `services/*.json` 逐字一致。地址规则按 `discovery.canonical.entry_kind` 分流：`node-name` 要求 `endpoint` 为可解析节点名且 `host.name` 是其子串；`fixed-ip` 要求 `endpoint` 是已批准固定入口且 `host.name == canonical.node_name`。生成物对 `fixed-ip` 只写 `endpoint_ref`，出现 RFC1918 或旧入口字面量直接失败。
 - `requires` 必须指向存在的 id，且不许成环。
 - 分组必须声明 `region: system|onboarding`；`onboarding.steps` 引用的验收项与阻塞码必须已登记。
 

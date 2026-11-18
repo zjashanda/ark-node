@@ -2,17 +2,18 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.1.0",
-  "endpoint": "http://bszT14:8091",
+  "version": "1.1.1",
+  "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
     "port": 8091,
     "scheme": "http",
+    "entry_kind": "fixed-ip",
     "bind": "0.0.0.0",
     "scope": "internal",
     "service_dir": "/home/zhsh/workspace/services/noahsark-knowledge/",
     "manage": "user systemd noahsark-knowledge，enabled + Linger=yes，Restart=on-failure",
-    "address_note": "对外只写可解析节点名 bszT14；内网地址只写在节点侧部署回执里，不复制 RFC1918 地址，不在索引里回填 IP。"
+    "address_note": "8091 使用已批准固定入口；对外生成物只写固定入口（节点侧登记）与 endpoint_ref，不复制 RFC1918 地址，不在索引里回填 IP。"
   },
   "runtime": {
     "artifact": "arkks（canonical 源码树）",
@@ -37,15 +38,16 @@
     "schema": "ark.service-discovery.v1",
     "canonical": {
       "node_name": "bszT14",
-      "endpoint": "http://bszT14:8091",
+      "endpoint": "http://10.11.63.42:8091",
+      "entry_kind": "fixed-ip",
       "port": 8091,
       "scheme": "http",
       "scope": "global",
-      "public_display": "http://bszT14:8091",
+      "public_display": "bszT14 端口 8091 固定入口（节点侧登记）",
       "fixed_entry": "http://10.11.63.42:8091",
       "fixed_entry_since": "2026-11-18",
       "fixed_entry_approval": "Stage 4 / NOAH-191（郑保山确认固定入口）",
-      "fixed_entry_usage": "仅在节点无法解析 bszT14 时兜底；不进 index/OSS，不写入其他节点 profile。"
+      "fixed_entry_usage": "8091 的 canonical 即已批准固定入口；旧节点名入口已失效，不保留 alias 与 fallback；地址只登记在本 descriptor，生成物剥离。"
     },
     "resolution": {
       "schema": "ark.service-discovery.resolution.v1",
@@ -54,7 +56,8 @@
         "canonical"
       ],
       "rule": "解析顺序固定为 node_profile → canonical：先取本节点 profile 的 verified_endpoint（本机实测、有回执），没有 profile 才用 canonical.endpoint。profile 是节点局部事实，只在本节点生效，不得回写 canonical，也不得复制到其他节点。",
-      "fixed_entry_rule": "固定入口只在节点侧 profile 里出现一次；出现解析差异按 SERVICE_DISCOVERY_DRIFT 处理，不静默改 canonical。"
+      "fixed_entry_rule": "8091 的固定入口同时是 canonical；出现解析差异按 SERVICE_DISCOVERY_DRIFT 处理，不静默改 canonical。",
+      "entry_kind_rule": "8091 canonical 直接使用固定入口，旧节点名入口已失效，不得回退。"
     },
     "node_profiles": [
       {

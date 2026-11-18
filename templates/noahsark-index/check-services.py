@@ -131,13 +131,15 @@ def check_discovery_drift(descriptor):
         errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 canonical.node_name 与 host.name 不一致" % sid)
     if canonical.get("port") != host.get("port"):
         errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 canonical.port 与 host.port 不一致" % sid)
-    for profile in discovery.get("node_profiles") or []:
-        node = profile.get("node")
-        verified = profile.get("verified_endpoint")
-        if verified and verified == canonical.get("endpoint") and node != canonical.get("node_name"):
-            errors.append(
-                "SERVICE_DISCOVERY_DRIFT：%s 的节点 %s profile 被复制成 canonical.endpoint" % (sid, node)
-            )
+    entry_kind = canonical.get("entry_kind") or "node-name"
+    if entry_kind != "fixed-ip":
+        for profile in discovery.get("node_profiles") or []:
+            node = profile.get("node")
+            verified = profile.get("verified_endpoint")
+            if verified and verified == canonical.get("endpoint") and node != canonical.get("node_name"):
+                errors.append(
+                    "SERVICE_DISCOVERY_DRIFT：%s 的节点 %s profile 被复制成 canonical.endpoint" % (sid, node)
+                )
     return errors
 
 
@@ -151,10 +153,16 @@ def check_drift(entry, descriptor):
         )
     endpoint = str(descriptor.get("endpoint") or "")
     host = descriptor.get("host") or {}
-    if RFC1918.search(endpoint):
-        errors.append("endpoint 含私网地址字面量：%s" % entry.get("id"))
-    if host.get("name") and host["name"] not in endpoint:
-        errors.append("endpoint 未使用可解析节点名：%s" % entry.get("id"))
+    canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+    entry_kind = canonical.get("entry_kind") or "node-name"
+    if entry_kind == "fixed-ip":
+        if endpoint != canonical.get("fixed_entry"):
+            errors.append("fixed-ip endpoint 与 canonical.fixed_entry 不一致：%s" % entry.get("id"))
+    else:
+        if RFC1918.search(endpoint):
+            errors.append("endpoint 含私网地址字面量：%s" % entry.get("id"))
+        if host.get("name") and host["name"] not in endpoint:
+            errors.append("endpoint 未使用可解析节点名：%s" % entry.get("id"))
     match = re.search(r":(\d{1,5})$", endpoint)
     if match and host.get("port") and int(match.group(1)) != int(host["port"]):
         errors.append("端口漂移：endpoint 端口与 host.port 不一致（%s）" % entry.get("id"))
@@ -198,7 +206,17 @@ def check_rendered(build_dir, catalog, pairs, errors):
             errors.append("index.json 的 system.services 缺少 %s" % sid)
             continue
         block = services[sid]
-        if block.get("endpoint") != descriptor.get("endpoint"):
+        canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+        entry_kind = canonical.get("entry_kind") or "node-name"
+        if block.get("entry_kind") != entry_kind:
+            errors.append("index.json 服务 entry_kind 漂移: %s" % sid)
+        if entry_kind == "fixed-ip":
+            expected_ref = "descriptor:%s#discovery.canonical.fixed_entry" % rel
+            if block.get("endpoint_ref") != expected_ref:
+                errors.append("index.json 固定入口 endpoint_ref 漂移: %s" % sid)
+            if block.get("endpoint"):
+                errors.append("index.json fixed-ip 服务不得输出 endpoint: %s" % sid)
+        elif block.get("endpoint") != descriptor.get("endpoint"):
             errors.append("index.json 服务地址漂移: %s" % sid)
         if block.get("version") != descriptor.get("version"):
             errors.append("index.json 服务版本漂移: %s" % sid)
@@ -211,7 +229,14 @@ def check_rendered(build_dir, catalog, pairs, errors):
     if markdown.exists():
         text = markdown.read_text(encoding="utf-8")
         for entry, descriptor, _rel in pairs:
-            if descriptor.get("endpoint") and descriptor["endpoint"] not in text:
+            canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+            entry_kind = canonical.get("entry_kind") or "node-name"
+            if entry_kind == "fixed-ip":
+                if descriptor.get("endpoint") and descriptor["endpoint"] in text:
+                    errors.append("index.md 不得出现固定入口地址字面量: %s" % entry["id"])
+                if "固定入口（节点侧登记）" not in text:
+                    errors.append("index.md 缺少固定入口占位文本: %s" % entry["id"])
+            elif descriptor.get("endpoint") and descriptor["endpoint"] not in text:
                 errors.append("index.md 缺少服务地址: %s" % entry["id"])
             if descriptor.get("host", {}).get("port") and str(descriptor["host"]["port"]) not in text:
                 errors.append("index.md 缺少服务端口: %s" % entry["id"])
@@ -250,7 +275,10 @@ def http_json(url, token, timeout=10):
 
 def resolve_probe_base(descriptor, node=None):
     if not node:
-        return str(descriptor.get("endpoint") or "").rstrip("/")
+        canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+        entry_kind = canonical.get("entry_kind") or "node-name"
+        base = canonical.get("endpoint") if entry_kind == "fixed-ip" else descriptor.get("endpoint")
+        return str(base or "").rstrip("/")
     profiles = (descriptor.get("discovery") or {}).get("node_profiles") or []
     for profile in profiles:
         if profile.get("node") == node:
@@ -397,10 +425,15 @@ def check_receipt(receipt_path, pairs, errors):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="NoahsArk 服务契约门禁与在线探测（--check 漂移 / --probe 在线 / --receipt 回执）",
+        description=(
+            "NoahsArk 服务契约门禁与在线探测（--check 漂移 / --probe 在线 / --receipt 回执）；"
+            "--json 输出含 entry_kind（node-name / fixed-ip）"
+        ),
         epilog=(
             "--node <name> 只用于 --probe：按 discovery.node_profiles 取该节点 verified_endpoint，"
-            "不存在的节点直接失败，不回退 canonical。失败码：SERVICE_DISCOVERY_DRIFT、"
+            "不存在的节点直接失败，不回退 canonical。"
+            "entry_kind=fixed-ip 时无 --node 的探测基址取 discovery.canonical.endpoint（固定入口）；"
+            "entry_kind=node-name 时取 descriptor.endpoint。失败码：SERVICE_DISCOVERY_DRIFT、"
             "BLOCKED_STORAGE_AUTH、BLOCKED_KB_AUTH、STALE_INDEX、EVIDENCE_GAP。"
         ),
     )
@@ -432,6 +465,7 @@ def main(argv=None):
                 {
                     "id": entry["id"],
                     "version": descriptor.get("version"),
+                    "entry_kind": canonical.get("entry_kind") or "node-name",
                     "endpoint": descriptor.get("endpoint"),
                     "verification": (descriptor.get("verification") or {}).get("state"),
                     "discovery": {

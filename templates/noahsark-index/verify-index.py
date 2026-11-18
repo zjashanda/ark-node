@@ -44,6 +44,9 @@ RFC1918 = re.compile(
     r"|172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3}"
     r"|192\.168\.(?:\d{1,3}\.)\d{1,3}"
 )
+LEGACY_ENTRY = re.compile(r"http://bszT14:" + "8091")
+ENDPOINT_REF = re.compile(r"^descriptor:templates/.*#discovery\.canonical\.fixed_entry$")
+ENTRY_KINDS = ("node-name", "fixed-ip")
 REQUIRED_ITEM_KEYS = (
     "id",
     "region",
@@ -151,7 +154,10 @@ def check_index(index, errors):
             errors.append("条目 %s 的 region 非法" % iid)
         if item.get("status") == "available":
             available += 1
-            if not item.get("url"):
+            if item.get("kind") == SERVICE_KIND:
+                if not item.get("url") and not item.get("endpoint_ref"):
+                    errors.append("可用服务条目 %s 缺少地址或 endpoint_ref" % iid)
+            elif not item.get("url"):
                 errors.append("可用条目 %s 缺少地址" % iid)
             if not item.get("version"):
                 errors.append("可用条目 %s 缺少版本" % iid)
@@ -170,12 +176,21 @@ def check_index(index, errors):
         if sha is not None and not re.match(r"^[0-9a-f]{64}$", sha):
             errors.append("条目 %s 的 sha256 格式非法" % iid)
         if item.get("kind") == SERVICE_KIND:
-            if not item.get("endpoint"):
-                errors.append("服务条目 %s 缺少 endpoint" % iid)
             if not item.get("descriptor"):
                 errors.append("服务条目 %s 缺少 descriptor" % iid)
-            if item.get("endpoint") and RFC1918.search(item["endpoint"]):
+            entry_kind = item.get("entry_kind")
+            if entry_kind not in ENTRY_KINDS:
+                errors.append("服务条目 %s 的 entry_kind 非法" % iid)
+            has_endpoint = bool(item.get("endpoint"))
+            has_ref = bool(item.get("endpoint_ref"))
+            if has_endpoint == has_ref:
+                errors.append("服务条目 %s 的 endpoint 与 endpoint_ref 必须恰有其一" % iid)
+            if has_endpoint and RFC1918.search(item["endpoint"]):
                 errors.append("服务条目 %s 的 endpoint 含私网地址字面量" % iid)
+            if has_ref and not ENDPOINT_REF.match(item["endpoint_ref"]):
+                errors.append("服务条目 %s 的 endpoint_ref 形态非法" % iid)
+            if entry_kind == "fixed-ip" and has_endpoint:
+                errors.append("fixed-ip 服务条目 %s 不得输出 endpoint" % iid)
         commit = item.get("source_commit")
         if commit is not None and not re.match(r"^[0-9a-f]{7,40}$", str(commit)):
             errors.append("条目 %s 的 source_commit 形态非法" % iid)
@@ -268,7 +283,7 @@ def check_regions(index, items, errors):
             "id",
             "title",
             "version",
-            "endpoint",
+            "entry_kind",
             "descriptor",
             "discovery",
             "token_bootstrap",
@@ -278,8 +293,19 @@ def check_regions(index, items, errors):
         ):
             if key not in svc:
                 errors.append("服务块 %s 缺少字段 %s" % (svc.get("id"), key))
-        if svc.get("endpoint") and RFC1918.search(svc["endpoint"]):
+        entry_kind = svc.get("entry_kind")
+        if entry_kind not in ENTRY_KINDS:
+            errors.append("服务块 %s 的 entry_kind 非法" % svc.get("id"))
+        has_endpoint = "endpoint" in svc
+        has_ref = "endpoint_ref" in svc
+        if has_endpoint == has_ref:
+            errors.append("服务块 %s 的 endpoint 与 endpoint_ref 必须恰有其一" % svc.get("id"))
+        if has_endpoint and RFC1918.search(svc["endpoint"]):
             errors.append("服务块 %s 的 endpoint 含私网地址字面量" % svc.get("id"))
+        if has_ref and not ENDPOINT_REF.match(str(svc["endpoint_ref"])):
+            errors.append("服务块 %s 的 endpoint_ref 形态非法" % svc.get("id"))
+        if entry_kind == "fixed-ip" and has_endpoint:
+            errors.append("fixed-ip 服务块 %s 不得输出 endpoint" % svc.get("id"))
         check_service_discovery(svc, errors)
         health = svc.get("health") or {}
         for key in ("path", "required_fields", "status_rule", "write_path_rule"):
@@ -294,7 +320,14 @@ def check_regions(index, items, errors):
                 errors.append("服务块 %s 与 descriptor.id 不一致" % svc.get("id"))
             if data.get("version") != svc.get("version"):
                 errors.append("服务块 %s 与 descriptor.version 不一致" % svc.get("id"))
-            if data.get("endpoint") != svc.get("endpoint"):
+            descriptor_kind = (
+                (data.get("discovery") or {}).get("canonical") or {}
+            ).get("entry_kind") or "node-name"
+            if descriptor_kind == "fixed-ip":
+                expected_ref = "descriptor:%s#discovery.canonical.fixed_entry" % svc.get("descriptor")
+                if svc.get("endpoint_ref") != expected_ref:
+                    errors.append("服务块 %s 与 descriptor 固定入口引用不一致" % svc.get("id"))
+            elif data.get("endpoint") != svc.get("endpoint"):
                 errors.append("服务块 %s 与 descriptor.endpoint 不一致" % svc.get("id"))
 
     onboarding = index.get("onboarding") or {}
@@ -330,9 +363,24 @@ def check_service_discovery(svc, errors):
         if key not in discovery:
             errors.append("服务块 %s 的 discovery 缺少 %s" % (sid, key))
     canonical = discovery.get("canonical") or {}
-    for key in ("node_name", "endpoint", "port", "scheme", "fixed_entry_present", "fixed_entry_ref"):
+    for key in (
+        "node_name",
+        "port",
+        "scheme",
+        "entry_kind",
+        "fixed_entry_present",
+        "fixed_entry_ref",
+    ):
         if key not in canonical:
             errors.append("服务块 %s 的 discovery.canonical 缺少 %s" % (sid, key))
+    entry_kind = canonical.get("entry_kind")
+    if entry_kind not in ENTRY_KINDS:
+        errors.append("服务块 %s 的 discovery.canonical.entry_kind 非法" % sid)
+    if entry_kind == "fixed-ip":
+        if "endpoint" in canonical:
+            errors.append("fixed-ip 服务块 %s 的 canonical 不得含 endpoint" % sid)
+    elif "endpoint" not in canonical:
+        errors.append("服务块 %s 的 discovery.canonical 缺少 endpoint" % sid)
     resolution = discovery.get("resolution") or {}
     if resolution.get("order") != ["node_profile", "canonical"]:
         errors.append("服务块 %s 的 discovery.resolution.order 非法" % sid)
@@ -374,6 +422,8 @@ def check_json_literals(index, errors):
     blob = json.dumps(index, ensure_ascii=False)
     if RFC1918.search(blob):
         errors.append("index.json 含私网地址字面量")
+    if LEGACY_ENTRY.search(blob):
+        errors.append("index.json 含已失效旧入口（应为固定入口 endpoint_ref）")
 
 
 def check_index_urls(index, errors):
@@ -413,6 +463,8 @@ def check_markdown(out_dir, index, errors):
         errors.append("index.md 含裸哈希串 %d 处（应只保留短前缀）" % len(hits))
     if RFC1918.search(text):
         errors.append("index.md 含私网地址字面量")
+    if LEGACY_ENTRY.search(text):
+        errors.append("index.md 含已失效旧入口（应为固定入口占位文本）")
 
     headings = re.findall(r"^# (.+)$", text, re.M)
     regions = index.get("navigation") or []

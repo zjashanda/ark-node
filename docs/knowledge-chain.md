@@ -1,7 +1,7 @@
 # 知识沉淀与复用链路
 
 本文是 8090 证据入口、8091 知识入口与 ark-kb 真源之间的一次任务闭环说明。机器可读契约在
-`templates/noahsark-index/services/*.json`，本文只解释字段语义与使用顺序，不复制内网地址与凭据。
+`templates/noahsark-index/services/*.json`，本文只解释字段语义与使用顺序，不展开节点侧内网地址清单与凭据。
 
 ## 1. 两条入口与解析规则
 
@@ -14,15 +14,22 @@
 服务发现固定按 `node_profile → canonical` 解析：
 
 1. 先取本节点 `discovery.node_profiles[]` 的 `verified_endpoint`；它是本机实测事实，带 `receipt`。
-2. 本节点没有 profile 时才用 `discovery.canonical.endpoint`（可解析节点名）。
+2. 本节点没有 profile 时才用 `discovery.canonical.endpoint`：`entry_kind=node-name` 时是可解析
+   节点名，`entry_kind=fixed-ip` 时是已批准固定入口。
 3. profile 只在所属节点生效，不得回写 canonical，也不得复制给其他节点。
 4. `canonical.fixed_entry` 是批准的固定入口，只登记在 descriptor；生成物必须剥离，出现即按
    `SERVICE_DISCOVERY_DRIFT` 处理。
 5. pvm1003 是 VM/跨网段边界：它的 8090 与 8091 入口不同源，必须各用本节点实测 profile，
    禁止用一侧地址推导另一侧，也禁止把它的 profile 当全局替代。
 
-索引与 OSS 只渲染公开字段（节点名、端口、scheme、解析顺序、节点名清单）；固定入口在文中写作
-`<fixed-entry>`，真实值只在 descriptor 与节点回执里。
+8091 的 canonical 直接就是固定入口 `http://10.11.63.42:8091`（`entry_kind=fixed-ip`），
+旧节点名入口已失效，不保留 alias，也不得回退；8090 仍为可解析节点名
+`http://linux003:8090`（`entry_kind=node-name`）并保留 `fixed_entry`。迁移记录见
+`docs/migration-20261118-knowledge-entry.md`。
+
+索引与 OSS 只渲染公开字段（节点名、端口、scheme、解析顺序、节点名清单）；fixed-ip 服务的
+地址在生成物里写成 `endpoint_ref` 指针与「固定入口（节点侧登记）」，真实值只在 descriptor
+与节点回执里。
 
 ## 2. 机器可读契约
 

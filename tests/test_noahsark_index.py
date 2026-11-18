@@ -112,7 +112,11 @@ class CatalogTest(unittest.TestCase):
         for svc in self.catalog["services"]:
             descriptor = read_descriptor(REPO_ROOT / svc["descriptor"])
             self.assertEqual(svc["id"], descriptor["id"])
-            self.assertNotRegex(descriptor["endpoint"], services.RFC1918)
+            canonical = descriptor["discovery"]["canonical"]
+            if canonical.get("entry_kind") == "fixed-ip":
+                self.assertIn(descriptor["endpoint"], build.APPROVED_INTERNAL_ENDPOINTS)
+            else:
+                self.assertNotRegex(descriptor["endpoint"], services.RFC1918)
 
     def test_onboarding_has_steps_acceptance_and_block_codes(self):
         onboarding = self.catalog["onboarding"]
@@ -268,11 +272,16 @@ class RenderTest(unittest.TestCase):
         for item in self.index["items"]:
             with self.subTest(item=item["id"]):
                 if item["status"] == "available":
-                    self.assertTrue(item["url"], item["id"])
-                    if item["kind"] == "service":
-                        self.assertTrue(item["url"].startswith("http"))
+                    if item["kind"] == "service" and item.get("entry_kind") == "fixed-ip":
+                        self.assertIsNone(item.get("url"))
+                        self.assertNotIn("endpoint", item)
+                        self.assertTrue(item.get("endpoint_ref"))
                     else:
-                        self.assertTrue(item["url"].startswith("https://"))
+                        self.assertTrue(item["url"], item["id"])
+                        if item["kind"] == "service":
+                            self.assertTrue(item["url"].startswith("http"))
+                        else:
+                            self.assertTrue(item["url"].startswith("https://"))
                     self.assertTrue(item["version"])
                 else:
                     self.assertIsNone(item["url"])
@@ -303,10 +312,18 @@ class RenderTest(unittest.TestCase):
         for block in self.index["system"]["services"]:
             descriptor = read_descriptor(REPO_ROOT / block["descriptor"])
             self.assertEqual(descriptor["version"], block["version"])
-            self.assertEqual(descriptor["endpoint"], block["endpoint"])
+            if block["entry_kind"] == "fixed-ip":
+                self.assertNotIn("endpoint", block)
+                self.assertNotIn("endpoint", block["discovery"]["canonical"])
+                self.assertEqual(
+                    "descriptor:%s#discovery.canonical.fixed_entry" % block["descriptor"],
+                    block["endpoint_ref"],
+                )
+            else:
+                self.assertEqual(descriptor["endpoint"], block["endpoint"])
+                self.assertNotRegex(block["endpoint"], services.RFC1918)
             self.assertTrue(block["auth"]["scopes"])
             self.assertTrue(block["verification"]["confirmed"])
-            self.assertNotRegex(block["endpoint"], services.RFC1918)
 
     def test_manifest_lists_index_files_with_digests(self):
         names = {item["path"] for item in self.manifest["files"]}
@@ -362,6 +379,16 @@ class RenderTest(unittest.TestCase):
         planned = [item for item in self.index["items"] if item["status"] == "planned"]
         self.assertTrue(planned)
         self.assertIn("规划中", self.markdown)
+
+    def test_no_legacy_entry_in_generated_artifacts(self):
+        legacy = "http://bszT14:" + "8091"
+        blobs = [
+            self.markdown,
+            (self.out / "index.json").read_text(encoding="utf-8"),
+            (self.out / "manifest.json").read_text(encoding="utf-8"),
+        ]
+        for blob in blobs:
+            self.assertNotIn(legacy, blob)
 
     def test_markdown_documents_workdirs(self):
         self.assertIn("tasks", self.markdown)
@@ -460,7 +487,7 @@ class ServiceGateTest(unittest.TestCase):
         receipt = {
             "schema": "ark.service-probe.v1",
             "service": "svc.knowledge-service",
-            "endpoint": "http://bszT14:8091",
+            "endpoint": "http://10.11.63.42:8091",
             "contract_version": read_descriptor(KB_DESCRIPTOR)["version"],
             "ok": True,
             "checks": [{"id": "health", "http": 200, "ok": True}],
@@ -507,10 +534,45 @@ class GateTest(unittest.TestCase):
     def test_descriptors_only_hold_approved_internal_literals(self):
         for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):
             data = read_descriptor(path)
+            canonical = (data.get("discovery") or {}).get("canonical") or {}
+            fixed_ip_paths = (
+                ("endpoint", "discovery.canonical.endpoint")
+                if canonical.get("entry_kind") == "fixed-ip"
+                else ()
+            )
             for json_path, ip in build.iter_internal_literals(data):
                 with self.subTest(descriptor=path.name, path=json_path):
-                    self.assertTrue(json_path.endswith(build.INTERNAL_PATH_SUFFIXES))
+                    self.assertTrue(
+                        json_path.endswith(build.INTERNAL_PATH_SUFFIXES)
+                        or json_path in fixed_ip_paths
+                    )
                     self.assertIn(ip, build.APPROVED_INTERNAL_HOSTS)
+
+    def test_no_legacy_entry_in_repo_sources(self):
+        legacy = "http://bszT14:" + "8091"
+        proc = subprocess.run(
+            ["git", "ls-files"],
+            cwd=str(REPO_ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr.decode("utf-8", "replace"))
+        skip_prefixes = ("result/", "receipts/", "logs/")
+        skip_exact = {"docs/migration-20261118-knowledge-entry.md"}
+        hits = []
+        for rel in proc.stdout.decode("utf-8").splitlines():
+            if rel in skip_exact or rel.startswith(skip_prefixes):
+                continue
+            path = REPO_ROOT / rel
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if legacy in text:
+                hits.append(rel)
+        self.assertEqual([], hits)
 
     def test_sources_pass_time_lint(self):
         targets = [
@@ -597,9 +659,25 @@ class KnowledgeChainTest(unittest.TestCase):
             shutil.rmtree(str(root), ignore_errors=True)
 
     def test_versions_match_contract(self):
-        self.assertEqual("2.1.0", self.catalog["version"])
+        self.assertEqual("2.1.1", self.catalog["version"])
         self.assertEqual("1.1.0", read_descriptor(STORAGE_DESCRIPTOR)["version"])
-        self.assertEqual("1.1.0", read_descriptor(KB_DESCRIPTOR)["version"])
+        self.assertEqual("1.1.1", read_descriptor(KB_DESCRIPTOR)["version"])
+
+    def test_knowledge_canonical_uses_fixed_entry(self):
+        canonical = read_descriptor(KB_DESCRIPTOR)["discovery"]["canonical"]
+        self.assertEqual("http://10.11.63.42:8091", canonical["endpoint"])
+        self.assertEqual("fixed-ip", canonical["entry_kind"])
+
+    def test_generated_service_uses_endpoint_ref(self):
+        block = next(
+            s for s in self.index["system"]["services"] if s["id"] == "svc.knowledge-service"
+        )
+        self.assertEqual("fixed-ip", block["entry_kind"])
+        self.assertIn("endpoint_ref", block)
+        self.assertNotIn("endpoint", block)
+        blob = json.dumps(block, ensure_ascii=False)
+        self.assertNotIn("10.11.63.42", blob)
+        self.assertNotIn("bszT14:" + "8091", blob)
 
     def test_descriptors_have_all_three_contracts(self):
         for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):

@@ -8,6 +8,7 @@
     "name": "linux003",
     "port": 8090,
     "scheme": "http",
+    "entry_kind": "node-name",
     "bind": "0.0.0.0",
     "scope": "internal",
     "data_root": "/srv/storage/ark/artifacts/ark-storage/",
@@ -49,6 +50,7 @@
     "canonical": {
       "node_name": "linux003",
       "endpoint": "http://linux003:8090",
+      "entry_kind": "node-name",
       "port": 8090,
       "scheme": "http",
       "scope": "global",

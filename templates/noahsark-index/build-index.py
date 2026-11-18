@@ -47,6 +47,11 @@ RFC1918 = re.compile(
     r"|192\.168\.(?:\d{1,3}\.)\d{1,3}"
 )
 
+# 已失效的旧节点名入口：只允许出现在迁移记录里，生成物命中即失败。
+# 字面量拆分拼接，避免扫描器把检测器自身当成命中。
+LEGACY_ENTRY = re.compile(r"http://bszT14:" + "8091")
+ENTRY_KINDS = ("node-name", "fixed-ip")
+
 DEFAULT_OUT = REPO_ROOT / "build" / "noahsark-index"
 AGENT_MANIFEST = REPO_ROOT / "templates" / "agents" / "manifest.json"
 
@@ -274,8 +279,12 @@ def validate_discovery(descriptor, eid, need):
         "服务条目 %s 的 redaction.internal_only_fields 必须包含 verified_endpoint" % eid,
     )
 
+    entry_kind = canonical.get("entry_kind") or "node-name"
+    fixed_ip_paths = ("endpoint", "discovery.canonical.endpoint") if entry_kind == "fixed-ip" else ()
     for json_path, ip in iter_internal_literals(descriptor):
-        allowed = json_path.endswith(INTERNAL_PATH_SUFFIXES) and ip in APPROVED_INTERNAL_HOSTS
+        allowed = ip in APPROVED_INTERNAL_HOSTS and (
+            json_path.endswith(INTERNAL_PATH_SUFFIXES) or json_path in fixed_ip_paths
+        )
         need(
             allowed,
             "服务条目 %s 的 %s 出现未批准的私网字面量 %s" % (eid, json_path, ip),
@@ -505,22 +514,43 @@ def validate_catalog(cat):
                             "服务条目 %s 的版本与 descriptor 不一致" % eid,
                         )
                         endpoint = str(descriptor.get("endpoint") or "")
+                        host_conf = descriptor.get("host") or {}
+                        host = host_conf.get("name") or ""
+                        canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+                        entry_kind = canonical.get("entry_kind") or "node-name"
+                        need(
+                            entry_kind in ENTRY_KINDS,
+                            "服务条目 %s 的 entry_kind 非法：%s" % (eid, entry_kind),
+                        )
+                        need(
+                            host_conf.get("entry_kind", entry_kind) == entry_kind,
+                            "服务条目 %s 的 host.entry_kind 与 canonical.entry_kind 不一致" % eid,
+                        )
                         need(
                             endpoint.startswith("http://") or endpoint.startswith("https://"),
                             "服务条目 %s 的 endpoint 必须是 http(s) 地址" % eid,
                         )
-                        need(
-                            not RFC1918.search(endpoint),
-                            "服务条目 %s 的 endpoint 含私网地址字面量" % eid,
-                        )
-                        host = (descriptor.get("host") or {}).get("name") or ""
                         need(bool(host), "服务条目 %s 的 host.name 不能为空" % eid)
+                        if entry_kind == "fixed-ip":
+                            need(
+                                endpoint in APPROVED_INTERNAL_ENDPOINTS,
+                                "服务条目 %s 的 fixed-ip endpoint 不在批准清单内" % eid,
+                            )
+                            need(
+                                host == canonical.get("node_name"),
+                                "服务条目 %s 的 fixed-ip host.name 必须等于 canonical.node_name" % eid,
+                            )
+                        else:
+                            need(
+                                not RFC1918.search(endpoint),
+                                "服务条目 %s 的 endpoint 含私网地址字面量" % eid,
+                            )
+                            need(
+                                bool(host) and host in endpoint,
+                                "服务条目 %s 的 endpoint 必须使用可解析节点名 %s" % (eid, host),
+                            )
                         need(
-                            bool(host) and host in endpoint,
-                            "服务条目 %s 的 endpoint 必须使用可解析节点名 %s" % (eid, host),
-                        )
-                        need(
-                            (descriptor.get("host") or {}).get("port") == extract_port(endpoint),
+                            host_conf.get("port") == extract_port(endpoint),
                             "服务条目 %s 的 endpoint 端口与 host.port 不一致" % eid,
                         )
                         need(bool(descriptor.get("auth")), "服务条目 %s 缺少 auth 契约" % eid)
@@ -674,8 +704,11 @@ def resolve_entries(cat):
             if entry.get("kind") == SERVICE_KIND:
                 descriptor_rel = entry["descriptor"]
                 descriptor = load_json(REPO_ROOT / descriptor_rel)
+                canonical = (descriptor.get("discovery") or {}).get("canonical") or {}
+                entry_kind = canonical.get("entry_kind") or "node-name"
                 item["_descriptor"] = descriptor
-                item["_url"] = descriptor.get("endpoint")
+                item["_entry_kind"] = entry_kind
+                item["_url"] = None if entry_kind == "fixed-ip" else descriptor.get("endpoint")
                 item["_path"] = descriptor_rel
                 runtime = descriptor.get("runtime") or {}
                 item["_sha"] = runtime.get("artifact_sha256")
@@ -784,7 +817,11 @@ def item_payload(item, content_commit, cat):
     }
     if item["kind"] == SERVICE_KIND:
         payload["descriptor"] = item["_path"]
-        payload["endpoint"] = item["_url"]
+        payload["entry_kind"] = item.get("_entry_kind") or "node-name"
+        if payload["entry_kind"] == "fixed-ip":
+            payload["endpoint_ref"] = "descriptor:%s#discovery.canonical.fixed_entry" % item["_path"]
+        else:
+            payload["endpoint"] = item["_url"]
     return payload
 
 
@@ -838,13 +875,16 @@ def service_block(item):
             }
         )
 
-    return {
+    entry_kind = canonical.get("entry_kind") or "node-name"
+    endpoint_ref = "descriptor:%s#discovery.canonical.fixed_entry" % item["_path"]
+
+    block = {
         "id": descriptor.get("id"),
         "title": descriptor.get("title"),
         "version": descriptor.get("version"),
         "kind": SERVICE_KIND,
         "status": "available",
-        "endpoint": descriptor.get("endpoint"),
+        "entry_kind": entry_kind,
         "descriptor": item["_path"],
         "descriptor_sha256": sha256_file(REPO_ROOT / item["_path"]),
         "discovery": {
@@ -853,7 +893,7 @@ def service_block(item):
             "scheme": host.get("scheme"),
             "canonical": {
                 "node_name": canonical.get("node_name"),
-                "endpoint": canonical.get("endpoint"),
+                "entry_kind": entry_kind,
                 "port": canonical.get("port"),
                 "scheme": canonical.get("scheme"),
                 "public_display": canonical.get("public_display"),
@@ -940,6 +980,18 @@ def service_block(item):
         "source_repo": item["_source_repo"],
         "source_commit": item["_source_commit"],
     }
+    if entry_kind == "fixed-ip":
+        block["endpoint_ref"] = endpoint_ref
+        block["host"] = {
+            "name": host.get("name"),
+            "port": host.get("port"),
+            "scheme": host.get("scheme"),
+        }
+        block["discovery"]["canonical"]["endpoint_ref"] = endpoint_ref
+    else:
+        block["endpoint"] = descriptor.get("endpoint")
+        block["discovery"]["canonical"]["endpoint"] = canonical.get("endpoint")
+    return block
 
 
 FAILURE_CODE = re.compile(
@@ -1130,6 +1182,8 @@ def build_index_md(cat, items, generated_at, content_commit):
                         label += "（文件 %s）" % item["file"]
                     if item.get("section") and item["kind"] == "rule":
                         label += "（见 %s）" % item["section"]
+                elif item["kind"] == SERVICE_KIND and item.get("_entry_kind") == "fixed-ip":
+                    label += "（固定入口，节点侧登记）"
                 else:
                     label += "（规划中，未发布）"
                 add(
@@ -1232,6 +1286,9 @@ def build_index_md(cat, items, generated_at, content_commit):
         fallback = descriptor.get("fallback") or {}
         health = (descriptor.get("health_contract") or {}).get("probe", {}).get("path") or "-"
         fixed_entry = (descriptor.get("discovery") or {}).get("canonical", {}).get("fixed_entry")
+        fixed_ip = item.get("_entry_kind") == "fixed-ip"
+        service_cell = item["title"] if fixed_ip else md_link(item["title"], item["_url"])
+        address_cell = "固定入口（节点侧登记）" if fixed_ip else item["_url"]
         degrade = []
         if descriptor.get("id") == "svc.knowledge-service":
             degrade = ["BLOCKED_KB_STALE", "BLOCKED_KB_UNAVAILABLE"]
@@ -1240,9 +1297,9 @@ def build_index_md(cat, items, generated_at, content_commit):
         add(
             "| %s | %s | %s | %s（%s） | %s；%s | %s | %s |"
             % (
-                md_link(item["title"], item["_url"]),
+                service_cell,
                 item.get("version") or "-",
-                item["_url"],
+                address_cell,
                 auth.get("mode") or "-",
                 "、".join(auth.get("scopes") or []) or "-",
                 health,
@@ -1253,7 +1310,11 @@ def build_index_md(cat, items, generated_at, content_commit):
             )
         )
     add()
-    add("服务地址一律写可解析节点名；固定入口与节点 profile 的内网地址只登记在 descriptor 与节点回执，生成物不含私网地址。")
+    add(
+        "服务地址按 descriptor 的 entry_kind 渲染：node-name 服务写可解析节点名，"
+        "fixed-ip 服务只写「固定入口（节点侧登记）」；固定入口与节点 profile 的内网地址"
+        "只登记在 descriptor 与节点回执，生成物不含私网地址。"
+    )
     add()
 
     for item in items:
@@ -1264,6 +1325,13 @@ def build_index_md(cat, items, generated_at, content_commit):
         add()
         add(item["summary"])
         add()
+        if item.get("_entry_kind") == "fixed-ip":
+            descriptor_name = item["_path"].rsplit("/", 1)[-1]
+            add(
+                "入口：固定入口（节点侧登记，见 descriptor:%s#discovery.canonical.fixed_entry）"
+                % descriptor_name
+            )
+            add()
         add("| 接口 | 方法 | 路径 | scope | 说明 |")
         add("| --- | --- | --- | --- | --- |")
         for api in descriptor.get("api") or []:
@@ -1310,11 +1378,16 @@ def build_index_md(cat, items, generated_at, content_commit):
         resolution = discovery.get("resolution") or {}
         profiles = discovery.get("node_profiles") or []
         vm_boundary = discovery.get("vm_boundary") or {}
+        canonical_display = (
+            "固定入口（节点侧登记）"
+            if (canonical.get("entry_kind") or "node-name") == "fixed-ip"
+            else (canonical.get("endpoint") or "-")
+        )
         add(
             "服务发现：canonical %s，端口 %s，解析顺序 %s；节点 profile：%s；VM 边界：%s。"
             "固定入口仅登记于 descriptor:discovery.canonical.fixed_entry，不进入索引与 OSS。"
             % (
-                canonical.get("endpoint") or "-",
+                canonical_display,
                 canonical.get("port") or "-",
                 " → ".join(resolution.get("order") or []),
                 "、".join(p.get("node") or "-" for p in profiles) or "-",
@@ -1565,16 +1638,21 @@ def build_manifest(cat, items, generated_at, content_commit, files, extra=None):
     template_versions = sorted(
         {i.get("version") for i in items if i["id"].startswith("agent-template.") and i.get("version")}
     )
-    services = [
-        {
+    services = []
+    for i in items:
+        if i["kind"] != SERVICE_KIND:
+            continue
+        entry = {
             "id": i["id"],
             "version": i.get("version"),
-            "endpoint": i["_url"],
+            "entry_kind": i.get("_entry_kind") or "node-name",
             "descriptor": i["_path"],
         }
-        for i in items
-        if i["kind"] == SERVICE_KIND
-    ]
+        if entry["entry_kind"] == "fixed-ip":
+            entry["endpoint_ref"] = "descriptor:%s#discovery.canonical.fixed_entry" % i["_path"]
+        else:
+            entry["endpoint"] = i["_url"]
+        services.append(entry)
     regions = [
         {
             "id": region["id"],
@@ -1660,14 +1738,6 @@ def render(cat, content_commit, generated_at, out_dir, extra=None):
     json_text = json.dumps(index_json, ensure_ascii=False, indent=2) + "\n"
     json_bytes = json_text.encode("utf-8")
 
-    for name, blob in (("index.json", json_text), ("index.md", index_md)):
-        hit = RFC1918.search(blob)
-        if hit:
-            raise BuildError(
-                EXIT_FAILED,
-                "生成物 %s 含私网地址字面量 %s（固定入口未剥离）" % (name, hit.group(0)),
-            )
-
     prefix = cat["oss"]["prefix"].strip("/")
     files = [
         {
@@ -1686,6 +1756,25 @@ def render(cat, content_commit, generated_at, out_dir, extra=None):
         },
     ]
     manifest = build_manifest(cat, resolved, generated_at, content_commit, files, extra)
+    manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+
+    for name, blob in (
+        ("index.json", json_text),
+        ("index.md", index_md),
+        ("manifest.json", manifest_text),
+    ):
+        hit = RFC1918.search(blob)
+        if hit:
+            raise BuildError(
+                EXIT_FAILED,
+                "生成物 %s 含私网地址字面量 %s（固定入口未剥离）" % (name, hit.group(0)),
+            )
+        legacy = LEGACY_ENTRY.search(blob)
+        if legacy:
+            raise BuildError(
+                EXIT_FAILED,
+                "生成物 %s 含已失效旧入口 %s（必须使用固定入口 endpoint_ref）" % (name, legacy.group(0)),
+            )
 
     write_text(out_dir / "index.md", index_md)
     write_text(out_dir / "index.json", json_text)
