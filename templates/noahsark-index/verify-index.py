@@ -244,19 +244,47 @@ def check_regions(index, items, errors):
                     errors.append("分组 %s 的区域与父区域不一致" % group.get("id"))
 
     system = index.get("system") or {}
-    for field in ("positioning", "layers", "lifecycle", "knowledge_loop", "gates", "security", "services", "roles"):
+    for field in (
+        "positioning",
+        "layers",
+        "lifecycle",
+        "knowledge_loop",
+        "gates",
+        "security",
+        "failure_taxonomy",
+        "service_discovery",
+        "services",
+        "roles",
+    ):
         if not system.get(field):
             errors.append("index.system.%s 不能为空" % field)
+    check_failure_taxonomy(index, errors)
     service_ids = {s.get("id") for s in system.get("services") or []}
     item_service_ids = {i["id"] for i in items if i.get("kind") == SERVICE_KIND}
     if service_ids != item_service_ids:
         errors.append("index.system.services 与服务条目不一致")
     for svc in system.get("services") or []:
-        for key in ("id", "title", "version", "endpoint", "descriptor", "discovery", "auth", "verification"):
+        for key in (
+            "id",
+            "title",
+            "version",
+            "endpoint",
+            "descriptor",
+            "discovery",
+            "token_bootstrap",
+            "health",
+            "auth",
+            "verification",
+        ):
             if key not in svc:
                 errors.append("服务块 %s 缺少字段 %s" % (svc.get("id"), key))
         if svc.get("endpoint") and RFC1918.search(svc["endpoint"]):
             errors.append("服务块 %s 的 endpoint 含私网地址字面量" % svc.get("id"))
+        check_service_discovery(svc, errors)
+        health = svc.get("health") or {}
+        for key in ("path", "required_fields", "status_rule", "write_path_rule"):
+            if not health.get(key):
+                errors.append("服务块 %s 的 health 缺少 %s" % (svc.get("id"), key))
         descriptor = REPO_ROOT / (svc.get("descriptor") or "")
         if not descriptor.exists():
             errors.append("服务块 %s 的 descriptor 不存在" % svc.get("id"))
@@ -293,6 +321,59 @@ def check_regions(index, items, errors):
     if counts := index.get("counts") or {}:
         if counts.get("onboarding_steps") != len(step_ids):
             errors.append("counts.onboarding_steps 与实际步骤数不一致")
+
+
+def check_service_discovery(svc, errors):
+    sid = svc.get("id")
+    discovery = svc.get("discovery") or {}
+    for key in ("canonical", "resolution", "node_profiles", "redaction"):
+        if key not in discovery:
+            errors.append("服务块 %s 的 discovery 缺少 %s" % (sid, key))
+    canonical = discovery.get("canonical") or {}
+    for key in ("node_name", "endpoint", "port", "scheme", "fixed_entry_present", "fixed_entry_ref"):
+        if key not in canonical:
+            errors.append("服务块 %s 的 discovery.canonical 缺少 %s" % (sid, key))
+    resolution = discovery.get("resolution") or {}
+    if resolution.get("order") != ["node_profile", "canonical"]:
+        errors.append("服务块 %s 的 discovery.resolution.order 非法" % sid)
+    profiles = discovery.get("node_profiles") or []
+    if not profiles:
+        errors.append("服务块 %s 的 discovery.node_profiles 不能为空" % sid)
+    for profile in profiles:
+        for key in ("node", "verified", "receipt", "scope"):
+            if key not in profile:
+                errors.append("服务块 %s 的 node_profiles 缺少 %s" % (sid, key))
+        if "verified_endpoint" in profile:
+            errors.append("服务块 %s 的 node_profiles 不得含 verified_endpoint" % sid)
+    internal = (discovery.get("redaction") or {}).get("internal_only_fields") or []
+    for field in ("discovery.canonical.fixed_entry", "discovery.node_profiles[].verified_endpoint"):
+        if field not in internal:
+            errors.append("服务块 %s 的 discovery.redaction.internal_only_fields 缺少 %s" % (sid, field))
+
+
+def check_failure_taxonomy(index, errors):
+    rules = ((index.get("system") or {}).get("failure_taxonomy")) or []
+    codes = [rule.get("code") for rule in rules]
+    if len(codes) != len(set(codes)):
+        errors.append("failure_taxonomy 存在重复 code")
+    for rule in rules:
+        for key in ("code", "when", "action"):
+            if not rule.get(key):
+                errors.append("failure_taxonomy 条目缺少 %s" % key)
+        if not isinstance(rule.get("stop"), bool):
+            errors.append("failure_taxonomy %s 的 stop 必须是布尔" % rule.get("code"))
+    onboarding_codes = {
+        code.get("code") for code in ((index.get("onboarding") or {}).get("block_codes") or [])
+    }
+    for code in codes:
+        if code not in onboarding_codes:
+            errors.append("failure_taxonomy 的 %s 未登记在 onboarding.block_codes" % code)
+
+
+def check_json_literals(index, errors):
+    blob = json.dumps(index, ensure_ascii=False)
+    if RFC1918.search(blob):
+        errors.append("index.json 含私网地址字面量")
 
 
 def check_index_urls(index, errors):
@@ -541,6 +622,7 @@ def main(argv=None):
         index = load(out_dir / "index.json")
         manifest = load(out_dir / "manifest.json")
         items = check_index(index, errors) or []
+        check_json_literals(index, errors)
         check_regions(index, items, errors)
         check_index_urls(index, errors)
         check_markdown(out_dir, index, errors)

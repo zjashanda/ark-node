@@ -2,7 +2,7 @@
   "schema": "ark.storage-service.v1",
   "id": "svc.storage-service",
   "title": "Ark Storage Service（8090）",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "endpoint": "http://linux003:8090",
   "host": {
     "name": "linux003",
@@ -34,10 +34,194 @@
     "mode": "bearer",
     "header": "Authorization",
     "scheme": "Bearer",
-    "scopes": ["read", "write", "evidence:write", "backup:write"],
+    "scopes": [
+      "read",
+      "write",
+      "evidence:write",
+      "backup:write"
+    ],
     "token_store": "节点侧 tokens.json 只保存 token 的 SHA-256，权限 0600；明文只在签发时交给使用方。",
     "unauthenticated": "缺 token 或 token 不符返回 401；token 有效但 scope 不足返回 403。",
     "scope_rule": "read 可下载/列目录；write 可写 artifacts 与 results；receipts 与 evidence 需要 evidence:write；backups 需要 backup:write。"
+  },
+  "discovery": {
+    "schema": "ark.service-discovery.v1",
+    "canonical": {
+      "node_name": "linux003",
+      "endpoint": "http://linux003:8090",
+      "port": 8090,
+      "scheme": "http",
+      "scope": "global",
+      "public_display": "http://linux003:8090",
+      "fixed_entry": "http://10.11.63.24:8090",
+      "fixed_entry_since": "2026-11-18",
+      "fixed_entry_approval": "Stage 4 / NOAH-191（郑保山确认固定入口）",
+      "fixed_entry_usage": "仅在节点无法解析 linux003 时兜底；不进 index/OSS，不写入其他节点 profile。"
+    },
+    "resolution": {
+      "schema": "ark.service-discovery.resolution.v1",
+      "order": [
+        "node_profile",
+        "canonical"
+      ],
+      "rule": "解析顺序固定为 node_profile → canonical：先取本节点 profile 的 verified_endpoint（本机实测、有回执），没有 profile 才用 canonical.endpoint。profile 是节点局部事实，只在本节点生效，不得回写 canonical，也不得复制到其他节点。",
+      "fixed_entry_rule": "固定入口只在节点侧 profile 里出现一次；出现解析差异按 SERVICE_DISCOVERY_DRIFT 处理，不静默改 canonical。"
+    },
+    "node_profiles": [
+      {
+        "node": "linux003",
+        "os": "linux",
+        "verified_endpoint": "http://10.11.63.24:8090",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-197",
+        "scope": "node-local",
+        "note": "服务宿主机本机入口。"
+      },
+      {
+        "node": "bszT14",
+        "os": "linux",
+        "verified_endpoint": "http://10.11.63.24:8090",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-184",
+        "scope": "node-local",
+        "note": "节点名 linux003 不可解析，使用固定入口。"
+      },
+      {
+        "node": "lsaswx",
+        "os": "linux",
+        "verified_endpoint": "http://10.11.63.24:8090",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-181",
+        "scope": "node-local",
+        "note": "固定入口可用。"
+      },
+      {
+        "node": "win003",
+        "os": "windows",
+        "verified_endpoint": "http://10.11.63.24:8090",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-182",
+        "scope": "node-local",
+        "note": "固定入口可用。"
+      },
+      {
+        "node": "pvm1003",
+        "os": "windows",
+        "verified_endpoint": "http://10.210.8.205:8090",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-208",
+        "scope": "node-local",
+        "note": "VM/跨网段边界：本机固定入口不可达，实测只能走网关侧的节点 profile 地址；本条禁止当作全局替代地址。"
+      },
+      {
+        "node": "bsp",
+        "os": "linux",
+        "verified_endpoint": "http://10.11.63.24:8090",
+        "verified_at": "2026-11-18",
+        "receipt": "NOAH-183",
+        "scope": "node-local",
+        "note": "固定入口可用。"
+      }
+    ],
+    "vm_boundary": {
+      "rule": "虚拟机或跨网段节点按本机实测入口记录 profile；只有该节点使用该入口，canonical 与其他 profile 不变。",
+      "nodes": [
+        "pvm1003"
+      ],
+      "note": "pvm1003 的 8090 走自己的节点 profile 实测入口，8091 仍走知识服务固定入口；两者互不推导。"
+    },
+    "redaction": {
+      "rule": "discovery 中只有 canonical.endpoint、canonical.node_name、canonical.port、canonical.scheme 可进入 index.json / index.md / OSS；fixed_entry 与 node_profiles[].verified_endpoint 是内网事实，只留在本 descriptor 与节点侧回执，生成器必须剥离，校验器必须拒绝任何私网字面量出现在生成物里。",
+      "internal_only_fields": [
+        "discovery.canonical.fixed_entry",
+        "discovery.node_profiles[].verified_endpoint"
+      ],
+      "public_fields": [
+        "discovery.canonical.node_name",
+        "discovery.canonical.endpoint",
+        "discovery.canonical.port",
+        "discovery.canonical.scheme"
+      ]
+    }
+  },
+  "token_bootstrap": {
+    "schema": "ark.token-bootstrap.v1",
+    "mode": "self-service",
+    "status": "implemented",
+    "per_node": true,
+    "bootstrap_api": true,
+    "minimum_scopes": [
+      "read",
+      "evidence:write"
+    ],
+    "allowed_scopes": [
+      "read",
+      "write",
+      "evidence:write",
+      "receipts:write",
+      "backup:write",
+      "tts:write"
+    ],
+    "storage": {
+      "linux": "~/.config/ark/storage.token（目录 0700，文件 0600，原子写入）",
+      "windows": "%APPDATA%\\ark\\storage.token（ACL 仅当前用户）",
+      "env": [
+        "ARK_STORAGE_TOKEN"
+      ],
+      "rule": "只从受控文件或环境变量读取；文件权限不对先修权限，不用宽松副本。"
+    },
+    "lifecycle": {
+      "bootstrap": "POST /storage/v1/bootstrap/token：一次性 bootstrap secret 换节点 token；默认最小权限 read，申请范围必须在节点 allowed_scopes 内。",
+      "status": "GET /storage/v1/tokens/status：只看自己的 token 元数据（id、scope、到期、状态），不返回 SHA 与明文。",
+      "rotate": "POST /storage/v1/tokens/rotate：旧 token 进入 300 秒 grace；跨节点轮换需要 admin:token。",
+      "revoke": "POST /storage/v1/tokens/revoke：单 token 或整节点立即失效。"
+    },
+    "server_store": "服务端 nodes.json / managed-tokens.json 只保存 SHA-256；注册表热加载，不重启服务。",
+    "rules": [
+      "每节点专用 token，禁止跨节点复制、转借或共用。",
+      "token 值不进 Git、Issue、日志、回执、索引、URL 或命令行参数，不在终端回显。",
+      "scope 不足时申请对应 scope（evidence:write / receipts:write / backup:write），不越权重试。",
+      "bootstrap secret 一次性使用；重放或节点被禁用按 401 处理。"
+    ],
+    "parity": {
+      "bootstrap_api": true,
+      "gap": null,
+      "note": "8090 自助开通已实现并验收（NOAH-190）。"
+    },
+    "fallback": {
+      "on_missing": "BLOCKED_STORAGE_AUTH",
+      "on_scope": "BLOCKED_STORAGE_SCOPE"
+    }
+  },
+  "health_contract": {
+    "schema": "ark.service-health.v1",
+    "probe": {
+      "path": "/health",
+      "method": "GET",
+      "public": true,
+      "timeout_seconds": 8
+    },
+    "required_fields": [
+      "service",
+      "version",
+      "ok",
+      "data_root",
+      "disk_free_bytes"
+    ],
+    "status_rule": "service=ark-storage、ok=true、version 与契约一致才算健康；只看 HTTP 200 不算。",
+    "version_field": "version",
+    "degraded": {
+      "field": null,
+      "values": [],
+      "note": "8090 用 ok 与 storage 字段表达可用性，无独立 degraded 列表。"
+    },
+    "write_path_rule": "健康 200 只证明进程在跑，不证明写链路；写链路必须由 PUT 201/200 + 服务端复算 SHA + 回读 bytes/SHA 或回执证明。",
+    "stop_conditions": [
+      "BLOCKED_STORAGE_UNAVAILABLE",
+      "BLOCKED_STORAGE_AUTH",
+      "BLOCKED_STORAGE_SCOPE",
+      "BLOCKED_STORAGE_QUARANTINE"
+    ]
   },
   "categories": {
     "artifacts": "任务产物与通用文件",
@@ -114,14 +298,46 @@
     }
   ],
   "errors": [
-    {"status": 400, "code": "unsafe_path", "meaning": "路径穿越或隐藏段，未落盘"},
-    {"status": 401, "code": "unauthorized", "meaning": "缺 token 或 token 不符"},
-    {"status": 403, "code": "forbidden", "meaning": "scope 不足（如 read 写 receipts）"},
-    {"status": 404, "code": "not_found", "meaning": "对象或路由不存在"},
-    {"status": 409, "code": "conflict", "meaning": "同 key 不同 SHA，保留原对象"},
-    {"status": 413, "code": "body_too_large", "meaning": "超过服务配置的上限"},
-    {"status": 422, "code": "sha_mismatch", "meaning": "客户端声明的 SHA 与服务端复算不符，对象进入 quarantine"},
-    {"status": 503, "code": "unavailable", "meaning": "磁盘或依赖不可用，写入未成功"}
+    {
+      "status": 400,
+      "code": "unsafe_path",
+      "meaning": "路径穿越或隐藏段，未落盘"
+    },
+    {
+      "status": 401,
+      "code": "unauthorized",
+      "meaning": "缺 token 或 token 不符"
+    },
+    {
+      "status": 403,
+      "code": "forbidden",
+      "meaning": "scope 不足（如 read 写 receipts）"
+    },
+    {
+      "status": 404,
+      "code": "not_found",
+      "meaning": "对象或路由不存在"
+    },
+    {
+      "status": 409,
+      "code": "conflict",
+      "meaning": "同 key 不同 SHA，保留原对象"
+    },
+    {
+      "status": 413,
+      "code": "body_too_large",
+      "meaning": "超过服务配置的上限"
+    },
+    {
+      "status": 422,
+      "code": "sha_mismatch",
+      "meaning": "客户端声明的 SHA 与服务端复算不符，对象进入 quarantine"
+    },
+    {
+      "status": 503,
+      "code": "unavailable",
+      "meaning": "磁盘或依赖不可用，写入未成功"
+    }
   ],
   "integrity": {
     "server_sha": "客户端可声明 expected sha256；服务端复算后不一致即 422，文件只进 quarantine，正式目录不受污染。",
@@ -161,7 +377,11 @@
   },
   "evidence_ref": {
     "shape": "ark://<category>/<scope>/<key>",
-    "fields": ["uri", "bytes", "sha256"],
+    "fields": [
+      "uri",
+      "bytes",
+      "sha256"
+    ],
     "rule": "任务回执里引用证据必须同时给 uri、bytes、sha256；只有路径没有校验值不算有效引用。"
   },
   "verification": {

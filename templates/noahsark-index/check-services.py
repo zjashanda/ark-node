@@ -119,6 +119,28 @@ def describe_services(catalog_path=CATALOG_PATH):
     return catalog, pairs
 
 
+def check_discovery_drift(descriptor):
+    sid = descriptor.get("id")
+    discovery = descriptor.get("discovery") or {}
+    canonical = discovery.get("canonical") or {}
+    host = descriptor.get("host") or {}
+    errors = []
+    if canonical.get("endpoint") != descriptor.get("endpoint"):
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 canonical.endpoint 与 endpoint 不一致" % sid)
+    if canonical.get("node_name") != host.get("name"):
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 canonical.node_name 与 host.name 不一致" % sid)
+    if canonical.get("port") != host.get("port"):
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 canonical.port 与 host.port 不一致" % sid)
+    for profile in discovery.get("node_profiles") or []:
+        node = profile.get("node")
+        verified = profile.get("verified_endpoint")
+        if verified and verified == canonical.get("endpoint") and node != canonical.get("node_name"):
+            errors.append(
+                "SERVICE_DISCOVERY_DRIFT：%s 的节点 %s profile 被复制成 canonical.endpoint" % (sid, node)
+            )
+    return errors
+
+
 def check_drift(entry, descriptor):
     errors = []
     if descriptor.get("id") != entry.get("id"):
@@ -143,6 +165,7 @@ def check_drift(entry, descriptor):
         errors.append("verification.state 非法：%s" % entry.get("id"))
     if verification.get("state") == "probe" and not verification.get("probed_at"):
         errors.append("声称已在线探测但缺少 probed_at：%s" % entry.get("id"))
+    errors.extend(check_discovery_drift(descriptor))
     return errors
 
 
@@ -225,71 +248,116 @@ def http_json(url, token, timeout=10):
         raise CheckError(EXIT_NETWORK, "请求失败 %s: %s" % (url, exc))
 
 
-def probe(descriptor, token, timeout=10, descriptor_rel=None):
-    """在线探测：只读健康与状态接口，返回可落盘的回执（不含 token）。"""
-    endpoint = str(descriptor.get("endpoint") or "").rstrip("/")
-    health_path = None
-    for api in descriptor.get("api") or []:
-        if api.get("name", "").startswith("健康检查"):
-            health_path = api.get("path")
-            break
-    if not health_path:
-        raise CheckError(EXIT_FAIL, "契约缺少健康检查路径: %s" % descriptor.get("id"))
+def resolve_probe_base(descriptor, node=None):
+    if not node:
+        return str(descriptor.get("endpoint") or "").rstrip("/")
+    profiles = (descriptor.get("discovery") or {}).get("node_profiles") or []
+    for profile in profiles:
+        if profile.get("node") == node:
+            endpoint = str(profile.get("verified_endpoint") or "").rstrip("/")
+            if not endpoint:
+                raise CheckError(
+                    EXIT_FAIL,
+                    "节点 %s 的 profile 缺少 verified_endpoint: %s" % (node, descriptor.get("id")),
+                )
+            return endpoint
+    raise CheckError(
+        EXIT_FAIL,
+        "节点 %s 不在服务 %s 的 discovery.node_profiles 中（不回退 canonical）"
+        % (node, descriptor.get("id")),
+    )
 
-    checks = []
-    status, body = http_json(endpoint + health_path, token, timeout)
-    checks.append(
+
+def probe(descriptor, token, timeout=10, descriptor_rel=None, node=None):
+    """在线探测：按 health_contract 只读健康与同步状态，返回可落盘回执（不含 token）。"""
+    health_contract = descriptor.get("health_contract") or {}
+    probe_conf = health_contract.get("probe") or {}
+    health_path = probe_conf.get("path")
+    if not health_path:
+        raise CheckError(EXIT_FAIL, "契约缺少 health_contract.probe.path: %s" % descriptor.get("id"))
+    base = resolve_probe_base(descriptor, node)
+    query = probe_conf.get("strict_query") or ""
+
+    status, body = http_json(base + health_path + query, token, timeout)
+    payload = None
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except ValueError:
+        payload = None
+    required = list(health_contract.get("required_fields") or [])
+    missing = [field for field in required if not isinstance(payload, dict) or field not in payload]
+    health_fields_ok = bool(isinstance(payload, dict) and not missing)
+
+    checks = [
         {
             "id": "health",
-            "path": health_path,
+            "path": health_path + query,
             "http": status,
-            "ok": status == 200,
+            "ok": status == 200 and health_fields_ok,
+            "bytes": len(body),
+            "fields_ok": health_fields_ok,
+            "missing_fields": missing,
+        }
+    ]
+    if payload is None:
+        checks[-1]["error"] = "health 不是合法 JSON"
+
+    version_field = health_contract.get("version_field") or "version"
+    version = payload.get(version_field) if isinstance(payload, dict) else None
+    source_commit = payload.get("source_commit") if isinstance(payload, dict) else None
+    indexed_commit = payload.get("indexed_commit") if isinstance(payload, dict) else None
+    freshness = payload.get("freshness") if isinstance(payload, dict) else None
+    degraded = payload.get("degraded") if isinstance(payload, dict) else None
+
+    if health_contract.get("commits"):
+        status, body = http_json(base + "/v1/sync/status", token, timeout)
+        item = {
+            "id": "sync_status",
+            "path": "/v1/sync/status",
+            "http": status,
+            "ok": False,
             "bytes": len(body),
         }
-    )
-    health_payload = {}
-    try:
-        health_payload = json.loads(body.decode("utf-8"))
-    except ValueError:
-        checks[-1]["ok"] = False
-        checks[-1]["error"] = "health 不是合法 JSON"
+        sync_payload = {}
+        try:
+            sync_payload = json.loads(body.decode("utf-8"))
+        except ValueError:
+            sync_payload = {}
+        item["source_commit"] = sync_payload.get("source_commit")
+        item["indexed_commit"] = sync_payload.get("indexed_commit")
+        item["freshness"] = sync_payload.get("freshness")
+        item["ok"] = status == 200 and sync_payload.get("source_commit") == sync_payload.get("indexed_commit")
+        checks.append(item)
+        source_commit = sync_payload.get("source_commit") or source_commit
+        indexed_commit = sync_payload.get("indexed_commit") or indexed_commit
+        freshness = sync_payload.get("freshness") or freshness
 
     snapshot = {
         "service": descriptor.get("id"),
-        "version": health_payload.get("version"),
-        "freshness": health_payload.get("freshness"),
-        "commit": health_payload.get("commit"),
-        "entries": health_payload.get("entries"),
-        "degraded": health_payload.get("degraded") or [],
+        "version": version,
+        "freshness": freshness,
+        "commit": payload.get("commit") if isinstance(payload, dict) else None,
+        "entries": payload.get("entries") if isinstance(payload, dict) else None,
+        "degraded": degraded or [],
     }
 
-    if descriptor.get("id") == "svc.knowledge-service":
-        for name, path in (("sync_status", "/v1/sync/status"), ("search", "/v1/search?q=evidence_ref&top=1")):
-            status, body = http_json(endpoint + path, token, timeout)
-            item = {"id": name, "path": path, "http": status, "ok": status == 200, "bytes": len(body)}
-            try:
-                payload = json.loads(body.decode("utf-8"))
-            except ValueError:
-                payload = {}
-            if name == "sync_status":
-                item["source_commit"] = payload.get("source_commit")
-                item["indexed_commit"] = payload.get("indexed_commit")
-                item["freshness"] = payload.get("freshness")
-                item["ok"] = status == 200 and payload.get("source_commit") == payload.get("indexed_commit")
-            else:
-                sources = payload.get("sources") or []
-                item["returned"] = sum(len(s.get("entries") or []) for s in sources)
-            checks.append(item)
-
-    ok = all(c.get("ok") for c in checks)
+    ok = all(check.get("ok") for check in checks)
     return {
         "schema": "ark.service-probe.v1",
         "service": descriptor.get("id"),
-        "endpoint": endpoint,
+        "endpoint": base,
         "contract_version": descriptor.get("version"),
         "descriptor_sha256": sha256_file(REPO_ROOT / descriptor_rel) if descriptor_rel else None,
         "probed_at": now_display(),
         "ok": ok,
+        "health_fields_ok": health_fields_ok,
+        "version": version,
+        "source_commit": source_commit,
+        "indexed_commit": indexed_commit,
+        "freshness": freshness,
+        "degraded": degraded,
+        "write_path_proven": False,
+        "write_path_rule": health_contract.get("write_path_rule"),
         "checks": checks,
         "snapshot": snapshot,
         "token": "<redacted>",
@@ -307,7 +375,11 @@ def check_receipt(receipt_path, pairs, errors):
         errors.append("回执引用了未知服务: %s" % sid)
         return
     _entry, descriptor = by_id[sid]
-    if receipt.get("endpoint") != descriptor.get("endpoint"):
+    allowed_endpoints = {descriptor.get("endpoint")}
+    for profile in (descriptor.get("discovery") or {}).get("node_profiles") or []:
+        if profile.get("verified_endpoint"):
+            allowed_endpoints.add(profile["verified_endpoint"])
+    if receipt.get("endpoint") not in allowed_endpoints:
         errors.append("回执地址与契约漂移: %s" % sid)
     if receipt.get("contract_version") != descriptor.get("version"):
         errors.append("回执版本与契约漂移: %s" % sid)
@@ -324,9 +396,17 @@ def check_receipt(receipt_path, pairs, errors):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="NoahsArk 服务契约门禁与在线探测")
+    parser = argparse.ArgumentParser(
+        description="NoahsArk 服务契约门禁与在线探测（--check 漂移 / --probe 在线 / --receipt 回执）",
+        epilog=(
+            "--node <name> 只用于 --probe：按 discovery.node_profiles 取该节点 verified_endpoint，"
+            "不存在的节点直接失败，不回退 canonical。失败码：SERVICE_DISCOVERY_DRIFT、"
+            "BLOCKED_STORAGE_AUTH、BLOCKED_KB_AUTH、STALE_INDEX、EVIDENCE_GAP。"
+        ),
+    )
     parser.add_argument("--check", action="store_true", help="离线漂移检查（默认）")
     parser.add_argument("--probe", action="store_true", help="在线探测（只在可达节点执行）")
+    parser.add_argument("--node", default=None, help="探测基址取该节点的 discovery profile（仅 --probe）")
     parser.add_argument("--receipt", default=None, help="校验节点侧回执")
     parser.add_argument("--service", default=None, help="只处理指定服务 id")
     parser.add_argument("--token-file", default=None, help="0600 token 文件（不回显）")
@@ -345,20 +425,38 @@ def main(argv=None):
                 raise CheckError(EXIT_USAGE, "没有该服务: %s" % args.service)
 
         for entry, descriptor, _rel in pairs:
+            discovery = descriptor.get("discovery") or {}
+            canonical = discovery.get("canonical") or {}
+            token = descriptor.get("token_bootstrap") or {}
             summary["services"].append(
                 {
                     "id": entry["id"],
                     "version": descriptor.get("version"),
                     "endpoint": descriptor.get("endpoint"),
                     "verification": (descriptor.get("verification") or {}).get("state"),
+                    "discovery": {
+                        "canonical_endpoint": canonical.get("endpoint"),
+                        "profiles": [p.get("node") for p in discovery.get("node_profiles") or []],
+                        "vm_boundary": list(
+                            (discovery.get("vm_boundary") or {}).get("nodes") or []
+                        ),
+                    },
+                    "token_bootstrap": {
+                        "mode": token.get("mode"),
+                        "bootstrap_api": token.get("bootstrap_api"),
+                        "status": token.get("status"),
+                    },
                 }
             )
+
+        if args.node and not args.probe:
+            raise CheckError(EXIT_USAGE, "--node 只能与 --probe 一起使用")
 
         if args.probe:
             receipt = None
             for entry, descriptor, rel in pairs:
                 token = read_token(args.token_file)
-                result = probe(descriptor, token, descriptor_rel=rel)
+                result = probe(descriptor, token, descriptor_rel=rel, node=args.node)
                 summary["checks"].setdefault("probe", []).append(result)
                 if not result.get("ok"):
                     errors.append("在线探测失败: %s" % entry["id"])

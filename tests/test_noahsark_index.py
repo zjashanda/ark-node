@@ -15,6 +15,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -460,7 +461,7 @@ class ServiceGateTest(unittest.TestCase):
             "schema": "ark.service-probe.v1",
             "service": "svc.knowledge-service",
             "endpoint": "http://bszT14:8091",
-            "contract_version": "1.0.0",
+            "contract_version": read_descriptor(KB_DESCRIPTOR)["version"],
             "ok": True,
             "checks": [{"id": "health", "http": 200, "ok": True}],
             "note": "fixture",
@@ -499,9 +500,17 @@ class GateTest(unittest.TestCase):
             out = Path(tmp)
             build.render(read_catalog(), FAKE_COMMIT, FAKE_TIME, out)
             targets = [str(out / name) for name in ("index.md", "index.json", "manifest.json")]
-            targets += [str(CATALOG_PATH), str(STORAGE_DESCRIPTOR), str(KB_DESCRIPTOR)]
+            targets.append(str(CATALOG_PATH))
             code, out_text, err = run(TOOLS / "secret_scan.py", targets)
             self.assertEqual(0, code, out_text + err)
+
+    def test_descriptors_only_hold_approved_internal_literals(self):
+        for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):
+            data = read_descriptor(path)
+            for json_path, ip in build.iter_internal_literals(data):
+                with self.subTest(descriptor=path.name, path=json_path):
+                    self.assertTrue(json_path.endswith(build.INTERNAL_PATH_SUFFIXES))
+                    self.assertIn(ip, build.APPROVED_INTERNAL_HOSTS)
 
     def test_sources_pass_time_lint(self):
         targets = [
@@ -543,6 +552,140 @@ class GateTest(unittest.TestCase):
         source = (HERE / "publish-index.py").read_text(encoding="utf-8")
         self.assertIn("ACCESS_KEY_SECRET", source)
         self.assertNotIn("open(", source.split("def credentials")[1].split("def apply_plan")[0])
+
+
+class KnowledgeChainTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.catalog = read_catalog()
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.out = Path(cls.tmp.name)
+        build.render(cls.catalog, FAKE_COMMIT, FAKE_TIME, cls.out)
+        cls.index = json.loads((cls.out / "index.json").read_text(encoding="utf-8"))
+        cls.markdown = (cls.out / "index.md").read_text(encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def _validate_temp_tree(self, mutate):
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / "templates" / "noahsark-index" / "services").mkdir(parents=True)
+            catalog = copy.deepcopy(self.catalog)
+            descriptors = {
+                "templates/noahsark-index/services/storage-service.json": read_descriptor(
+                    STORAGE_DESCRIPTOR
+                ),
+                "templates/noahsark-index/services/knowledge-service.json": read_descriptor(
+                    KB_DESCRIPTOR
+                ),
+            }
+            mutate(catalog, descriptors)
+            (root / "templates/noahsark-index/catalog.json").write_text(
+                json.dumps(catalog, ensure_ascii=False), encoding="utf-8"
+            )
+            for rel, data in descriptors.items():
+                (root / rel).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            saved = build.REPO_ROOT
+            build.REPO_ROOT = root
+            try:
+                return build.validate_catalog(catalog)
+            finally:
+                build.REPO_ROOT = saved
+        finally:
+            shutil.rmtree(str(root), ignore_errors=True)
+
+    def test_versions_match_contract(self):
+        self.assertEqual("2.1.0", self.catalog["version"])
+        self.assertEqual("1.1.0", read_descriptor(STORAGE_DESCRIPTOR)["version"])
+        self.assertEqual("1.1.0", read_descriptor(KB_DESCRIPTOR)["version"])
+
+    def test_descriptors_have_all_three_contracts(self):
+        for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):
+            descriptor = read_descriptor(path)
+            with self.subTest(descriptor=path.name):
+                self.assertEqual(
+                    "ark.service-discovery.v1", descriptor["discovery"]["schema"]
+                )
+                self.assertEqual(
+                    "ark.token-bootstrap.v1", descriptor["token_bootstrap"]["schema"]
+                )
+                self.assertEqual(
+                    "ark.service-health.v1", descriptor["health_contract"]["schema"]
+                )
+
+    def test_pvm1003_uses_measured_storage_endpoint(self):
+        descriptor = read_descriptor(STORAGE_DESCRIPTOR)
+        discovery = descriptor["discovery"]
+        profiles = {p["node"]: p for p in discovery["node_profiles"]}
+        endpoint = profiles["pvm1003"]["verified_endpoint"]
+        self.assertEqual("http://10.210.8.205:8090", endpoint)  # noqa: secret-scan
+        self.assertIn("pvm1003", discovery["vm_boundary"]["nodes"])
+
+    def test_generated_artifacts_have_no_rfc1918(self):
+        for blob in (self.markdown, json.dumps(self.index, ensure_ascii=False)):
+            self.assertIsNone(build.RFC1918.search(blob))
+
+    def test_service_node_profiles_strip_verified_endpoint(self):
+        for service in self.index["system"]["services"]:
+            self.assertTrue(service["discovery"]["node_profiles"])
+            for profile in service["discovery"]["node_profiles"]:
+                self.assertNotIn("verified_endpoint", profile)
+                self.assertTrue(profile["verified"])
+            canonical = service["discovery"]["canonical"]
+            self.assertTrue(canonical["fixed_entry_present"])
+            self.assertEqual(
+                "descriptor:discovery.canonical.fixed_entry", canonical["fixed_entry_ref"]
+            )
+
+    def test_failure_taxonomy_has_required_codes(self):
+        codes = {rule["code"] for rule in self.index["system"]["failure_taxonomy"]}
+        for code in (
+            "BLOCKED_STORAGE_AUTH",
+            "BLOCKED_KB_AUTH",
+            "STALE_INDEX",
+            "EVIDENCE_GAP",
+            "SOURCE_MISSING",
+            "SERVICE_DISCOVERY_DRIFT",
+            "BLOCKED_KB_BOOTSTRAP_PARITY",
+        ):
+            self.assertIn(code, codes)
+
+    def test_knowledge_loop_has_nine_unique_steps(self):
+        loop = self.catalog["knowledge_loop"]
+        ids = [step["id"] for step in loop]
+        self.assertEqual(9, len(loop))
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual("evidence.produce", ids[0])
+        self.assertEqual("kb.reuse", ids[-1])
+
+    def test_unapproved_fixed_entry_fails_build(self):
+        def mutate(_catalog, descriptors):
+            storage = descriptors["templates/noahsark-index/services/storage-service.json"]
+            storage["discovery"]["canonical"]["fixed_entry"] = "http://10.1.2.3:8090"  # noqa: secret-scan
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("未批准的固定入口" in err for err in errors), errors)
+
+    def test_private_literal_outside_allowlist_fails_build(self):
+        def mutate(_catalog, descriptors):
+            storage = descriptors["templates/noahsark-index/services/storage-service.json"]
+            storage["discovery"]["node_profiles"][0]["note"] = "10.9.9.9"  # noqa: secret-scan
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("私网字面量" in err for err in errors), errors)
+
+    def test_write_path_rule_says_health_is_not_write_proof(self):
+        for path in (STORAGE_DESCRIPTOR, KB_DESCRIPTOR):
+            descriptor = read_descriptor(path)
+            self.assertIn("写链路", descriptor["health_contract"]["write_path_rule"])
+
+    def test_check_services_passes_in_repo(self):
+        code, stdout, stderr = run(
+            HERE / "check-services.py", ["--check", "--dir", str(self.out)]
+        )
+        self.assertEqual(0, code, stdout + stderr)
 
 
 if __name__ == "__main__":

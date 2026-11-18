@@ -25,6 +25,11 @@ https://listenai-test-internal.oss-cn-beijing.aliyuncs.com/noahsark/index.md
 - `index.json` —— 机器导航，顶层 `system` / `onboarding` 两个导航域，每条含 id、标题、状态、版本、地址、`source_repo`、`source_commit`、`sha256`；
 - `manifest.json` —— 根索引自身的版本、提交号、区域与服务摘要、两个文件的校验值与生成时间。
 
+- 服务契约新增三类机器可读块：`discovery`（canonical/节点 profile/VM 边界）、`token_bootstrap`（每节点凭据与 scope）、`health_contract`（探针、source/indexed、degraded）；固定入口只留在 descriptor。
+- `failure_taxonomy` 与 9 步 `knowledge_loop` 进入索引：失败码 → 触发条件 → 处理 → 是否停止。
+- `build-index.py` 写盘前做最终防线：`index.md`/`index.json` 命中 RFC1918 即失败；`verify-index.py` 再校验一次。
+- `check-services.py --probe --node <node>` 按节点 profile 探测；`--check` 同时报 `SERVICE_DISCOVERY_DRIFT`。
+
 ## 1.1 信息架构（固定）
 
 | 区域 | 回答的问题 | JSON 域 |
