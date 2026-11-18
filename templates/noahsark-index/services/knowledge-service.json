@@ -35,7 +35,7 @@
     "scope_rule": "read token 调写接口返回 403；write 隐含 read。",
     "anonymous_read": {
       "schema": "ark.service-anonymous-read.v1",
-      "status": "pending_service_change",
+      "status": "verified",
       "public_api": [
         "GET /healthz",
         "GET /v1/search",
@@ -65,10 +65,10 @@
       },
       "observed_20261118": {
         "GET /healthz": 200,
-        "GET /v1/search": 401,
-        "GET /v1/entries/{entry_id}": 401,
-        "GET /v1/sync/status": 401,
-        "POST /v1/proposals": 401
+        "GET /v1/search": 200,
+        "GET /v1/entries/{entry_id}": 200,
+        "GET /v1/documents/{doc_id}": 200,
+        "GET /v1/sync/status": 200
       },
       "service_change": {
         "required": true,
@@ -76,11 +76,27 @@
         "doc": "docs/kb-anonymous-read-change.md",
         "verification": "匿名 search/detail/sync-status 200、匿名 proposal 401/403 通过后把 status 改为 verified。",
         "rollback": "关闭 auth.public_read 并重启服务，路由恢复全量 Bearer；无数据变更，无迁移。"
+      },
+      "verified_20261118": {
+        "state": "verified",
+        "verified_at": "2026-11-18 17:23:10",
+        "service_version": "1.0.0",
+        "receipt": "NOAH-191/receipts/reload-8091-verify.log",
+        "receipt_sha256": "cf5b5e59754b0bad8936c70f4c1815437f65998d20fb930c010562776489cc07",
+        "restart": "systemctl --user restart noahsark-knowledge.service（仅该 unit，主进程已更换）",
+        "checks": [
+          "匿名 search 200，仅返回 active（q=CSK 匿名 4 条全 active，带 token 8 条含 pending）",
+          "匿名 active 条目 200；匿名 pending 条目 404",
+          "匿名 /v1/sync/status 200，source_commit == indexed_commit == 3083923",
+          "匿名 GET /v1/proposals、GET /v1/health、POST /v1/sync/pull、POST /v1/hooks/ark-kb 均 401",
+          "带 write token 查询 200，行为未回归"
+        ],
+        "note": "重载后发生 1 次同步 pull，拉到同一 commit，head 未变，索引仍 fresh、degraded=[]"
       }
     },
     "anonymous_proposal": {
       "schema": "ark.service-anonymous-proposal.v1",
-      "status": "pending_service_change",
+      "status": "verified",
       "endpoint": "POST /v1/proposals",
       "allowed_status": [
         "pending"
@@ -120,6 +136,21 @@
         "doc": "docs/kb-anonymous-read-change.md",
         "verification": "重载后匿名 GET 4 类 200、匿名 POST pending 201、匿名 close/sync/admin 401/403，才把 status 改 verified。",
         "rollback": "开关回 false 并重启服务，路由恢复全量 Bearer；无数据迁移。"
+      },
+      "verified_20261118": {
+        "state": "verified",
+        "verified_at": "2026-11-18 17:23:10",
+        "service_version": "1.0.0",
+        "receipt": "NOAH-191/receipts/reload-8091-verify.log",
+        "receipt_sha256": "cf5b5e59754b0bad8936c70f4c1815437f65998d20fb930c010562776489cc07",
+        "checks": [
+          "匿名 POST /v1/proposals 201，状态 pending，proposal_id 稳定",
+          "同一 idempotency_key 重复提交 200 created=false、proposal_id 相同",
+          "缺 provenance/evidence、evidence 无 bytes/sha256 一律 400，未落候选",
+          "匿名 POST /v1/proposals/{id}/close、/v1/sync/pull、/v1/hooks/ark-kb 均 401",
+          "待审总量与每分钟限流生效（429）"
+        ],
+        "note": "验收产生的 pending 提案保留在 outbox，等待人工审核，不自动 promote"
       }
     }
   },

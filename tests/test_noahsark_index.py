@@ -795,7 +795,12 @@ class KnowledgeChainTest(unittest.TestCase):
     def test_kb_anonymous_read_contract(self):
         anon = read_descriptor(KB_DESCRIPTOR)["auth"]["anonymous_read"]
         self.assertEqual("ark.service-anonymous-read.v1", anon["schema"])
-        self.assertEqual("pending_service_change", anon["status"])
+        self.assertIn(anon["status"], ("pending_service_change", "verified"))
+        if anon["status"] == "verified":
+            evidence = anon.get("verified_20261118") or {}
+            self.assertEqual("verified", evidence.get("state"))
+            self.assertTrue(evidence.get("receipt"))
+            self.assertTrue(evidence.get("checks"))
         public = set(anon["public_api"])
         protected = set(anon["protected_api"])
         self.assertFalse(public & protected)
@@ -847,7 +852,12 @@ class KnowledgeChainTest(unittest.TestCase):
     def test_kb_anonymous_proposal_contract(self):
         proposal = read_descriptor(KB_DESCRIPTOR)["auth"]["anonymous_proposal"]
         self.assertEqual("ark.service-anonymous-proposal.v1", proposal["schema"])
-        self.assertEqual("pending_service_change", proposal["status"])
+        self.assertIn(proposal["status"], ("pending_service_change", "verified"))
+        if proposal["status"] == "verified":
+            evidence = proposal.get("verified_20261118") or {}
+            self.assertEqual("verified", evidence.get("state"))
+            self.assertTrue(evidence.get("receipt"))
+            self.assertTrue(evidence.get("checks"))
         self.assertEqual("POST /v1/proposals", proposal["endpoint"])
         self.assertEqual(["pending"], proposal["allowed_status"])
         self.assertEqual(
