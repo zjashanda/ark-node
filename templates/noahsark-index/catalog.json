@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -142,14 +142,14 @@
       "id": "kb.proposal",
       "step": "4. 提交 proposal",
       "actor": "执行 Agent",
-      "detail": "向 8091 POST /v1/proposals 提交草稿，草稿绑定 evidence_uri、request_id 与 idempotency_key；201 新建、200 幂等；不直接改 ark-kb。只读查询不需要 token；仅本条提交使用最小 write token。",
+      "detail": "执行 Agent 向 8091 POST /v1/proposals 提交草稿：局域网内可匿名创建 pending，必须带 provenance（issue/run/agent/node）、evidence（uri/bytes/sha256）、request_id 与 idempotency_key；201 新建、200 幂等；不直接改 ark-kb。",
       "artifact": "proposal_id（prop-<sha256(draft)[:16]>）+ 状态 pending"
     },
     {
       "id": "kb.review",
       "step": "5. 人工审核",
       "actor": "人 / 授权 Agent",
-      "detail": "核对 evidence_ref 与结论，关闭为 accepted 或 rejected；pending 不得当 active 使用，审核人、时间、原话留痕。",
+      "detail": "核对 evidence_ref 与结论，关闭为 accepted 或 rejected；pending 不得当 active 使用，审核人、时间、原话留痕。审核/接受/拒绝/关闭必须带 write token，匿名请求一律 401/403。",
       "artifact": "审核结论 + entry_id"
     },
     {
@@ -229,8 +229,8 @@
     },
     {
       "gate": "只读公开边界",
-      "rule": "8091 只读接口按 anonymous_read 匿名开放，写接口仍鉴权；匿名可读不等于可写。",
-      "failure": "BLOCKED_KB_ANON_READ"
+      "rule": "8091 只读接口匿名开放，匿名可创建 pending proposal；审核/入库/sync/admin 仍鉴权，匿名可读不等于可写。",
+      "failure": "BLOCKED_KB_ANON_READ / BLOCKED_KB_ANON_PROPOSAL"
     }
   ],
   "security": [
@@ -243,7 +243,8 @@
     "错误、失败、阻塞必须如实标注；不得把代码测试通过写成真机验证通过。",
     "写链路是否可用不看健康码：8090 看上传+回读 SHA，8091 看 proposal_id 与 source/indexed 追平；把 200 当写通按 EVIDENCE_GAP 处理。",
     "token 按节点专用，只落 0600 文件（Windows 仅当前用户 ACL）或环境变量；轮换先于共享，吊销即时生效。",
-    "8091 只读接口匿名开放：公开响应只含已审核 active 知识，不得含 token、凭据、服务端绝对路径、个人敏感信息或 pending 正文；写接口无 token 必须 401/403。"
+    "8091 只读接口匿名开放：公开响应只含已审核 active 知识，不得含 token、凭据、服务端绝对路径、个人敏感信息或 pending 正文；写接口无 token 必须 401/403。",
+    "匿名 proposal 只能落在 pending，不得触碰审核、入库与 sync；匿名请求体、分页与频率受限，日志只记标识与状态码。"
   ],
   "failure_taxonomy": [
     {
@@ -308,6 +309,13 @@
       "stop": true,
       "action": "检查服务 auth.public_read 与服务版本，按最小服务改动修复；不得用签发 read token 绕过。",
       "retry": "服务改动验收通过后重试一次。"
+    },
+    {
+      "code": "BLOCKED_KB_ANON_PROPOSAL",
+      "when": "匿名 proposal 被拒（401/403/4xx）或写入后状态不是 pending，或响应泄露正文/凭据。",
+      "stop": true,
+      "action": "核对来源网段、provenance/evidence/幂等键与开关状态；不得改用 write token 静默绕过。",
+      "retry": "门禁修正后重试一次，仍失败转人工。"
     }
   ],
   "roles": [
@@ -606,14 +614,16 @@
           "ACCEPT_KB_FRESHNESS",
           "ACCEPT_KB_TOKEN",
           "ACCEPT_DISCOVERY_PROFILE",
-          "ACCEPT_KB_ANON_READ"
+          "ACCEPT_KB_ANON_READ",
+          "ACCEPT_KB_ANON_PROPOSAL"
         ],
         "block_codes": [
           "BLOCKED_KB_STALE",
           "BLOCKED_KB_UNAVAILABLE",
           "BLOCKED_KB_AUTH",
           "BLOCKED_KB_SCOPE",
-          "BLOCKED_KB_ANON_READ"
+          "BLOCKED_KB_ANON_READ",
+          "BLOCKED_KB_ANON_PROPOSAL"
         ]
       },
       {
@@ -738,7 +748,7 @@
           "storage.enroll",
           "knowledge.connect"
         ],
-        "detail": "8090 用一次性 secret 自助 bootstrap/rotate/revoke/status（服务端只存 SHA-256）；8091 只写接口用管理员签发的 write token，按 mtime 热加载；两套 token 不互通，只落 0600/ACL 文件，不打印不复制。",
+        "detail": "8090 用一次性 secret 自助 bootstrap/rotate/revoke/status（服务端只存 SHA-256）；8091 只写接口用管理员签发的 write token，按 mtime 热加载；两套 token 不互通，只落 0600/ACL 文件，不打印不复制。8091 只读与匿名 pending 提案不需要 token；write token 只给审核/关闭/sync/admin。",
         "commands": [
           "管理员签发/轮换/吊销",
           "轮换后重跑验收"
@@ -884,6 +894,11 @@
         "rule": "匿名 GET /healthz、/v1/search、/v1/entries/{id}、/v1/sync/status 均 200；匿名 POST /v1/proposals 返回 401/403。"
       },
       {
+        "id": "ACCEPT_KB_ANON_PROPOSAL",
+        "title": "匿名提案待审",
+        "rule": "匿名 POST /v1/proposals 返回 201 且 status=pending、带 proposal_id；同幂等键重复提交返回 200 且同一 proposal_id；匿名 close/review 返回 401/403。"
+      },
+      {
         "id": "ACCEPT_DISCOVERY_PROFILE",
         "title": "服务发现解析",
         "rule": "本节点先取 profile.verified_endpoint，canonical 未被改写，profile 未被复制到其他节点。"
@@ -960,6 +975,12 @@
         "area": "knowledge",
         "meaning": "契约声明匿名的 8091 只读接口返回 401/403，或匿名响应泄露凭据、绝对路径、pending 正文",
         "action": "按最小服务改动打开 auth.public_read 并验收；不得用签发 read token 绕过。"
+      },
+      {
+        "code": "BLOCKED_KB_ANON_PROPOSAL",
+        "area": "knowledge",
+        "meaning": "匿名 proposal 被拒、状态不是 pending，或响应泄露正文/凭据",
+        "action": "核对来源网段、provenance/evidence/幂等键与开关状态；不得改用 write token 静默绕过。"
       },
       {
         "code": "BLOCKED_KB_SCOPE",
@@ -1153,7 +1174,7 @@
           "kind": "service",
           "title": "NoahsArk Knowledge Service（8091）",
           "status": "available",
-          "version": "1.2.0",
+          "version": "1.3.0",
           "roles": [
             "external-reader",
             "coordinator",

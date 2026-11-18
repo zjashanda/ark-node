@@ -76,6 +76,19 @@ DISCOVERY_SCHEMA = "ark.service-discovery.v1"
 TOKEN_BOOTSTRAP_SCHEMA = "ark.token-bootstrap.v1"
 HEALTH_SCHEMA = "ark.service-health.v1"
 ANONYMOUS_READ_SCHEMA = "ark.service-anonymous-read.v1"
+ANON_PROPOSAL_SCHEMA = "ark.service-anonymous-proposal.v1"
+ANON_PROPOSAL_GATES = ("lan_source", "evidence", "idempotency", "status", "quota", "audit")
+ANON_PROPOSAL_REQUIRED_FIELDS = (
+    "provenance.issue",
+    "provenance.run",
+    "provenance.agent",
+    "provenance.node",
+    "evidence[].bytes",
+    "evidence[].sha256",
+    "request_id",
+    "idempotency_key",
+)
+ANON_PROPOSAL_FORBIDDEN = ("review", "close", "promote", "sync", "admin")
 TOKEN_VERIFICATION_SCHEMA = "ark.token-bootstrap.verification.v1"
 TOKEN_MODES = ("one-time-secret", "self-service", "admin-provisioned")
 TOKEN_STATUSES = ("operational", "implemented", "partial")
@@ -407,7 +420,7 @@ def validate_anonymous_read(descriptor, eid, need):
 
     declared = set()
     for api in descriptor.get("api") or []:
-        if (api.get("scope") or "") == "anonymous":
+        if (api.get("scope") or "") == "anonymous" and (api.get("method") or "").upper() == "GET":
             declared.add("%s %s" % (api.get("method"), api.get("path")))
     need(
         declared == set(public),
@@ -415,6 +428,80 @@ def validate_anonymous_read(descriptor, eid, need):
         % (eid, sorted(set(public)), sorted(declared)),
     )
 
+
+
+def validate_anonymous_proposal(descriptor, eid, need):
+    proposal = (descriptor.get("auth") or {}).get("anonymous_proposal")
+    apis = descriptor.get("api") or []
+    anonymous_posts = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in apis
+        if (api.get("scope") or "") == "anonymous" and (api.get("method") or "").upper() == "POST"
+    }
+    if not proposal:
+        need(
+            not anonymous_posts,
+            "服务条目 %s 有匿名 POST 接口 %s，必须声明 auth.anonymous_proposal"
+            % (eid, sorted(anonymous_posts)),
+        )
+        return
+    need(
+        proposal.get("schema") == ANON_PROPOSAL_SCHEMA,
+        "服务条目 %s 的 auth.anonymous_proposal.schema 必须是 %s" % (eid, ANON_PROPOSAL_SCHEMA),
+    )
+    need(
+        proposal.get("status") in ("pending_service_change", "verified"),
+        "服务条目 %s 的 auth.anonymous_proposal.status 非法" % eid,
+    )
+    endpoint = str(proposal.get("endpoint") or "")
+    need(
+        endpoint == "POST /v1/proposals",
+        "服务条目 %s 的 auth.anonymous_proposal.endpoint 必须是 POST /v1/proposals" % eid,
+    )
+    need(
+        list(proposal.get("allowed_status") or []) == ["pending"],
+        "服务条目 %s 的 auth.anonymous_proposal.allowed_status 必须是 ['pending']" % eid,
+    )
+    fields = set(proposal.get("required_fields") or [])
+    for field in ANON_PROPOSAL_REQUIRED_FIELDS:
+        need(
+            field in fields,
+            "服务条目 %s 的 anonymous_proposal.required_fields 缺少 %s" % (eid, field),
+        )
+    gates = proposal.get("gates") or {}
+    for gate in ANON_PROPOSAL_GATES:
+        need(bool(gates.get(gate)), "服务条目 %s 的 anonymous_proposal.gates 缺少 %s" % (eid, gate))
+    forbidden = set(proposal.get("forbidden") or [])
+    for action in ANON_PROPOSAL_FORBIDDEN:
+        need(
+            action in forbidden,
+            "服务条目 %s 的 anonymous_proposal.forbidden 缺少 %s" % (eid, action),
+        )
+    change = proposal.get("service_change") or {}
+    need(
+        change.get("required") is True,
+        "服务条目 %s 的 anonymous_proposal 必须声明 service_change.required=true（含 verified）" % eid,
+    )
+    doc = change.get("doc")
+    need(
+        bool(doc),
+        "服务条目 %s 的 anonymous_proposal.service_change 缺少 doc" % eid,
+    )
+    if doc:
+        need(
+            (REPO_ROOT / doc).exists(),
+            "服务条目 %s 的 anonymous_proposal.service_change.doc 不存在: %s" % (eid, doc),
+        )
+    declared = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in apis
+        if (api.get("scope") or "") == "anonymous"
+    }
+    need(
+        endpoint in declared,
+        "服务条目 %s 的 %s 必须在 api[] 中标记 scope=anonymous（实际匿名接口 %s）"
+        % (eid, endpoint, sorted(declared)),
+    )
 
 def validate_health_contract(descriptor, eid, need):
     health = descriptor.get("health_contract") or {}
@@ -643,6 +730,7 @@ def validate_catalog(cat):
                         validate_discovery(descriptor, eid, need)
                         validate_token_bootstrap(descriptor, eid, need)
                         validate_anonymous_read(descriptor, eid, need)
+                        validate_anonymous_proposal(descriptor, eid, need)
                         validate_health_contract(descriptor, eid, need)
         for role in entry.get("roles") or []:
             need(role in role_ids, "条目 %s 引用了不存在的角色 %s" % (eid, role))
@@ -1052,6 +1140,26 @@ def service_block(item):
                 "service_change": dict((auth.get("anonymous_read") or {}).get("service_change") or {}),
             }
             if auth.get("anonymous_read")
+            else None
+        ),
+        "anonymous_proposal": (
+            {
+                "schema": (auth.get("anonymous_proposal") or {}).get("schema"),
+                "status": (auth.get("anonymous_proposal") or {}).get("status"),
+                "endpoint": (auth.get("anonymous_proposal") or {}).get("endpoint"),
+                "allowed_status": list(
+                    (auth.get("anonymous_proposal") or {}).get("allowed_status") or []
+                ),
+                "required_fields": list(
+                    (auth.get("anonymous_proposal") or {}).get("required_fields") or []
+                ),
+                "gates": dict((auth.get("anonymous_proposal") or {}).get("gates") or {}),
+                "forbidden": list((auth.get("anonymous_proposal") or {}).get("forbidden") or []),
+                "service_change": dict(
+                    (auth.get("anonymous_proposal") or {}).get("service_change") or {}
+                ),
+            }
+            if auth.get("anonymous_proposal")
             else None
         ),
         "health": {
@@ -1528,6 +1636,7 @@ def build_index_md(cat, items, generated_at, content_commit):
         )
         add()
         anon = (descriptor.get("auth") or {}).get("anonymous_read") or {}
+        proposal = (descriptor.get("auth") or {}).get("anonymous_proposal") or {}
         if anon:
             add(
                 "只读公开边界：状态 %s；匿名可读 %s；仍需鉴权 %s；限流、分页与脱敏见 `%s#auth.anonymous_read`。"
@@ -1539,9 +1648,31 @@ def build_index_md(cat, items, generated_at, content_commit):
                 )
             )
             add()
+            if proposal:
+                add(
+                    "匿名提案：状态 %s；入口 %s；只允许 %s；"
+                    "必填 provenance(issue/run/agent/node)、evidence(bytes/sha256)、request_id、idempotency_key；"
+                    "审核/入库/sync/admin 仍需 write token（见 descriptor:auth.anonymous_proposal）。"
+                    % (
+                        proposal.get("status") or "-",
+                        proposal.get("endpoint") or "-",
+                        "、".join(proposal.get("allowed_status") or []) or "-",
+                    )
+                )
+                add()
             change = anon.get("service_change") or {}
-            if change:
-                add("服务改动：%s（见 %s）。" % (clause(change.get("scope")), change.get("doc") or "-"))
+            proposal_change = proposal.get("service_change") or {}
+            scope_source = proposal_change if proposal_change.get("scope") else change
+            if scope_source.get("scope"):
+                docs = "、".join(
+                    dict.fromkeys(
+                        doc
+                        for doc in (change.get("doc"), proposal_change.get("doc"))
+                        if doc
+                    )
+                )
+                scope_text = str(scope_source.get("scope")).rstrip("。")
+                add("服务改动：%s（见 %s）。" % (clause(scope_text), docs or "-"))
                 add()
         add("失败码：%s。" % ("、".join(service_failure_codes(descriptor)) or "-"))
         add()

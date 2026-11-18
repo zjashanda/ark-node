@@ -39,6 +39,7 @@
 | `token_bootstrap`（`ark.token-bootstrap.v1`） | `mode`、`per_node`、`bootstrap_api`、`minimum_scopes`、`allowed_scopes`、`storage`、`lifecycle`、`parity` | 每节点独立凭据；`parity.bootstrap_api=false` 时必须声明 `gap` |
 | `health_contract`（`ark.service-health.v1`） | `probe`、`required_fields`、`status_rule`、`degraded`、`commits`、`write_path_rule`、`stop_conditions` | 探针路径与判定规则；有 freshness 的服务必须给出 source/indexed 一致性 |
 | `auth.anonymous_read`（`ark.service-anonymous-read.v1`） | `status`、`public_api`、`protected_api`、`redaction`、`limits`、`service_change` | 只读匿名边界：公开接口、受保护接口、脱敏与限流、待改服务改动 |
+| `auth.anonymous_proposal`（`ark.service-anonymous-proposal.v1`） | `status`、`endpoint`、`allowed_status`、`required_fields`、`gates`、`forbidden`、`service_change` | 匿名提案边界：只允许创建 pending，必填 provenance/evidence/幂等键，审核与入库仍需 write token |
 | `token_bootstrap.verification`（`ark.token-bootstrap.verification.v1`） | `state`、`verified_at`、`observed`、`rule` | 自助开通能力的观测证据；声称 `operational` 就必须带观测记录 |
 
 `discovery.redaction.internal_only_fields` 必须同时包含 `discovery.canonical.fixed_entry` 与
@@ -68,8 +69,9 @@
 - 契约：`auth.anonymous_read`（`ark.service-anonymous-read.v1`），当前 `status=pending_service_change`。
 - 公开（匿名，不需要 read token）：`GET /healthz`、`GET /v1/search`、`GET /v1/entries/{entry_id}`、
   `GET /v1/documents/{doc_id}`、`GET /v1/sync/status`。
-- 仍鉴权：`POST /v1/proposals`、`GET /v1/proposals`、`POST /v1/proposals/{id}/close`、
-  `POST /v1/sync/pull`、`POST /v1/hooks/ark-kb`、`GET /v1/health`。
+- 仍鉴权：`GET /v1/proposals`、`POST /v1/proposals/{id}/close`、`POST /v1/sync/pull`、
+  `POST /v1/hooks/ark-kb`、`POST /v1/webhook/github`、`GET /v1/health`。
+- `POST /v1/proposals` 不属于只读边界：它按 3.2 的匿名提案门禁处理（只能创建 pending）。
 - 脱敏：公开响应不含 token、凭据、服务端绝对路径、个人敏感信息；只返回已审核 active 条目，
   pending/candidate 正文不得因匿名查询泄露；错误体只回 `code`/`message`/`request_id`。
 - 限流与上限：按来源限流（超限 429）、请求体上限 262144 字节、分页上限 500、审计不记
@@ -79,6 +81,25 @@
   `docs/kb-anonymous-read-change.md`，验收通过后才改为 `verified`。
 - 未通过前，把匿名 401 当成 `BLOCKED_KB_ANON_READ` 上报，**不得**用临时签发 read token 绕过。
 
+## 3.2 匿名提案（pending-only）
+
+- 契约：`auth.anonymous_proposal`（`ark.service-anonymous-proposal.v1`），当前 `status=pending_service_change`，
+  入口固定 `POST /v1/proposals`，`allowed_status=["pending"]`。
+- 四类必填（缺一即 4xx，不落候选）：
+  1. provenance：`provenance.issue`、`provenance.run`、`provenance.agent`、`provenance.node`；
+  2. evidence：每条 `evidence[].kind`、`evidence[].ref`、`evidence[].bytes`、`evidence[].sha256`；
+  3. `request_id`：本次请求的追踪标识；
+  4. `idempotency_key`：同键重复提交不产生重复 proposal，返回已有 `proposal_id`（201 新建 / 200 幂等）。
+- 来源网段：来源 IP 必须命中已批准局域网网段（`auth.anonymous_nets`），否则 401。
+- 状态：新建只能是 `pending`；匿名不得 review / accept / reject / close / promote，
+  审核/接受/拒绝/关闭必须带 write token，匿名请求一律 401/403。
+- 限额：请求体、分页、来源速率（每分钟）与 outbox 待审总量都有上限，超限 429；请求不合法 4xx。
+- 脱敏：日志只记 `proposal_id`、来源、provenance 标识与状态码，不记正文与任何凭据。
+- 现状：2026-11-18 实测匿名 `POST /v1/proposals` 仍返回 401，故状态保持 `pending_service_change`；
+  最小服务改动与验收矩阵见 `docs/kb-anonymous-read-change.md`，验收通过后才改为 `verified`。
+- 未通过前，把匿名 proposal 被拒或状态不是 pending 当成 `BLOCKED_KB_ANON_PROPOSAL` 上报，
+  **不得**改用 write token 静默绕过。
+
 ## 4. 闭环九步
 
 | # | 步骤 | 产物 | 失败码 |
@@ -86,7 +107,7 @@
 | 1 | 产生证据：产物、日志、录音按任务目录落盘并脱敏 | 本地文件 + manifest（path/bytes/sha256） | `EVIDENCE_GAP` |
 | 2 | 上传 8090 证据：先用自助 bootstrap 取 read+evidence:write，再按 evidence/results/receipts 分类写入 | `evidence_ref`（uri/bytes/sha256） | `BLOCKED_STORAGE_AUTH`、`BLOCKED_STORAGE_SCOPE`、`BLOCKED_STORAGE_QUARANTINE` |
 | 3 | 写回执：记录 evidence_ref 三项与 request_id | receipt | `EVIDENCE_GAP` |
-| 4 | 提交 proposal：用最小 write token 绑定 evidence_uri、request_id、idempotency_key | `proposal_id` + pending | `BLOCKED_KB_AUTH` |
+| 4 | 提交 proposal：局域网内可匿名创建 pending（provenance + evidence + request_id + idempotency_key），带 write token 亦可 | `proposal_id` + pending | `BLOCKED_KB_ANON_PROPOSAL`、`BLOCKED_KB_AUTH` |
 | 5 | 人工审核：核对证据后关闭 accepted / rejected | 审核结论 + entry_id | `SOURCE_MISSING` |
 | 6 | 写入 ark-kb：entries + index，走功能分支与 PR | 新 main 提交 | `BLOCKED_GIT_REMOTE` |
 | 7 | 增量索引：定时 pull 或 webhook 追平 source/indexed | `indexed_commit`、freshness、degraded | `STALE_INDEX` |
@@ -100,6 +121,7 @@
 | `BLOCKED_STORAGE_AUTH` | 8090 缺 token、过期、吊销或节点被禁用 | 用本节点 bootstrap/rotate 换新，不借他人 token | 停止 |
 | `BLOCKED_KB_AUTH` | 8091 写接口返回 401/403，或本节点无 write token | 由管理员签发本节点 write token，落 0600 文件 | 停止 |
 | `BLOCKED_KB_ANON_READ` | 契约声明匿名的只读接口返回 401/403，或匿名响应泄露凭据、绝对路径、pending 正文 | 按最小服务改动打开 `auth.public_read` 并验收；不得签发 read token 绕过 | 停止 |
+| `BLOCKED_KB_ANON_PROPOSAL` | 匿名 proposal 被拒（401/403/4xx）、状态不是 pending，或响应泄露正文/凭据 | 核对来源网段、provenance/evidence/幂等键与开关状态；不得改用 write token 静默绕过 | 停止 |
 | `STALE_INDEX` | source/indexed 不等、freshness 非 fresh 或 degraded 非空 | 等增量索引追平；普通任务可用未过期快照并标注 | 停止 |
 | `EVIDENCE_GAP` | evidence_ref 缺 uri/bytes/sha256 或用健康 200 冒充写通 | 补齐上传+回读与回执，否则不进 proposal | 停止 |
 | `SOURCE_MISSING` | ark-kb 缺条目/文档，citation 不可解析 | 回到 proposal 审核或补提交，不凭印象补写 | 停止 |

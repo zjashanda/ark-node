@@ -29,6 +29,19 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 INDEX_SCHEMA = "ark.noahsark-index.v2"
+ANON_PROPOSAL_SCHEMA = "ark.service-anonymous-proposal.v1"
+ANON_PROPOSAL_GATES = ("lan_source", "evidence", "idempotency", "status", "quota", "audit")
+ANON_PROPOSAL_REQUIRED_FIELDS = (
+    "provenance.issue",
+    "provenance.run",
+    "provenance.agent",
+    "provenance.node",
+    "evidence[].bytes",
+    "evidence[].sha256",
+    "request_id",
+    "idempotency_key",
+)
+ANON_PROPOSAL_FORBIDDEN = ("review", "close", "promote", "sync", "admin")
 MANIFEST_SCHEMA = "ark.noahsark-index.manifest.v1"
 REGION_ORDER = ("system", "onboarding")
 SERVICE_KIND = "service"
@@ -289,6 +302,7 @@ def check_regions(index, items, errors):
             "token_bootstrap",
             "health",
             "auth",
+            "anonymous_proposal",
             "verification",
         ):
             if key not in svc:
@@ -347,6 +361,8 @@ def check_regions(index, items, errors):
                         (block.get("service_change") or {}).get("required")
                     ):
                         errors.append("服务块 %s 的 anonymous_read 待改状态缺少 service_change" % svc.get("id"))
+            check_anonymous_proposal(svc, data, errors)
+            check_anonymous_scope(data, svc.get("id"), errors)
             token = data.get("token_bootstrap") or {}
             if token.get("status") == "operational":
                 evidence = token.get("verification") or {}
@@ -381,6 +397,75 @@ def check_regions(index, items, errors):
         if counts.get("onboarding_steps") != len(step_ids):
             errors.append("counts.onboarding_steps 与实际步骤数不一致")
 
+
+
+def check_anonymous_proposal(svc, data, errors):
+    sid = svc.get("id")
+    proposal = (data.get("auth") or {}).get("anonymous_proposal") or {}
+    block = svc.get("anonymous_proposal") or {}
+    if not proposal:
+        if block:
+            errors.append("服务块 %s 输出 anonymous_proposal 但 descriptor 未声明" % sid)
+        return
+    if not block:
+        errors.append("服务块 %s 缺少 anonymous_proposal（descriptor 已声明）" % sid)
+        return
+    if block.get("schema") != ANON_PROPOSAL_SCHEMA:
+        errors.append("服务块 %s 的 anonymous_proposal.schema 非法" % sid)
+    if block.get("status") not in ("pending_service_change", "verified"):
+        errors.append("服务块 %s 的 anonymous_proposal.status 非法" % sid)
+    if block.get("status") != proposal.get("status"):
+        errors.append("服务块 %s 的 anonymous_proposal.status 与 descriptor 不一致" % sid)
+    if block.get("endpoint") != "POST /v1/proposals":
+        errors.append("服务块 %s 的 anonymous_proposal.endpoint 非法" % sid)
+    if list(block.get("allowed_status") or []) != ["pending"]:
+        errors.append("服务块 %s 的 anonymous_proposal.allowed_status 必须是 ['pending']" % sid)
+    fields = set(block.get("required_fields") or [])
+    for field in ANON_PROPOSAL_REQUIRED_FIELDS:
+        if field not in fields:
+            errors.append("服务块 %s 的 anonymous_proposal.required_fields 缺少 %s" % (sid, field))
+    gates = block.get("gates") or {}
+    for gate in ANON_PROPOSAL_GATES:
+        if not gates.get(gate):
+            errors.append("服务块 %s 的 anonymous_proposal.gates 缺少 %s" % (sid, gate))
+    forbidden = set(block.get("forbidden") or [])
+    for action in ANON_PROPOSAL_FORBIDDEN:
+        if action not in forbidden:
+            errors.append("服务块 %s 的 anonymous_proposal.forbidden 缺少 %s" % (sid, action))
+    if not (block.get("service_change") or {}).get("required"):
+        errors.append("服务块 %s 的 anonymous_proposal 缺少 service_change" % sid)
+    if not (proposal.get("service_change") or {}).get("required"):
+        errors.append("服务块 %s 的 descriptor anonymous_proposal 缺少 service_change" % sid)
+
+
+def check_anonymous_scope(data, sid, errors):
+    apis = data.get("api") or []
+    anon = (data.get("auth") or {}).get("anonymous_read") or {}
+    if anon:
+        declared = {
+            "%s %s" % (api.get("method"), api.get("path"))
+            for api in apis
+            if (api.get("scope") or "") == "anonymous"
+            and (api.get("method") or "").upper() == "GET"
+        }
+        if declared != set(anon.get("public_api") or []):
+            errors.append(
+                "服务块 %s 的 anonymous_read.public_api 与 api[] 匿名 GET 条目不一致" % sid
+            )
+    posts = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in apis
+        if (api.get("scope") or "") == "anonymous"
+        and (api.get("method") or "").upper() == "POST"
+    }
+    proposal = (data.get("auth") or {}).get("anonymous_proposal")
+    if proposal:
+        if proposal.get("endpoint") not in posts:
+            errors.append(
+                "服务块 %s 的 anonymous_proposal.endpoint 未在 api[] 标记 scope=anonymous" % sid
+            )
+    elif posts:
+        errors.append("服务块 %s 存在匿名 POST 接口但未声明 anonymous_proposal" % sid)
 
 def check_service_discovery(svc, errors):
     sid = svc.get("id")

@@ -659,9 +659,9 @@ class KnowledgeChainTest(unittest.TestCase):
             shutil.rmtree(str(root), ignore_errors=True)
 
     def test_versions_match_contract(self):
-        self.assertEqual("2.2.0", self.catalog["version"])
+        self.assertEqual("2.3.0", self.catalog["version"])
         self.assertEqual("1.1.1", read_descriptor(STORAGE_DESCRIPTOR)["version"])
-        self.assertEqual("1.2.0", read_descriptor(KB_DESCRIPTOR)["version"])
+        self.assertEqual("1.3.0", read_descriptor(KB_DESCRIPTOR)["version"])
 
     def test_knowledge_canonical_uses_fixed_entry(self):
         canonical = read_descriptor(KB_DESCRIPTOR)["discovery"]["canonical"]
@@ -801,11 +801,12 @@ class KnowledgeChainTest(unittest.TestCase):
         self.assertFalse(public & protected)
         self.assertIn("GET /v1/search", public)
         self.assertIn("GET /v1/sync/status", public)
-        self.assertIn("POST /v1/proposals", protected)
+        self.assertNotIn("POST /v1/proposals", protected)
+        self.assertIn("POST /v1/webhook/github", protected)
         declared = {
             "%s %s" % (api["method"], api["path"])
             for api in read_descriptor(KB_DESCRIPTOR)["api"]
-            if api.get("scope") == "anonymous"
+            if api.get("scope") == "anonymous" and api["method"] == "GET"
         }
         self.assertEqual(public, declared)
         self.assertTrue(anon["service_change"]["required"])
@@ -842,6 +843,92 @@ class KnowledgeChainTest(unittest.TestCase):
 
         errors = self._validate_temp_tree(mutate)
         self.assertTrue(any("mode 非法" in err for err in errors), errors)
+
+    def test_kb_anonymous_proposal_contract(self):
+        proposal = read_descriptor(KB_DESCRIPTOR)["auth"]["anonymous_proposal"]
+        self.assertEqual("ark.service-anonymous-proposal.v1", proposal["schema"])
+        self.assertEqual("pending_service_change", proposal["status"])
+        self.assertEqual("POST /v1/proposals", proposal["endpoint"])
+        self.assertEqual(["pending"], proposal["allowed_status"])
+        self.assertEqual(
+            {"lan_source", "evidence", "idempotency", "status", "quota", "audit"},
+            set(proposal["gates"]),
+        )
+        for action in ("review", "close", "promote", "sync", "admin"):
+            self.assertIn(action, proposal["forbidden"])
+        fields = set(proposal["required_fields"])
+        for field in (
+            "provenance.issue",
+            "provenance.run",
+            "provenance.agent",
+            "provenance.node",
+            "evidence[].kind",
+            "evidence[].ref",
+            "evidence[].bytes",
+            "evidence[].sha256",
+            "request_id",
+            "idempotency_key",
+        ):
+            self.assertIn(field, fields)
+
+    def test_anonymous_proposal_scope_and_read_consistency(self):
+        descriptor = read_descriptor(KB_DESCRIPTOR)
+        apis = descriptor["api"]
+        post = next(a for a in apis if a["method"] == "POST" and a["path"] == "/v1/proposals")
+        self.assertEqual("anonymous", post["scope"])
+        proposal = descriptor["auth"]["anonymous_proposal"]
+        self.assertEqual("%s %s" % (post["method"], post["path"]), proposal["endpoint"])
+        public = set(descriptor["auth"]["anonymous_read"]["public_api"])
+        get_anon = {
+            "%s %s" % (a["method"], a["path"]) for a in apis if a["scope"] == "anonymous" and a["method"] == "GET"
+        }
+        self.assertEqual(public, get_anon)
+
+    def test_catalog_registers_anonymous_proposal_gate(self):
+        codes = {item["code"] for item in self.catalog["failure_taxonomy"]}
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", codes)
+        gate = next(g for g in self.catalog["gates"] if g["gate"] == "只读公开边界")
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", gate["failure"])
+        self.assertIn("BLOCKED_KB_ANON_READ", gate["failure"])
+        accepted = {a["id"] for a in self.catalog["onboarding"]["acceptance"]}
+        self.assertIn("ACCEPT_KB_ANON_PROPOSAL", accepted)
+        blocked = {c["code"] for c in self.catalog["onboarding"]["block_codes"]}
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", blocked)
+        step = next(
+            s for s in self.catalog["onboarding"]["steps"] if s["id"] == "knowledge.connect"
+        )
+        self.assertIn("ACCEPT_KB_ANON_PROPOSAL", step["acceptance"])
+        self.assertIn("BLOCKED_KB_ANON_PROPOSAL", step["block_codes"])
+        security = " ".join(self.catalog["security"])
+        self.assertIn("匿名 proposal", security)
+
+    def test_anonymous_proposal_verified_without_service_change_fails_build(self):
+        def mutate(_catalog, descriptors):
+            proposal = descriptors[
+                "templates/noahsark-index/services/knowledge-service.json"
+            ]["auth"]["anonymous_proposal"]
+            proposal["status"] = "verified"
+            proposal.pop("service_change", None)
+
+        errors = self._validate_temp_tree(mutate)
+        self.assertTrue(any("service_change" in err for err in errors), errors)
+
+    def test_generated_artifacts_have_no_private_literal_and_versions_match(self):
+        catalog = read_catalog()
+        self.assertEqual("2.3.0", catalog["version"])
+        self.assertEqual("1.3.0", read_descriptor(KB_DESCRIPTOR)["version"])
+        entry = next(
+            e
+            for g in catalog["groups"]
+            for e in g["entries"]
+            if e.get("id") == "svc.knowledge-service"
+        )
+        self.assertEqual("1.3.0", entry["version"])
+        for name in ("index.md", "index.json", "manifest.json"):
+            text = (self.out / name).read_text(encoding="utf-8")
+            self.assertFalse(
+                re.search(r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}", text), name
+            )
 
 
 if __name__ == "__main__":

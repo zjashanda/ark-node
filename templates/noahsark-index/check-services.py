@@ -162,16 +162,17 @@ def check_anonymous_drift(descriptor):
     declared = {
         "%s %s" % (api.get("method"), api.get("path"))
         for api in descriptor.get("api") or []
-        if api.get("scope") == "anonymous"
+        if api.get("scope") == "anonymous" and (api.get("method") or "").upper() == "GET"
     }
     if declared != public:
         errors.append(
-            "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read.public_api 与 api[].scope=anonymous 不一致" % sid
+            "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read.public_api 与 api[] 匿名 GET 不一致" % sid
         )
     if anon.get("status") == "pending_service_change":
         change = anon.get("service_change") or {}
         if change.get("required") is not True or not change.get("doc"):
             errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_read 待改状态缺少 service_change" % sid)
+    errors.extend(check_anonymous_proposal_drift(descriptor))
     token = descriptor.get("token_bootstrap") or {}
     if token.get("status") == "operational":
         if not (token.get("verification") or {}).get("observed"):
@@ -180,6 +181,73 @@ def check_anonymous_drift(descriptor):
             errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 token_bootstrap operational 但 bootstrap_api 非 true" % sid)
     return errors
 
+
+
+def check_anonymous_proposal_drift(descriptor):
+    sid = descriptor.get("id")
+    proposal = (descriptor.get("auth") or {}).get("anonymous_proposal")
+    apis = descriptor.get("api") or []
+    posts = {
+        "%s %s" % (api.get("method"), api.get("path"))
+        for api in apis
+        if api.get("scope") == "anonymous" and (api.get("method") or "").upper() == "POST"
+    }
+    if not proposal:
+        if posts:
+            return [
+                "SERVICE_DISCOVERY_DRIFT：%s 存在匿名 POST 接口但未声明 anonymous_proposal" % sid
+            ]
+        return []
+    errors = []
+    if proposal.get("schema") != "ark.service-anonymous-proposal.v1":
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal.schema 非法" % sid)
+    if proposal.get("status") not in ("pending_service_change", "verified"):
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal.status 非法" % sid)
+    if proposal.get("endpoint") != "POST /v1/proposals":
+        errors.append("SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal.endpoint 非法" % sid)
+    if proposal.get("endpoint") not in posts:
+        errors.append(
+            "SERVICE_DISCOVERY_DRIFT：%s 的 POST /v1/proposals 未在 api[] 标记 scope=anonymous" % sid
+        )
+    if list(proposal.get("allowed_status") or []) != ["pending"]:
+        errors.append(
+            "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal.allowed_status 必须是 ['pending']" % sid
+        )
+    fields = set(proposal.get("required_fields") or [])
+    for field in (
+        "provenance.issue",
+        "provenance.run",
+        "provenance.agent",
+        "provenance.node",
+        "evidence[].bytes",
+        "evidence[].sha256",
+        "request_id",
+        "idempotency_key",
+    ):
+        if field not in fields:
+            errors.append(
+                "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal.required_fields 缺少 %s"
+                % (sid, field)
+            )
+    gates = proposal.get("gates") or {}
+    for gate in ("lan_source", "evidence", "idempotency", "status", "quota", "audit"):
+        if not gates.get(gate):
+            errors.append(
+                "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal.gates 缺少 %s" % (sid, gate)
+            )
+    forbidden = set(proposal.get("forbidden") or [])
+    for action in ("review", "close", "promote", "sync", "admin"):
+        if action not in forbidden:
+            errors.append(
+                "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal.forbidden 缺少 %s"
+                % (sid, action)
+            )
+    change = proposal.get("service_change") or {}
+    if change.get("required") is not True or not change.get("doc"):
+        errors.append(
+            "SERVICE_DISCOVERY_DRIFT：%s 的 anonymous_proposal 缺少 service_change" % sid
+        )
+    return errors
 
 def check_drift(entry, descriptor):
     errors = []
