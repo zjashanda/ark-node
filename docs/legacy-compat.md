@@ -86,4 +86,4 @@ ark-node fetch fetch --name X --dest ./inbox
 - 不删除旧仓库、不改旧仓库 `main`、不开迁移分支；
 - 不修改任何节点的现有配置（本仓库只提供客户端，运行与否由节点侧决定）；
 - 不把凭据、内网地址、机器名写进本仓库任何文件；
-- 不合并 `venusahisiburner` 等业务 skill 的逻辑——它们依赖 `ark-mesh` 的**接口**，接口在这里稳定即可。
+- 不合并 `burner` 等业务 skill 的逻辑——它们依赖 `ark-mesh` 的**接口**，接口在这里稳定即可。

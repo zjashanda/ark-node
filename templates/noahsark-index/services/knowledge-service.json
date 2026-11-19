@@ -163,7 +163,7 @@
       "port": 8091,
       "scheme": "http",
       "scope": "global",
-      "public_display": "bszT14 端口 8091 固定入口（节点侧登记）",
+      "public_display": "8091 固定入口（节点侧登记）",
       "fixed_entry": "http://10.11.63.42:8091",
       "fixed_entry_since": "2026-11-18",
       "fixed_entry_approval": "Stage 4 / NOAH-191（郑保山确认固定入口）",

@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -419,7 +419,7 @@
         "rule.workdir",
         "rule.supervision",
         "git.lstest",
-        "git.venusahisiburner"
+        "git.burner"
       ],
       "optional": [
         "git.device-io",
@@ -1486,16 +1486,16 @@
       "region": "system",
       "entries": [
         {
-          "id": "git.venusahisiburner",
+          "id": "git.burner",
           "kind": "git",
-          "title": "venusahisiburner · 烧录工具集",
+          "title": "burner · 烧录工具集",
           "status": "available",
           "version": "main@85c15f7eb49f",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
-          "git": "zjashanda/venusahisiburner",
+          "git": "zjashanda/burner",
           "commit": "85c15f7eb49fbbc7493989e5c25d3e8a689ae40a",
           "summary": "核心烧录流水线，已吸收 tcl-device-autoburn 与 burn_bundle 两个入口。"
         },
