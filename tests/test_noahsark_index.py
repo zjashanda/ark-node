@@ -659,7 +659,7 @@ class KnowledgeChainTest(unittest.TestCase):
             shutil.rmtree(str(root), ignore_errors=True)
 
     def test_versions_match_contract(self):
-        self.assertEqual("2.3.0", self.catalog["version"])
+        self.assertEqual("2.4.0", self.catalog["version"])
         self.assertEqual("1.1.1", read_descriptor(STORAGE_DESCRIPTOR)["version"])
         self.assertEqual("1.3.0", read_descriptor(KB_DESCRIPTOR)["version"])
 
@@ -925,7 +925,7 @@ class KnowledgeChainTest(unittest.TestCase):
 
     def test_generated_artifacts_have_no_private_literal_and_versions_match(self):
         catalog = read_catalog()
-        self.assertEqual("2.3.0", catalog["version"])
+        self.assertEqual("2.4.0", catalog["version"])
         self.assertEqual("1.3.0", read_descriptor(KB_DESCRIPTOR)["version"])
         entry = next(
             e
