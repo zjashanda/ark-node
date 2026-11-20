@@ -2,7 +2,7 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
@@ -651,7 +651,11 @@
       "rule": "通知只负责建 Issue，不代替审批；同候选 24 小时内不重复建 Issue。"
     },
     "approval": {
-      "channel": "Mika 当前任务对话（不新开会话）",
+      "channel": "每次审核新建一个 Mika 会话（独立会话，不复用）",
+      "session_naming": "会话名 = 归档内容的简洁描述，例如「CSK6+HISI 烧录+上下电 知识归档」",
+      "lifecycle": "候选进入 READY_FOR_MIKA → 新建审批会话 → 人工在会话内回复决定 → 执行 decision → 完成后归档该会话",
+      "archive_rule": "审核完成即归档会话，归档时附 candidate_id、promotion commit、sync 状态；同一候选不拆多个会话",
+      "scope_rule": "审批会话只做审批与归档，不执行测试、不直接改索引、不代替节点执行",
       "phrases": [
         "批准知识 <candidate_id>",
         "拒绝知识 <candidate_id> 原因：…",
