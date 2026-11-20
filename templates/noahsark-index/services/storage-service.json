@@ -2,7 +2,7 @@
   "schema": "ark.storage-service.v1",
   "id": "svc.storage-service",
   "title": "Ark Storage Service（8090）",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "endpoint": "http://linux003:8090",
   "host": {
     "name": "linux003",
@@ -32,7 +32,7 @@
     "compat_evidence": "NOAH-84 自测 compat.* 与 proxy.* 全部通过；旧 Basic 凭据未读取、未打印。"
   },
   "auth": {
-    "mode": "bearer",
+    "mode": "node-name+bearer",
     "header": "Authorization",
     "scheme": "Bearer",
     "scopes": [
@@ -41,9 +41,30 @@
       "evidence:write",
       "backup:write"
     ],
-    "token_store": "节点侧 tokens.json 只保存 token 的 SHA-256，权限 0600；明文只在签发时交给使用方。",
+    "token_store": "对象面（evidence/receipts/results/artifacts）用节点名免 token：来源网段 + X-Ark-Node 已注册 + 写入时节点名与路径一致 + X-Expected-SHA256；读取允许跨节点。管理面（backups、TTS 发布、token 管理）仍用 bearer token，节点侧只存 SHA-256（0600），明文只在签发时交付。",
     "unauthenticated": "缺 token 或 token 不符返回 401；token 有效但 scope 不足返回 403。",
-    "scope_rule": "read 可下载/列目录；write 可写 artifacts 与 results；receipts 与 evidence 需要 evidence:write；backups 需要 backup:write。"
+    "scope_rule": "read 可下载/列目录；write 可写 artifacts 与 results；receipts 与 evidence 需要 evidence:write；backups 需要 backup:write。",
+    "node_name": {
+      "schema": "ark.node-name-auth.v1",
+      "status": "verified",
+      "header": "X-Ark-Node",
+      "scopes": [
+        "evidence",
+        "receipts",
+        "results",
+        "artifacts"
+      ],
+      "gates": {
+        "registered_node": "X-Ark-Node 必须存在于服务端 nodes.json 且 enabled，否则 401",
+        "lan_source": "来源 IP 必须命中已批准局域网网段，否则 401",
+        "path_match": "写入时路径中的节点名必须等于 X-Ark-Node；读取允许跨节点",
+        "integrity": "写入必须带 X-Expected-SHA256，服务端复算不符 422 且只进 quarantine",
+        "rate_limit": "按节点 120 请求/分钟，超限 429"
+      },
+      "verified_at": "2026-11-20",
+      "evidence": "13 台 SSH 节点 + bsz001（SMB/WMI）put/get/list 全部通过且 SHA 一致",
+      "rollback": "关闭 node_name 开关并重启 ark-storage，对象面恢复全量 Bearer；无数据迁移。"
+    }
   },
   "discovery": {
     "schema": "ark.service-discovery.v1",
@@ -287,7 +308,7 @@
       "path": "/storage/v1/objects/{category}/{scope}/{key}",
       "scope": "write",
       "verified": "node-receipt",
-      "note": "成功 201，服务端复算 SHA-256 并在响应里回传 bytes/sha256；同 key 同 SHA 幂等 200，同 key 不同 SHA 409 且不覆盖。"
+      "note": "成功 201，服务端复算 SHA-256 并在响应里回传 bytes/sha256；同 key 同 SHA 幂等 200，同 key 不同 SHA 409 且不覆盖。 节点面免 token：带 X-Ark-Node 即可，写入另需 X-Expected-SHA256。"
     },
     {
       "name": "分片上传（staging）",
@@ -303,7 +324,7 @@
       "path": "/storage/v1/objects/{category}/{scope}/{key}",
       "scope": "read",
       "verified": "node-receipt",
-      "note": "200；带 Range 返回 206 精确切片；响应头含 ETag 与 X-Content-SHA256。"
+      "note": "200；带 Range 返回 206 精确切片；响应头含 ETag 与 X-Content-SHA256。 节点面免 token：带 X-Ark-Node 即可，写入另需 X-Expected-SHA256。"
     },
     {
       "name": "清单",
@@ -311,7 +332,7 @@
       "path": "/storage/v1/manifests/{...}",
       "scope": "read",
       "verified": "node-receipt",
-      "note": "返回对象清单，bytes/sha256 与对象本体一致。"
+      "note": "返回对象清单，bytes/sha256 与对象本体一致。 节点面免 token：带 X-Ark-Node 即可，写入另需 X-Expected-SHA256。"
     },
     {
       "name": "列目录",
@@ -319,7 +340,7 @@
       "path": "/storage/v1/list",
       "scope": "read",
       "verified": "node-receipt",
-      "note": "按分类/前缀列出对象；用于确认已上传与排查重复。"
+      "note": "按分类/前缀列出对象；用于确认已上传与排查重复。 节点面免 token：带 X-Ark-Node 即可，写入另需 X-Expected-SHA256。"
     },
     {
       "name": "TTS 公共缓存",
@@ -434,14 +455,20 @@
       "traversal-400",
       "restart-persist",
       "audit-no-token",
-      "tts-cache-hit-miss-publish"
+      "tts-cache-hit-miss-publish",
+      "node-name-upload-201",
+      "node-name-download-readback",
+      "node-name-list-cross-node",
+      "expected-sha256-422-quarantine",
+      "node-name-write-path-mismatch-403",
+      "upload-500mib-limit-413"
     ],
     "pending": [
       "从索引发布侧执行的在线探测回执（check-services.py --probe）",
       "staging 与 TTS 的精确路由清单",
       "1006 备份挂载与写入授权"
     ],
-    "rule": "confirmed 只列节点回执里出现过的结论；没有实时探测前不得写成已验证在线。"
+    "rule": "confirmed 只列节点回执与 2026-11-20 全节点验证中出现过的结论；没有实时探测前不得写成已验证在线。"
   },
   "fallback": {
     "on_unavailable": {
@@ -452,5 +479,32 @@
     "on_scope": "BLOCKED_STORAGE_SCOPE：申请对应 scope（evidence:write / backup:write），不要越权重试。",
     "on_quarantine": "BLOCKED_STORAGE_QUARANTINE：保留 quarantine 路径与两端 SHA，按证据损坏处理并上报，不重新上传覆盖。",
     "high_risk_definition": "烧录、真机操作、对外发布、删除、权限变更等不可逆或有对外影响的操作。"
+  },
+  "max_upload_bytes": 524288000,
+  "upload_policy": {
+    "schema": "ark.upload-policy.v1",
+    "max_upload_bytes": 524288000,
+    "max_mib": 500,
+    "rule": "原始文件超过 500 MiB 不上传：先摘取异常前后片段，仍超限再压缩，压缩包同样不得超过 500 MiB；无法压缩的只保留本地并在回执标 DEFERRED_LARGE_FILE / LOCAL_ONLY。服务端超出直接 413。",
+    "always_upload": [
+      "run.receipt.json",
+      "summary_final.json",
+      "rounds.csv",
+      "manifest"
+    ],
+    "on_failure": [
+      "完整串口/工具日志",
+      "原始音频",
+      "设备枚举",
+      "崩溃信息",
+      "复现中间产物"
+    ],
+    "never_upload": [
+      "临时输出",
+      "重复工具日志",
+      "缓存",
+      "构建目录",
+      "与结论无关的中间文件"
+    ]
   }
 }

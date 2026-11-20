@@ -2,7 +2,7 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
@@ -41,7 +41,8 @@
         "GET /v1/search",
         "GET /v1/entries/{entry_id}",
         "GET /v1/documents/{doc_id}",
-        "GET /v1/sync/status"
+        "GET /v1/sync/status",
+        "GET /v1/services"
       ],
       "protected_api": [
         "GET /v1/proposals",
@@ -430,6 +431,54 @@
       "scope": "write",
       "verified": "node-receipt",
       "note": "立即 202 {accepted, scheduled, coalesced}；30 秒内重复事件合并，真正 pull 在后台线程执行。"
+    },
+    {
+      "name": "服务发现",
+      "method": "GET",
+      "path": "/v1/services",
+      "scope": "anonymous",
+      "verified": "node-receipt",
+      "note": "返回 8090/8091 的入口形式与鉴权方式，供新节点自举；不返回内网地址字面量。"
+    },
+    {
+      "name": "创建知识候选",
+      "method": "POST",
+      "path": "/v1/candidates",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "X-Ark-Actor 必填（bszT14/linux003），来源须命中局域网网段。仅 bszT14/linux003 等已批准节点可建；来源须命中局域网网段；body 含 type/title/claim/scope/provenance/evidence(uri,bytes,sha256)/value_score/duplicate_comparison；新建状态 READY_FOR_MIKA。"
+    },
+    {
+      "name": "候选列表与详情",
+      "method": "GET",
+      "path": "/v1/candidates",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "按状态/节点/时间筛选，返回 candidate_id、candidate_sha256、价值分与证据索引；不含待审正文以外内容。"
+    },
+    {
+      "name": "候选审批",
+      "method": "POST",
+      "path": "/v1/candidates/{candidate_id}/decision",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "人工审批唯一入口：X-Ark-Actor: Mika；body {decision: approved|rejected|needs_more_evidence, message_id, candidate_sha256, note}；digest 不符即拒绝；返回 MIKA_APPROVED/REJECTED/NEEDS_MORE_EVIDENCE。"
+    },
+    {
+      "name": "promotion 回执",
+      "method": "GET",
+      "path": "/v1/candidates/{candidate_id}/promotion-packet",
+      "scope": "read",
+      "verified": "node-receipt",
+      "note": "仅 MIKA_APPROVED 可生成；返回 run.receipt.v1 结构（候选、证据、审批人、提交与分支信息），供 promote-approved-receipt.py 使用。"
+    },
+    {
+      "name": "promotion 状态",
+      "method": "GET/POST",
+      "path": "/v1/candidates/{candidate_id}/promotion-state",
+      "scope": "write",
+      "verified": "node-receipt",
+      "note": "记录 PROMOTING/COMMITTED/INDEXING/ACTIVE 与 commit、分支、失败原因；与 8091 索引状态分开记录。"
     }
   ],
   "errors": [
@@ -553,7 +602,13 @@
       "bearer-token-401",
       "scope-403",
       "invalid-proposal-400",
-      "systemd-autostart"
+      "systemd-autostart",
+      "candidates-create-201",
+      "candidates-decision-mika-200",
+      "promotion-packet-200",
+      "promotion-state-advance",
+      "services-discovery-200",
+      "curator-notify-issue-created"
     ],
     "pending": [
       "从索引发布侧执行的在线探测回执（check-services.py --probe）",
@@ -574,5 +629,46 @@
     "审核：人或有权限的智能体核对证据，关闭为 accepted 或 rejected；pending 不得当 active。",
     "Git commit / PR：条目录入 ark-kb（entries + index），走正常评审与提交。",
     "增量索引：服务下一次 pull（900 秒）或 webhook 后刷新，source_commit 跟上 Git，indexed_commit 记录建索引的提交。"
-  ]
+  ],
+  "candidates": {
+    "schema": "ark.knowledge-candidates.v1",
+    "status": "verified",
+    "states": [
+      "READY_FOR_MIKA",
+      "MIKA_APPROVED",
+      "REJECTED",
+      "NEEDS_MORE_EVIDENCE",
+      "PROMOTING",
+      "COMMITTED",
+      "INDEXING",
+      "ACTIVE"
+    ],
+    "state_rule": "只有 MIKA_APPROVED 之后才允许 promotion；REJECTED / NEEDS_MORE_EVIDENCE 不得进入 ark-kb。",
+    "notification": {
+      "scanner": "bszT14 noahsark-curator-scan.timer（每小时）",
+      "assignee": "人工审批人（Multica member）",
+      "body": "写审批人、执行方（Mika）、candidate_id、digest、证据、价值分、scope、provenance；幂等文件去重。",
+      "rule": "通知只负责建 Issue，不代替审批；同候选 24 小时内不重复建 Issue。"
+    },
+    "approval": {
+      "channel": "Mika 当前任务对话（不新开会话）",
+      "phrases": [
+        "批准知识 <candidate_id>",
+        "拒绝知识 <candidate_id> 原因：…",
+        "补证据 <candidate_id> 原因：…"
+      ],
+      "rule": "模糊表述不算批准；Mika 必须复述候选标题后才可提交；candidate_sha256 必须与记录一致。"
+    },
+    "promotion": {
+      "tool": "promotion-tools/promote-approved-receipt.py",
+      "branch": "promo/<candidate_id>",
+      "commit": "由 kb.py record 写入 active + mika-approval:<message_id> 标签",
+      "merge": "main 合并必须人工完成，禁止自动化直推 main",
+      "index_rule": "合并后 8091 sync pull，source_commit == indexed_commit 且 freshness=fresh 才算 ACTIVE"
+    },
+    "value_score": {
+      "range": "0-16",
+      "rule": "0-5 不建、6-9 补证据、10-13 可提交、14+ 优先；只看可复用性，不看单次 PASS。"
+    }
+  }
 }
