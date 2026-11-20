@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.3",
+  "version": "2.5.4",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1174,7 +1174,7 @@
           "kind": "service",
           "title": "NoahsArk Knowledge Service（8091）",
           "status": "available",
-          "version": "1.4.3",
+          "version": "1.4.4",
           "roles": [
             "external-reader",
             "coordinator",
@@ -1186,7 +1186,7 @@
           "requires": [],
           "descriptor": "templates/noahsark-index/services/knowledge-service.json",
           "section": "services/*.json",
-          "summary": "8091 知识入口：证据归集后生成候选（READY_FOR_MIKA），统一在 SubmitCheck 会话逐条审批，通过后由 bszT14 生成 promotion 回执并入 ark-kb，索引同步后对其他节点可查；任务统一从 TaskBuild 会话提交并落地为 Issue；含 /v1/candidates、/v1/services。"
+          "summary": "8091 知识入口：证据归集后生成候选（READY_FOR_MIKA），一条候选一个 Issue 落「知识审核」项目，审批人在 Issue 评论批准后由 bszT14 生成 promotion 回执并入 ark-kb，索引同步后对其他节点可查；任务由 Mika 对话直接下达并落地为 Issue；含 /v1/candidates、/v1/services。"
         }
       ]
     },

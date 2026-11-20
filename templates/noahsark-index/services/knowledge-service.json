@@ -2,7 +2,7 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
@@ -462,7 +462,7 @@
       "path": "/v1/candidates/{candidate_id}/decision",
       "scope": "write",
       "verified": "node-receipt",
-      "note": "人工审批唯一入口：X-Ark-Actor: Mika；body {decision: approved|rejected|needs_more_evidence, message_id, candidate_sha256, note}；digest 不符即拒绝；返回 MIKA_APPROVED/REJECTED/NEEDS_MORE_EVIDENCE。 审核一律新建一个 Mika 会话（会话名 = 归档内容的简洁描述，如「CSK6+HISI 烧录+上下电 知识归档」）；审核完成即归档该会话，归档时附 candidate_id、promotion commit 与 sync 状态；审批会话只做审批与归档，不执行测试、不直接改索引；同一候选不拆多个会话。 审核统一在固定会话 SubmitCheck 进行：每条候选单独一条消息，标题格式「[待审] <candidate_id 前8位> · <标题> · 价值分 X」，人工在该消息下回复「批准知识 <id>」；审批记录以 candidate_id + 审批消息 id + promotion commit 为准；需要长期留档的关键知识可另建以内容命名的会话；SubmitCheck 不存在时退回 Issue 收件箱指派审批人。 任务统一在固定会话 TaskBuild 提交：Mika 收到即建 Issue 并回编号与链接，聊天里只留一句摘要；TaskBuild 不存在时退回 Issue 收件箱（建 Issue 并指派执行方），不静默丢失。"
+      "note": "人工审批唯一入口：X-Ark-Actor: Mika；body {decision: approved|rejected|needs_more_evidence, message_id, candidate_sha256, note}；digest 不符即拒绝；返回 MIKA_APPROVED/REJECTED/NEEDS_MORE_EVIDENCE。 审核统一进「知识审核」项目（project id 4fc47d41-dade-429d-b55a-c7b4798d56f4）：一条候选一个 Issue，标题「[待审] <candidate_id 前8位> · <标题> · 价值分 X」，指派审批人，属性「审核状态」置 待审；正文含 candidate_id、candidate_sha256、证据(uri/bytes/sha256)、价值分、scope、来源、影响范围；审批人在 Issue 评论回「批准知识 <id>」，Mika 调 decision 后改属性并贴 promotion commit 与 sync 状态；归档时属性置 已归档；审批记录以 candidate_id + 审核 Issue id + promotion commit 为准。 任务直接在任意 Mika 对话里下达，不要求固定会话；Mika 收到即建 Issue 并回编号与链接，聊天里只留一句摘要，Issue 是唯一执行账本；没有可用对话时退回 Issue 收件箱并指派执行方。"
     },
     {
       "name": "promotion 回执",
@@ -651,18 +651,28 @@
       "rule": "通知只负责建 Issue，不代替审批；同候选 24 小时内不重复建 Issue。"
     },
     "approval": {
-      "channel": "固定会话 SubmitCheck（不再每次新建会话）",
+      "channel": "「知识审核」项目（一条候选一个 Issue）",
+      "project_id": "4fc47d41-dade-429d-b55a-c7b4798d56f4",
       "message_format": "[待审] <candidate_id 前8位> · <标题> · 价值分 X",
+      "required_fields": [
+        "candidate_id",
+        "candidate_sha256",
+        "evidence[uri|bytes|sha256]",
+        "value_score",
+        "scope",
+        "provenance",
+        "impact"
+      ],
+      "property": "审核状态：待审 / 已批准 / 已驳回 / 已归档",
       "phrases": [
         "批准知识 <candidate_id>",
         "拒绝知识 <candidate_id> 原因：…",
         "补证据 <candidate_id> 原因：…"
       ],
-      "record": "candidate_id + 审批消息 id + promotion commit",
-      "archive": "审批完成即记录归档依据；关键知识可另建以内容命名的会话留档",
-      "fallback": "SubmitCheck 会话不存在 → 建 Issue 指派审批人（收件箱提醒），不静默丢失",
-      "scope_rule": "审批会话只做审批与归档，不执行测试、不直接改索引",
-      "rule": "审核统一在固定会话 SubmitCheck 进行：每条候选单独一条消息，标题格式「[待审] <candidate_id 前8位> · <标题> · 价值分 X」，人工在该消息下回复「批准知识 <id>」；审批记录以 candidate_id + 审批消息 id + promotion commit 为准；需要长期留档的关键知识可另建以内容命名的会话；SubmitCheck 不存在时退回 Issue 收件箱指派审批人。"
+      "record": "candidate_id + 审核 Issue id + promotion commit",
+      "archive": "批准并同步后属性置 已归档",
+      "scope_rule": "审核 Issue 只做审批与归档，不执行测试、不直接改索引",
+      "rule": "审核统一进「知识审核」项目（project id 4fc47d41-dade-429d-b55a-c7b4798d56f4）：一条候选一个 Issue，标题「[待审] <candidate_id 前8位> · <标题> · 价值分 X」，指派审批人，属性「审核状态」置 待审；正文含 candidate_id、candidate_sha256、证据(uri/bytes/sha256)、价值分、scope、来源、影响范围；审批人在 Issue 评论回「批准知识 <id>」，Mika 调 decision 后改属性并贴 promotion commit 与 sync 状态；归档时属性置 已归档；审批记录以 candidate_id + 审核 Issue id + promotion commit 为准。"
     },
     "promotion": {
       "tool": "promotion-tools/promote-approved-receipt.py",
@@ -677,8 +687,7 @@
     }
   },
   "task_intake": {
-    "channel": "固定会话 TaskBuild",
-    "rule": "任务统一在固定会话 TaskBuild 提交：Mika 收到即建 Issue 并回编号与链接，聊天里只留一句摘要；TaskBuild 不存在时退回 Issue 收件箱（建 Issue 并指派执行方），不静默丢失。",
-    "issue_record": "Issue 是唯一执行账本：状态、证据、审批、commit 都记在 Issue"
+    "channel": "任意 Mika 对话",
+    "rule": "任务直接在任意 Mika 对话里下达，不要求固定会话；Mika 收到即建 Issue 并回编号与链接，聊天里只留一句摘要，Issue 是唯一执行账本；没有可用对话时退回 Issue 收件箱并指派执行方。"
   }
 }
