@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1174,7 +1174,7 @@
           "kind": "service",
           "title": "NoahsArk Knowledge Service（8091）",
           "status": "available",
-          "version": "1.4.1",
+          "version": "1.4.2",
           "roles": [
             "external-reader",
             "coordinator",

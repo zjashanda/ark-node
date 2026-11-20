@@ -2,7 +2,7 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
@@ -462,7 +462,7 @@
       "path": "/v1/candidates/{candidate_id}/decision",
       "scope": "write",
       "verified": "node-receipt",
-      "note": "人工审批唯一入口：X-Ark-Actor: Mika；body {decision: approved|rejected|needs_more_evidence, message_id, candidate_sha256, note}；digest 不符即拒绝；返回 MIKA_APPROVED/REJECTED/NEEDS_MORE_EVIDENCE。"
+      "note": "人工审批唯一入口：X-Ark-Actor: Mika；body {decision: approved|rejected|needs_more_evidence, message_id, candidate_sha256, note}；digest 不符即拒绝；返回 MIKA_APPROVED/REJECTED/NEEDS_MORE_EVIDENCE。 审核一律新建一个 Mika 会话（会话名 = 归档内容的简洁描述，如「CSK6+HISI 烧录+上下电 知识归档」）；审核完成即归档该会话，归档时附 candidate_id、promotion commit 与 sync 状态；审批会话只做审批与归档，不执行测试、不直接改索引；同一候选不拆多个会话。"
     },
     {
       "name": "promotion 回执",
@@ -661,7 +661,7 @@
         "拒绝知识 <candidate_id> 原因：…",
         "补证据 <candidate_id> 原因：…"
       ],
-      "rule": "模糊表述不算批准；Mika 必须复述候选标题后才可提交；candidate_sha256 必须与记录一致。"
+      "rule": "审核一律新建一个 Mika 会话（会话名 = 归档内容的简洁描述，如「CSK6+HISI 烧录+上下电 知识归档」）；审核完成即归档该会话，归档时附 candidate_id、promotion commit 与 sync 状态；审批会话只做审批与归档，不执行测试、不直接改索引；同一候选不拆多个会话。"
     },
     "promotion": {
       "tool": "promotion-tools/promote-approved-receipt.py",
