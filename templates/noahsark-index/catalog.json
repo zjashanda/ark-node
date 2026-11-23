@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.6",
+  "version": "2.5.7",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1939,7 +1939,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.3 长期创建体系：Mika + 六部 + 锦衣卫",
-          "summary": "Mika 是六部之外的工作区总协调；六部仅限吏、户、礼、兵、刑、工，尚书负责统筹/规则/风险/分派，侍郎负责专业执行；创建前必须预览十项字段。命名强制使用六部/锦衣卫/翰林院职位体系：节点执行用「锦衣卫·<节点>」，知识归档用「翰林院·<节点>」，不同职能用不同名字；禁止「方舟××」等自由命名。知识归档闭环由翰林院执行 decision、promotion 与 sync，Mika 只记录人工决定、不调 8091。",
+          "summary": "Mika 是六部之外的工作区总协调；六部仅限吏、户、礼、兵、刑、工，尚书负责统筹/规则/风险/分派，侍郎负责专业执行；创建前必须预览十项字段。命名强制使用六部/锦衣卫/翰林院职位体系：节点执行用「锦衣卫·<节点>」，知识归档用「翰林院·<节点>」，不同职能用不同名字；禁止「方舟××」等自由命名。知识归档闭环由翰林院执行 decision、promotion 与 sync，Mika 只记录人工决定、不调 8091。 锦衣卫公共操作手册已入 ark-kb（docs/jinyiwei：串口角色、CSK6/HISI 操作卡）；正式知识条目 kb-method-660cafc58c2b（锦衣卫节点 L1 板卡/串口/声卡只读识别基线）已 ACTIVE，可经 8091 检索复用。",
           "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         }
       ]
