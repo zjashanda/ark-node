@@ -2,7 +2,7 @@
   "schema": "ark.knowledge-service.v1",
   "id": "svc.knowledge-service",
   "title": "NoahsArk Knowledge Service（8091）",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "endpoint": "http://10.11.63.42:8091",
   "host": {
     "name": "bszT14",
@@ -672,7 +672,12 @@
       "record": "candidate_id + 审核 Issue id + promotion commit",
       "archive": "批准并同步后属性置 已归档",
       "scope_rule": "审核 Issue 只做审批与归档，不执行测试、不直接改索引",
-      "rule": "审核统一进「知识审核」项目（project id 4fc47d41-dade-429d-b55a-c7b4798d56f4）：一条候选一个 Issue，标题「[待审] <candidate_id 前8位> · <标题> · 价值分 X」，指派审批人，属性「审核状态」置 待审；正文含 candidate_id、candidate_sha256、证据(uri/bytes/sha256)、价值分、scope、来源、影响范围；审批人在 Issue 评论回「批准知识 <id>」，Mika 调 decision 后改属性并贴 promotion commit 与 sync 状态；归档时属性置 已归档；审批记录以 candidate_id + 审核 Issue id + promotion commit 为准。"
+      "rule": "审核统一进「知识审核」项目（project id 4fc47d41-dade-429d-b55a-c7b4798d56f4）：一条候选一个 Issue，标题「[待审] <candidate_id 前8位> · <标题> · 价值分 X」，指派审批人，属性「审核状态」置 待审；正文含 candidate_id、candidate_sha256、证据(uri/bytes/sha256)、价值分、scope、来源、影响范围；审批人在 Issue 评论回「批准知识 <id>」，Mika 调 decision 后改属性并贴 promotion commit 与 sync 状态；归档时属性置 已归档；审批记录以 candidate_id + 审核 Issue id + promotion commit 为准。",
+      "post_approval": {
+        "auto": "「知识审核自动归档巡检」每小时扫描已批准未合并的 Issue 并派给翰林院·bszT14",
+        "urgent": "审批人在 Issue 内直接 @翰林院·bszT14 立即触发",
+        "note": "成员评论不会自动触发智能体；只回「合并」不 @ 时等巡检"
+      }
     },
     "promotion": {
       "tool": "promotion-tools/promote-approved-receipt.py",
