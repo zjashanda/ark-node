@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.5",
+  "version": "2.5.6",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1490,14 +1490,14 @@
           "kind": "git",
           "title": "burner · 烧录工具集",
           "status": "available",
-          "version": "main@85c15f7eb49f",
+          "version": "main@00d99a74145c",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/burner",
-          "commit": "85c15f7eb49fbbc7493989e5c25d3e8a689ae40a",
-          "summary": "核心烧录流水线，已吸收 tcl-device-autoburn 与 burn_bundle 两个入口。"
+          "commit": "00d99a74145c9f46b502967832b6249315021f0a",
+          "summary": "核心烧录流水线：单台/多台架 commissioning（每台独立 approval_ref + ledger）、connect_then_power 连接时序、审批过期作写门禁。"
         },
         {
           "id": "git.lstest",
