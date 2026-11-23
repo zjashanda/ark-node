@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.4",
+  "version": "2.5.5",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1939,7 +1939,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.3 长期创建体系：Mika + 六部 + 锦衣卫",
-          "summary": "Mika 是六部之外的工作区总协调；六部仅限吏、户、礼、兵、刑、工，尚书负责统筹/规则/风险/分派，侍郎负责专业执行；创建前必须预览十项字段。",
+          "summary": "Mika 是六部之外的工作区总协调；六部仅限吏、户、礼、兵、刑、工，尚书负责统筹/规则/风险/分派，侍郎负责专业执行；创建前必须预览十项字段。命名强制使用六部/锦衣卫/翰林院职位体系：节点执行用「锦衣卫·<节点>」，知识归档用「翰林院·<节点>」，不同职能用不同名字；禁止「方舟××」等自由命名。知识归档闭环由翰林院执行 decision、promotion 与 sync，Mika 只记录人工决定、不调 8091。",
           "sha256": "a7f145fe4f14534aa02f78c38b877bc75eea957ad69b26ece0225c6f1a77da30"
         }
       ]
