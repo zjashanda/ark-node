@@ -1300,7 +1300,7 @@
           "requires": [],
           "oss": "noahsark/agent-template/latest/manifest.json",
           "summary": "当前推荐版本清单（v1.7.0）。latest 只做指向，内容与 v1.7.0 逐字节一致，长期留存请改用版本目录。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "agent-template.manifest",
@@ -1318,7 +1318,7 @@
             "agent-template.latest"
           ],
           "oss": "noahsark/agent-template/v1.7.0/manifest.json",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80",
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522",
           "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
         },
         {
@@ -1341,7 +1341,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "agent-template.profile",
@@ -1361,7 +1361,7 @@
           "oss": "noahsark/agent-template/v1.7.0/agent-profile.v1.json",
           "local": "templates/agents/agent-profile.v1.json",
           "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "agent-template.verifier",
@@ -1380,7 +1380,7 @@
           "oss": "noahsark/agent-template/v1.7.0/verify-template.py",
           "local": "templates/agents/verify-template.py",
           "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "agent-template.schema",
@@ -1396,7 +1396,7 @@
             "agent-template.manifest"
           ],
           "oss": "noahsark/agent-template/v1.7.0/run-state.v1.json",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80",
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522",
           "summary": "ark.run-state.v1 门禁事件 schema（EXECUTION_CHECK/PROGRESS_5M/STAGE_FINISHED/BLOCKED/FINAL_RECEIPT）。"
         }
       ]
@@ -1743,7 +1743,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 工作目录",
           "summary": "每个任务一个目录：Windows 为 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 为 /home/zhsh/workspace/tasks/<tasks-id>/；<tasks-id> 用任务编号，不用时间戳；不得用 C 盘、系统临时目录、/tmp 或运行时工作目录代替。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.storage",
@@ -1762,7 +1762,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "6. 资产、结果与 1006",
           "summary": "结果与回执按 节点/项目/批次 三级归档；1006 资产必须同时记录文件名、大小、校验值，本机不可达时先记原因再委派可达节点取件，禁止直接结论「资产不存在」。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.time",
@@ -1785,7 +1785,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "8. 时间口径",
           "summary": "唯一形态「年-月-日 时:分:秒」，文件名为紧凑无分隔形式；禁止字母分隔符、末尾时区字母、数字时区偏移与毫秒，禁止节点本地时区。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.credentials",
@@ -1807,7 +1807,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9. 凭据与安全",
           "summary": "凭据只来自进程环境变量或权限 600 的受控密钥文件，共十个变量名；任何凭据值不得出现在模板、日志、回执、评论、提交或对外对象里。本总览不复制任何凭据。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.supervision",
@@ -1829,7 +1829,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "10. 监督契约",
           "summary": "开工先报执行检查字段，长任务每五分钟报进度，状态漂移与无证据运行都要显式暴露；禁止起后台任务后直接结束。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.execution_channel",
@@ -1852,7 +1852,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "11. 执行通道与窗口",
           "summary": "终端、脚本与 SSH 一律走无可见窗口、非交互、可观测的后台通道：Windows 不得弹出 PowerShell、cmd、Windows Terminal 或 conhost，不得用 Start-Process 或 Win32_Process.Create 包装；Linux 与 macOS 用 ssh -T -o BatchMode=yes；输出统一重定向到任务目录 logs/。后台运行不等于隐藏窗口，不得先执行再观察是否弹窗；无法确认隐藏时报 BLOCKED_EXECUTION_CHANNEL。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.approval",
@@ -1873,7 +1873,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9.4 审批边界",
           "summary": "推送代码、对外发布、真机操作、删除文件、改权限或 ACL 五类必须先获批；没有明确同意字样即视为未批准；只读巡检免审，写操作默认 dry-run。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.jinyiwei",
@@ -1893,7 +1893,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.1 锦衣卫：节点专属执行入口",
           "summary": "锦衣卫一对一绑定 runtime/节点，只接受 Mika/Issue 的具体执行任务；默认 listenai/deepseek-flash、并发 1，禁止规划、协调、跨节点和通用工作。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.role-icons",
@@ -1916,7 +1916,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.2 名称、官职与稳定图标",
           "summary": "Mika 固定五星红旗；六部使用稳定部徽，同部尚书/侍郎共享；锦衣卫统一 🥷。节点、专业和数字后缀不改变图标，禁止平台随机图标。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.official-system",
@@ -1940,7 +1940,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.3 长期创建体系：Mika + 六部 + 锦衣卫",
           "summary": "Mika 是六部之外的工作区总协调；六部仅限吏、户、礼、兵、刑、工，尚书负责统筹/规则/风险/分派，侍郎负责专业执行；创建前必须预览十项字段。命名强制使用六部/锦衣卫/翰林院职位体系：节点执行用「锦衣卫·<节点>」，知识归档用「翰林院·<节点>」，不同职能用不同名字；禁止「方舟××」等自由命名。知识归档闭环由翰林院执行 decision、promotion 与 sync，Mika 只记录人工决定、不调 8091。 锦衣卫公共操作手册已入 ark-kb（docs/jinyiwei：串口角色、CSK6/HISI 操作卡）；正式知识条目 kb-method-660cafc58c2b（锦衣卫节点 L1 板卡/串口/声卡只读识别基线）已 ACTIVE，可经 8091 检索复用。 锦衣卫基座 Skill 正文已入 ark-kb（docs/jinyiwei/SKILL-jinyiwei-base.md），节点执行智能体按需加载，与串口角色、操作卡同源维护。",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         },
         {
           "id": "rule.result-layout",
@@ -1961,7 +1961,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 任务目录 > 目录内固定结构 > result/ 固定五项",
-          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
+          "sha256": "ac80b4bed981f85edee0f0da83d9b95ca3fb492e13fa9945aa0b053b6f341522"
         }
       ]
     },
