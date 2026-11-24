@@ -108,7 +108,21 @@ function Try-ChannelC([string]$name, [string]$path, [string]$pinned) {
     }
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
     $rc = Invoke-Git (@("clone", "--quiet", $bundleCache, $path))
-    if ($rc -ne 0) { Write-Log "  C clone-failed rc=$rc"; return $false }
+    if ($rc -ne 0) {
+        Write-Log "  C clone-failed rc=$rc; refetch bundle once"
+        Remove-Item -LiteralPath $bundleCache -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+        try {
+            Invoke-WebRequest -Uri "$RepoBaseUrl/$name/$($meta.bundle)" -OutFile $bundleCache -UseBasicParsing -TimeoutSec 180 | Out-Null
+            $retrySha = (Get-FileHash -LiteralPath $bundleCache -Algorithm SHA256).Hash.ToLower()
+            if ($retrySha -ne [string]$meta.sha256) { Write-Log "  C retry sha-mismatch"; return $false }
+            $rc = Invoke-Git (@("clone", "--quiet", $bundleCache, $path))
+        } catch {
+            Write-Log ("  C retry download-failed: " + $_.Exception.Message)
+            return $false
+        }
+        if ($rc -ne 0) { Write-Log "  C retry clone-failed rc=$rc"; return $false }
+    }
     $rc = Invoke-Git (@("-C", $path, "-c", "advice.detachedHead=false", "checkout", "--quiet", $pinned))
     if ($rc -ne 0) { Write-Log "  C checkout-failed rc=$rc"; return $false }
     $head = (& $gitExe -C $path rev-parse HEAD).Trim()

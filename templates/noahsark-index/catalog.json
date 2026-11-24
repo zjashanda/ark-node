@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.14",
+  "version": "2.5.15",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1289,8 +1289,8 @@
           ],
           "requires": [],
           "oss": "noahsark/tools/ark-repo-sync.ps1",
-          "sha256": "f58592e6d859fa56d26ef342007d2d59f12d64b9a01a62a06d270577001e77e7",
-          "size": 7499,
+          "sha256": "187f426314ae82ad719bd56773763415d533a278338a96b52cf172472843a450",
+          "size": 8330,
           "summary": "节点仓库同步与版本门禁脚本（A 通道 git 直连，失败回退 C 通道 OSS bundle）；带 -InstallTask 可自动注册 30 分钟计划任务。"
         },
         {
