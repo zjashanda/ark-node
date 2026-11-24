@@ -1504,13 +1504,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@a4f2bfaa1738",
+          "version": "main@31d5e8af8976",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "a4f2bfaa1738757d8b12ceb334481d0890404796",
+          "commit": "31d5e8af89768cd1c61b4efbc5e26a354b41fa8c",
           "summary": "唯一的测试与语音验证实现，已吸收 Polaris；派发中的 polaris 槽位改指向本仓库加 device-io。"
         },
         {
@@ -1954,8 +1954,14 @@
             "jinyiwei",
             "coordinator"
           ],
-          "requires": [],
-          "summary": "所有任务（长监控与普通任务一律相同）result/ 下只允许五项：serial_logs/（串口原始日志，文件名 YYYYmmddHHMM_<被测设备名>_<COM口>_<csk|hisi|other>_<a|b|c|d>.log）、tool.log（事件流，固定字段+毫秒时间戳）、cases.csv（动作前冻结）、results.csv（每用例一行终态）、task.json（lstest.task.v1，含 artifacts[path,bytes,hash=sha256:...] 且不含自身）。禁止 result/ 下再建任何子目录、禁止 snapshot/summary/analysis/manifest 等额外文件；跨 run 运行态写任务级 logs/。v1/v2/v3 旧布局只读保留，写侧统一 v4。"
+          "requires": [
+            "agent-template.template"
+          ],
+          "summary": "所有任务（长监控与普通任务一律相同）result/ 下只允许五项：serial_logs/（串口原始日志，文件名 YYYYmmddHHMM_<被测设备名>_<COM口>_<csk|hisi|other>_<a|b|c|d>.log）、tool.log（事件流，固定字段+毫秒时间戳）、cases.csv（动作前冻结）、results.csv（每用例一行终态）、task.json（lstest.task.v1，含 artifacts[path,bytes,hash=sha256:...] 且不含自身）。禁止 result/ 下再建任何子目录、禁止 snapshot/summary/analysis/manifest 等额外文件；跨 run 运行态写任务级 logs/。v1/v2/v3 旧布局只读保留，写侧统一 v4。",
+          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
+          "local": "templates/agents/noahsark-agent-template.md",
+          "section": "4. 任务目录 > 目录内固定结构 > result/ 固定五项",
+          "sha256": "2118b82b7ba8f125ee21737ecb5c4f99888e098bd1e414dee607a6bbfa57fc80"
         }
       ]
     },

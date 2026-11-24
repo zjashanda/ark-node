@@ -190,11 +190,11 @@
 | 子目录 / 文件 | 放什么 | 谁写 |
 |---|---|---|
 | `plan.md` | 任务拆解、dispatch plan、审批记录（任务根下的文件） | coordinator |
-| `manifest.json` | 产物清单与 sha256（任务根下的文件） | 执行者 |
+| `result/` | 结果目录，固定五项（见下） | 执行者 |
 | `assets/` | 输入资产（语料、固件、工具包）及其资产清单 | node-executor |
 | `work/` | 中间产物、解压结果、临时脚本 | 执行者 |
 | `logs/` | 命令输出与运行日志 | 执行者 |
-| `result/` | 结论文件、统计结果 | 执行者 |
+| `result/` | 结果目录，固定五项（见下） | 执行者 |
 | `receipts/` | run receipt、onboarding receipt | 执行者 / curator |
 
 规则：
@@ -203,6 +203,23 @@
 - 任务结束后目录不删，归档到存储节点（第 6 节），本地保留索引。
 - 临时文件放 `work/tmp/`，任务结束清理；清理前先列清单。
 - 目录名只由 `<tasks-id>` 决定，不带时区、不带时间戳后缀、不带毫秒。
+
+
+**`result/` 固定五项（长监控与普通任务一律相同，多一个都不行）：**
+
+| 项 | 内容 |
+|---|---|
+| `serial_logs/` | 原始串口日志，文件名 `YYYYmmddHHMM_<被测设备名>_<COM口>_<csk\|hisi\|other>_<a\|b\|c\|d>.log` |
+| `tool.log` | 事件流，固定字段、行首 `年-月-日 时:分:秒.毫秒` |
+| `cases.csv` | 设备动作之前冻结的用例与顺序 |
+| `results.csv` | 每个用例一行终态 |
+| `task.json` | 本次运行身份+结论+产物 sha256（`schema=lstest.task.v1`，不登记自身） |
+
+- 禁止在 `result/` 下再建子目录（不得有 `monitor/`、时间戳目录、run_name 目录）
+- 禁止生成 `snapshot_*`、`summary_latest.md`、`analysis.*`、`manifest.json`、`progress.md` 等额外文件
+- 跨 run 运行态（`serial_session.json`、`monitor_progress.jsonl`、`STOP`）写任务级 `logs/`
+- 时间口径：记录字段与文件名为秒级 `年-月-日 时:分:秒`（文件名紧凑 `YYYYmmddHHMM`）；仅日志流（`tool.log`、串口行）允许毫秒
+- 判断日志增长只能用行数或字节偏移，禁止用文件大小
 
 ---
 
