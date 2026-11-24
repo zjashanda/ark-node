@@ -240,6 +240,32 @@
 - 缺失时依次查 `assets\` → OSS → 委派可达节点取件；禁止直接结论「无法获取」
 - 1006（8090）只作证据归档与共享来源，不作代码/资产运行时依赖
 
+### 开工前置：先判系统
+
+任务第一个动作前先判定运行系统，判错即 `BLOCKED_WRONG_PLATFORM`：
+
+```text
+Windows：$env:OS 含 Windows / COMPUTERNAME 存在
+Linux  ：uname -s 含 Linux / $HOME 以 /home 开头
+```
+
+| 用途 | Windows | Linux |
+|---|---|---|
+| 任务目录 | `D:\zhsh\workspace\tasks\<Issue-ID>\` | `/home/zhsh/workspace/tasks/<Issue-ID>/` |
+| 代码仓库 | `D:\zhsh\workspace\repos\<仓库>\` | `/home/zhsh/workspace/repos/<仓库>/` |
+| 资产 | `D:\zhsh\workspace\assets\` | `/home/zhsh/workspace/assets/` |
+| 同步门禁 | `ark-repo-sync.ps1` | `ark-repo-sync.sh` |
+
+- 判定结果与实际绝对路径写入 `plan.md` 和 `EXECUTION_CHECK`，并回读确认可写
+- 禁止跨系统混用路径；禁止用 `C:\`、`/tmp`、runtime workdir 代替任务目录
+### 严格照 lstest 框架执行
+
+- 结果目录只允许五项：`serial_logs/`、`tool.log`、`cases.csv`、`results.csv`、`task.json`
+- 串口日志名固定：`YYYYmmddHHMM_<被测设备名>_<COM口>_<csk|hisi|other>_<a|b|c|d>.log`
+- 时间口径：记录字段与文件名秒级，仅日志流允许毫秒
+- 串口生命周期：默认不断开，只有 `TASK_DONE` / `INTERRUPT`
+- 禁止自创 `snapshot_*`、`summary_latest.md`、`analysis.*`、`manifest.json`、`monitor/` 等结构
+- 框架缺能力时报 `NEEDS_REVIEW`，不得现场发明新结构
 
 ## 5. 代码与知识来源：canonical Git + SkillHub
 
