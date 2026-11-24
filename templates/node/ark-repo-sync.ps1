@@ -37,6 +37,29 @@ $git = Get-Command git -ErrorAction SilentlyContinue
 if (-not $git) { Write-Log "WARN git-not-installed, will use D channel (tarball)" }
 $gitExe = if ($git) { $git.Source } else { $null }
 
+function Sync-Self([string]$CurrentPath) {
+    # 脚本自升级：与 OSS manifest 的 sha256 比对，不一致则替换自身
+    if (-not $CurrentPath -or -not (Test-Path -LiteralPath $CurrentPath)) { return }
+    try {
+        $manifestUrl = "https://listenai-test-internal.oss-cn-beijing.aliyuncs.com/noahsark/tools/manifest.json"
+        $manifest = (Invoke-WebRequest -Uri $manifestUrl -UseBasicParsing -TimeoutSec 20).Content | ConvertFrom-Json
+        $entry = $manifest.tools | Where-Object { $_.name -eq (Split-Path $CurrentPath -Leaf) } | Select-Object -First 1
+        if (-not $entry) { return }
+        $have = (Get-FileHash -LiteralPath $CurrentPath -Algorithm SHA256).Hash.ToLower()
+        if ($have -eq [string]$entry.sha256) { return }
+        $tmp = "$CurrentPath.new"
+        Invoke-WebRequest -Uri $entry.url -OutFile $tmp -UseBasicParsing -TimeoutSec 60 | Out-Null
+        $newSha = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLower()
+        if ($newSha -ne [string]$entry.sha256) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue; Write-Log "SELF-UPDATE sha-mismatch skipped"; return }
+        Move-Item -LiteralPath $tmp -Destination $CurrentPath -Force
+        Write-Log ("SELF-UPDATE " + $have.Substring(0,12) + " -> " + $newSha.Substring(0,12) + " (applies next run)")
+    } catch {
+        Write-Log ("SELF-UPDATE skipped: " + $_.Exception.Message)
+    }
+}
+
+if (-not $CheckOnly) { Sync-Self $PSCommandPath }
+
 try {
     $index = (Invoke-WebRequest -Uri $IndexUrl -UseBasicParsing -TimeoutSec 30).Content | ConvertFrom-Json
 } catch {

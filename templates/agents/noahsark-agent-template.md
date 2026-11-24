@@ -251,7 +251,7 @@ Linux  ：uname -s 含 Linux / $HOME 以 /home 开头
 
 | 用途 | Windows | Linux |
 |---|---|---|
-| 任务目录 | `D:\zhsh\workspace\tasks\<Issue-ID>\` | `/home/zhsh/workspace/tasks/<Issue-ID>/` |
+| 任务目录 | `D:\zhsh\workspace\tasks\<Issue 编号，如 NOAH-417；禁止 UUID>\` | `/home/zhsh/workspace/tasks/<Issue 编号，如 NOAH-417；禁止 UUID>/` |
 | 代码仓库 | `D:\zhsh\workspace\repos\<仓库>\` | `/home/zhsh/workspace/repos/<仓库>/` |
 | 资产 | `D:\zhsh\workspace\assets\` | `/home/zhsh/workspace/assets/` |
 | 同步门禁 | `ark-repo-sync.ps1` | `ark-repo-sync.sh` |
@@ -266,6 +266,16 @@ Linux  ：uname -s 含 Linux / $HOME 以 /home 开头
 - 串口生命周期：默认不断开，只有 `TASK_DONE` / `INTERRUPT`
 - 禁止自创 `snapshot_*`、`summary_latest.md`、`analysis.*`、`manifest.json`、`monitor/` 等结构
 - 框架缺能力时报 `NEEDS_REVIEW`，不得现场发明新结构
+### 门禁适用范围
+
+| 角色 | 是否需要 repos/ 与同步门禁 |
+|---|---|
+| 执行层（锦衣卫节点） | **必须**：开工前跑门禁，非 0 即 `BLOCKED_STALE_REPO` |
+| 硬件测试台（hardware-bench） | **必须** |
+| 协调层（Mika） | 不需要：只创建任务/路由/汇总，不执行设备动作 |
+| 六部 / 翰林院（知识、审核） | 不需要：查 8091 知识即可，缺 repos 不阻塞 |
+
+协调层与知识角色若发现 repos 缺失，**不报 BLOCKED**，按「不适用」记录；只有执行层缺 repos 才阻塞。
 
 ## 5. 代码与知识来源：canonical Git + SkillHub
 
