@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.13",
+  "version": "2.5.14",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1546,7 +1546,7 @@
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "196e81204d8413b6e6e9a6b96dc1a0fb7e1b3e39",
+          "commit": "196e81204d848aabec4c32ccb991b27404c592ce",
           "summary": "唯一的测试与语音验证实现，已吸收 Polaris；派发中的 polaris 槽位改指向本仓库加 device-io。"
         },
         {
