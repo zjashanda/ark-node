@@ -222,6 +222,24 @@
 - 判断日志增长只能用行数或字节偏移，禁止用文件大小
 
 ---
+### 代码与资产获取
+
+**代码仓库（唯一位置，禁止在任务目录复制）**
+
+- Windows：`D:\zhsh\workspace\repos\<仓库名>\`；Linux：`/home/zhsh/workspace/repos/<仓库名>/`
+- 开工前必须执行同步门禁：`D:\zhsh\workspace\tools\ark-repo-sync.ps1 -Repo lstest,ark-kb,burner,ark-node`
+- 锚定版本取 OSS `noahsark/index.json` 的 `source_commit`；HEAD 不一致即 `BLOCKED_STALE_REPO`，禁止用旧代码执行
+- A 通道：git 直连（HTTP/1.1、浅克隆、重试 3 次）；A 连续失败自动切 C 通道：读 `noahsark/repos/<仓库>/latest.json`，下载 bundle 并校验 sha256 后本地 clone
+- 节点计划任务 `NoahsArk-Repo-Sync` 每 30 分钟自动 A+C，云端发布后节点自动追到锚定版本
+
+**资产（音频/固件/工具包）**
+
+- 唯一位置：`D:\zhsh\workspace\assets\`（Linux `/home/zhsh/workspace/assets/`）
+- 音频只按语种分目录：`assets\audio\中文\`、`assets\audio\英文\`，文件平铺
+- 每个资产目录维护 `manifest.json`：`[{name, bytes, sha256, note}]`，取用后必须校验 sha256
+- 缺失时依次查 `assets\` → OSS → 委派可达节点取件；禁止直接结论「无法获取」
+- 1006（8090）只作证据归档与共享来源，不作代码/资产运行时依赖
+
 
 ## 5. 代码与知识来源：canonical Git + SkillHub
 
