@@ -34,8 +34,8 @@ function Write-Log([string]$Message) {
 }
 
 $git = Get-Command git -ErrorAction SilentlyContinue
-if (-not $git) { Write-Log "FATAL git-not-installed"; exit 5 }
-$gitExe = $git.Source
+if (-not $git) { Write-Log "WARN git-not-installed, will use D channel (tarball)" }
+$gitExe = if ($git) { $git.Source } else { $null }
 
 try {
     $index = (Invoke-WebRequest -Uri $IndexUrl -UseBasicParsing -TimeoutSec 30).Content | ConvertFrom-Json
@@ -77,6 +77,48 @@ function Try-ChannelA([string]$path, [string]$url, [string]$pinned) {
         Start-Sleep -Seconds (3 * $i)
     }
     return $false
+}
+
+function Try-ChannelD([string]$name, [string]$path, [string]$pinned) {
+    # 无 git 节点：下载 tarball 解压，用 .ark_version 记录版本
+    $metaUrl = "$RepoBaseUrl/$name/latest.json"
+    try {
+        $meta = (Invoke-WebRequest -Uri $metaUrl -UseBasicParsing -TimeoutSec 30).Content | ConvertFrom-Json
+    } catch {
+        Write-Log "  D meta-unavailable: $metaUrl"
+        return $false
+    }
+    if ([string]$meta.commit -ne $pinned) {
+        Write-Log ("  D meta-commit-mismatch meta=" + [string]$meta.commit + " pinned=" + $pinned)
+        return $false
+    }
+    if (-not $meta.tarball) { Write-Log "  D no-tarball-in-meta"; return $false }
+    $tarCache = Join-Path $cacheRoot ([string]$meta.tarball)
+    if (-not (Test-Path -LiteralPath $tarCache)) {
+        try {
+            Invoke-WebRequest -Uri "$RepoBaseUrl/$name/$($meta.tarball)" -OutFile $tarCache -UseBasicParsing -TimeoutSec 180 | Out-Null
+        } catch {
+            Write-Log ("  D download-failed: " + $_.Exception.Message)
+            return $false
+        }
+    }
+    $actual = (Get-FileHash -LiteralPath $tarCache -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne [string]$meta.tarball_sha256) {
+        Write-Log "  D sha-mismatch"
+        Remove-Item -LiteralPath $tarCache -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
+    $null = New-Item -ItemType Directory -Path $path -Force
+    $tarExe = (Get-Command tar -ErrorAction SilentlyContinue)
+    if (-not $tarExe) {
+        try { Add-Type -AssemblyName System.IO.Compression.FileSystem } catch { }
+        Write-Log "  D tar-unavailable"; return $false
+    }
+    & $tarExe.Source -xzf $tarCache -C $path 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Log "  D extract-failed rc=$LASTEXITCODE"; return $false }
+    Set-Content -LiteralPath (Join-Path $path ".ark_version") -Value $pinned -Encoding UTF8
+    return $true
 }
 
 function Try-ChannelC([string]$name, [string]$path, [string]$pinned) {
@@ -140,6 +182,11 @@ foreach ($name in $Repo) {
 
     $path = Join-Path $reposRoot $name
     $hasRepo = Test-Path -LiteralPath (Join-Path $path ".git")
+    $versionFile = Join-Path $path ".ark_version"
+    if (-not $hasRepo -and (Test-Path -LiteralPath $versionFile)) {
+        $stamp = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+        if ($stamp -eq $pinned) { Write-Log "OK $name $($pinned.Substring(0,12)) (tarball, already)"; continue }
+    }
     if ($hasRepo) {
         $head = (& $gitExe -C $path rev-parse HEAD).Trim()
         if ($head -eq $pinned) { Write-Log "OK $name $($pinned.Substring(0,12)) (already)"; continue }
@@ -150,12 +197,21 @@ foreach ($name in $Repo) {
         Write-Log "FAIL $name not-cloned (pass -AllowClone)"; $failed++; continue
     }
 
-    $ok = Try-ChannelA $path "https://github.com/$slug.git" $pinned
-    $channel = "A"
+    $ok = $false
+    $channel = "D"
+    if ($gitExe) {
+        $ok = Try-ChannelA $path "https://github.com/$slug.git" $pinned
+        $channel = "A"
+        if (-not $ok) {
+            Write-Log "  -> fallback to C for $name"
+            $ok = Try-ChannelC $name $path $pinned
+            $channel = "C"
+        }
+    }
     if (-not $ok) {
-        Write-Log "  -> fallback to C for $name"
-        $ok = Try-ChannelC $name $path $pinned
-        $channel = "C"
+        Write-Log "  -> fallback to D for $name (tarball, no git)"
+        $ok = Try-ChannelD $name $path $pinned
+        $channel = "D"
     }
     if (-not $ok) { Write-Log "FAIL $name both-channels-failed"; $failed++; continue }
     Set-Content -LiteralPath (Join-Path $path ".ark_version") -Value $pinned -Encoding UTF8
