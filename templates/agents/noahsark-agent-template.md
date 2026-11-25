@@ -233,6 +233,11 @@ YYYY-MM-DD HH:MM:SS,mmm - LEVEL - [TAG] 正文 [k=v ...]
 - 脚本/工具的设备动作（上下电、烧录、播报、唤醒、增益）必须用 `artifacts.emit_action(action, detail=..., **fields)` 记一条 `[ACTION]`
 - 串口原始行不进 `tool.log`；v4 下不允许旧格式行 `YYYY-MM-DD HH:MM:SS [TAG] ...`
 - 项目只适配正则（`profile.event_rules`、`markers/catalog.json`）；日志结构由 lstest 公共库负责，项目不得自己拼格式，也不需要从串口日志反推动作
+- 播报等设备动作必须带音频文件名与用例号：`[ACTION] 播报 wake_xiaozhang.wav case=G9 attempt=1`；只写文件名，不写绝对路径
+- 日志开头登记本次使用的目录：`[ENV] assets=<dir>`、`[ENV] tools=<dir>`、`[ENV] repos=<dir>`
+- 协议帧区分发送与接收：`protoTx` / `protoRx`，值写完整帧字节，如 `  PROTO(COM3): protoRx: A5 FA 01`
+- 机型能力差异写 `profile.capabilities`（`wake_playback` / `asr_response` / `asr_playback` / `protocol_frame` / `markers_absent`）；未声明按支持处理，声明 false 的项不参与判定
+- 判定用同批横向基线：多数用例都有的要素、个别用例缺失才算异常；全部用例都缺说明机型无此输出，不得判失败
 
 ### 代码与资产获取
 
