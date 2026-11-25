@@ -1397,7 +1397,7 @@
           "oss": "noahsark/agent-template/v1.7.0/agent-profile.v1.json",
           "local": "templates/agents/agent-profile.v1.json",
           "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。",
-          "sha256": "a4696fcd4d4fe913d030407793c147b31b038eacae4c68992b33dd1ddf722db7"
+          "sha256": "ef77fa8b9a218d1cf08bff6926bf8d6a85dedda68cf1ef0e7a364b2c8778a9a7"
         },
         {
           "id": "agent-template.verifier",
@@ -1416,7 +1416,7 @@
           "oss": "noahsark/agent-template/v1.7.0/verify-template.py",
           "local": "templates/agents/verify-template.py",
           "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。",
-          "sha256": "3a23d17c4199f9d58fe38d37447eefb21e537cad52caf2b6849d0b48835fe70a"
+          "sha256": "2cc3c8ccba70617acffed20c56c57320822bfa9aab0beb5a8cf870665e70755f"
         },
         {
           "id": "agent-template.schema",
