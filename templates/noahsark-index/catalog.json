@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1682,13 +1682,13 @@
           "kind": "git",
           "title": "ark-kb · 知识库",
           "status": "available",
-          "version": "main@12ec20df2c6c",
+          "version": "main@757dd8d38651",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-kb",
-          "commit": "12ec20df2c6ce91e3d0e1f994d4c0dead6bb5ab0",
+          "commit": "757dd8d3865161209ca6638eace60ab585446845",
           "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
         },
         {
