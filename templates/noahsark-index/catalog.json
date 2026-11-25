@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.6.5",
+  "version": "2.6.6",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1324,7 +1324,7 @@
           "kind": "entry",
           "title": "创建入口（latest 清单）",
           "status": "available",
-          "version": "1.7.0",
+          "version": "1.8.1",
           "roles": [
             "external-reader",
             "coordinator",
@@ -1343,7 +1343,7 @@
           "kind": "entry",
           "title": "模板清单 v1.7.0（不可变）",
           "status": "available",
-          "version": "1.7.0",
+          "version": "1.8.1",
           "roles": [
             "external-reader",
             "coordinator",
@@ -1353,7 +1353,7 @@
           "requires": [
             "agent-template.latest"
           ],
-          "oss": "noahsark/agent-template/v1.7.0/manifest.json",
+          "oss": "noahsark/agent-template/v1.8.1/manifest.json",
           "sha256": "843ed428b5292ee5a406c44a0dadee82a4e27f889c8f41b3ed2d850239813a55",
           "summary": "版本、兼容矩阵、三个文件的校验值与发布来源；引用版本时以本条为准。"
         },
@@ -1362,7 +1362,7 @@
           "kind": "entry",
           "title": "智能体模板正文 v1.7.0",
           "status": "available",
-          "version": "1.7.0",
+          "version": "1.8.1",
           "roles": [
             "external-reader",
             "coordinator",
@@ -1374,7 +1374,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
+          "oss": "noahsark/agent-template/v1.8.1/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。",
           "sha256": "9cf7de7cea068271305fac9c5fbdfea9c704654232427bca79a580d5a8dc9b7c"
@@ -1384,7 +1384,7 @@
           "kind": "entry",
           "title": "Agent Profile v1 结构定义",
           "status": "available",
-          "version": "1.7.0",
+          "version": "1.8.1",
           "roles": [
             "external-reader",
             "coordinator",
@@ -1394,7 +1394,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.7.0/agent-profile.v1.json",
+          "oss": "noahsark/agent-template/v1.8.1/agent-profile.v1.json",
           "local": "templates/agents/agent-profile.v1.json",
           "summary": "机器可校验的 Profile 字段定义（instructions、description、并发、角色、目录等）。",
           "sha256": "ef77fa8b9a218d1cf08bff6926bf8d6a85dedda68cf1ef0e7a364b2c8778a9a7"
@@ -1404,7 +1404,7 @@
           "kind": "entry",
           "title": "模板自检脚本",
           "status": "available",
-          "version": "1.7.0",
+          "version": "1.8.1",
           "roles": [
             "coordinator",
             "node-executor",
@@ -1413,7 +1413,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.7.0/verify-template.py",
+          "oss": "noahsark/agent-template/v1.8.1/verify-template.py",
           "local": "templates/agents/verify-template.py",
           "summary": "零依赖自检：校验 Profile 结构、必填字段、目录规则与禁用项，退出码非零即不合规。",
           "sha256": "2cc3c8ccba70617acffed20c56c57320822bfa9aab0beb5a8cf870665e70755f"
@@ -1423,7 +1423,7 @@
           "kind": "entry",
           "title": "Agent Template 状态机 schema v1.6.0",
           "status": "available",
-          "version": "1.7.0",
+          "version": "1.8.1",
           "roles": [
             "coordinator",
             "node-executor"
@@ -1431,7 +1431,7 @@
           "requires": [
             "agent-template.manifest"
           ],
-          "oss": "noahsark/agent-template/v1.7.0/run-state.v1.json",
+          "oss": "noahsark/agent-template/v1.8.1/run-state.v1.json",
           "sha256": "d9633c2277fc5017f925166867a98e0e903d67a44146355202ad7bdca43eaa07",
           "summary": "ark.run-state.v1 门禁事件 schema（EXECUTION_CHECK/PROGRESS_5M/STAGE_FINISHED/BLOCKED/FINAL_RECEIPT）。"
         }
