@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.24",
+  "version": "2.6.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1377,7 +1377,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "agent-template.profile",
@@ -1540,13 +1540,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@a6d121f7d823",
+          "version": "main@7d84a726f867",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "a6d121f7d823c820517308ea0e562422e55b0787",
+          "commit": "7d84a726f867987038cc45e4f62a0c1d0031c621",
           "summary": "唯一测试与语音验证实现；tool.log 为流水账，播报记音频名，开头登记数据/工具目录，机型能力用 profile.capabilities 声明。"
         },
         {
@@ -1682,13 +1682,13 @@
           "kind": "git",
           "title": "ark-kb · 知识库",
           "status": "available",
-          "version": "main@00ec781476c4",
+          "version": "main@12ec20df2c6c",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-kb",
-          "commit": "00ec781476c4d0323abb41dedc202de283ec9523",
+          "commit": "12ec20df2c6ce91e3d0e1f994d4c0dead6bb5ab0",
           "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
         },
         {
@@ -1779,7 +1779,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 工作目录",
           "summary": "每个任务一个目录：Windows 为 D:\\zhsh\\workspace\\tasks\\<tasks-id>\\，Linux 为 /home/zhsh/workspace/tasks/<tasks-id>/；<tasks-id> 用任务编号，不用时间戳；不得用 C 盘、系统临时目录、/tmp 或运行时工作目录代替。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.storage",
@@ -1798,7 +1798,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "6. 资产、结果与 1006",
           "summary": "结果与回执按 节点/项目/批次 三级归档；1006 资产必须同时记录文件名、大小、校验值，本机不可达时先记原因再委派可达节点取件，禁止直接结论「资产不存在」。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.time",
@@ -1821,7 +1821,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "8. 时间口径",
           "summary": "唯一形态「年-月-日 时:分:秒」，文件名为紧凑无分隔形式；禁止字母分隔符、末尾时区字母、数字时区偏移与毫秒，禁止节点本地时区。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.credentials",
@@ -1843,7 +1843,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9. 凭据与安全",
           "summary": "凭据只来自进程环境变量或权限 600 的受控密钥文件，共十个变量名；任何凭据值不得出现在模板、日志、回执、评论、提交或对外对象里。本总览不复制任何凭据。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.supervision",
@@ -1865,7 +1865,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "10. 监督契约",
           "summary": "开工先报执行检查字段，长任务每五分钟报进度，状态漂移与无证据运行都要显式暴露；禁止起后台任务后直接结束。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.execution_channel",
@@ -1888,7 +1888,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "11. 执行通道与窗口",
           "summary": "终端、脚本与 SSH 一律走无可见窗口、非交互、可观测的后台通道：Windows 不得弹出 PowerShell、cmd、Windows Terminal 或 conhost，不得用 Start-Process 或 Win32_Process.Create 包装；Linux 与 macOS 用 ssh -T -o BatchMode=yes；输出统一重定向到任务目录 logs/。后台运行不等于隐藏窗口，不得先执行再观察是否弹窗；无法确认隐藏时报 BLOCKED_EXECUTION_CHANNEL。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.approval",
@@ -1909,7 +1909,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "9.4 审批边界",
           "summary": "推送代码、对外发布、真机操作、删除文件、改权限或 ACL 五类必须先获批；没有明确同意字样即视为未批准；只读巡检免审，写操作默认 dry-run。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.jinyiwei",
@@ -1929,7 +1929,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.1 锦衣卫：节点专属执行入口",
           "summary": "锦衣卫一对一绑定 runtime/节点，只接受 Mika/Issue 的具体执行任务；默认 listenai/deepseek-flash、并发 1，禁止规划、协调、跨节点和通用工作。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.role-icons",
@@ -1952,7 +1952,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.2 名称、官职与稳定图标",
           "summary": "Mika 固定五星红旗；六部使用稳定部徽，同部尚书/侍郎共享；锦衣卫统一 🥷。节点、专业和数字后缀不改变图标，禁止平台随机图标。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.official-system",
@@ -1976,7 +1976,7 @@
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "1.3 长期创建体系：Mika + 六部 + 锦衣卫",
           "summary": "Mika 是六部之外的工作区总协调；六部仅限吏、户、礼、兵、刑、工，尚书负责统筹/规则/风险/分派，侍郎负责专业执行；创建前必须预览十项字段。命名强制使用六部/锦衣卫/翰林院职位体系：节点执行用「锦衣卫·<节点>」，知识归档用「翰林院·<节点>」，不同职能用不同名字；禁止「方舟××」等自由命名。知识归档闭环由翰林院执行 decision、promotion 与 sync，Mika 只记录人工决定、不调 8091。 锦衣卫公共操作手册已入 ark-kb（docs/jinyiwei：串口角色、CSK6/HISI 操作卡）；正式知识条目 kb-method-660cafc58c2b（锦衣卫节点 L1 板卡/串口/声卡只读识别基线）已 ACTIVE，可经 8091 检索复用。 锦衣卫基座 Skill 正文已入 ark-kb（docs/jinyiwei/SKILL-jinyiwei-base.md），节点执行智能体按需加载，与串口角色、操作卡同源维护。",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b"
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26"
         },
         {
           "id": "rule.result-layout",
@@ -1996,7 +1996,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 任务目录 > 目录内固定结构 > result/ 固定五项",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b",
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26",
           "summary": "所有任务（长监控与普通任务相同）result/ 下每次运行一个时间戳目录 <YYYYmmddHHMM>/，目录内固定六项：serial_logs/、burn_logs/、tool.log、cases.csv、results.csv、task.json。禁止在 result/ 根下直接放六项，禁止自建 prev_result_*/runs/archive 等归档目录；重跑产生新目录、互不覆盖。tool.log 只写脚本事件与标记行，设备原始行进 serial_logs，烧录 stdout 进 burn_logs。"
         },
         {
@@ -2017,7 +2017,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 任务目录 > 代码与资产获取",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b",
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26",
           "summary": "代码只在 repos\\<仓库> 存在，开工前跑 ark-repo-sync 门禁，锚定 index 的 source_commit，不一致即 BLOCKED_STALE_REPO；A 通道 git 直连，失败自动切 C 通道（OSS bundle + sha256）；节点计划任务每 30 分钟自动 A+C。资产在 assets\\，音频只按 中文/英文 分目录并登记 manifest.json。"
         },
         {
@@ -2038,7 +2038,7 @@
           "oss": "noahsark/agent-template/v1.7.0/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "section": "4. 任务目录 > 开工前置：先判系统",
-          "sha256": "a18a0fca88b62d6343ee7b664b0bbdf274cd57e681c8675a5a0a9ec74d3e872b",
+          "sha256": "5391e6712d3e300f3bb95325e1acc104f95f47a2e8bc319f0d6506cee266ab26",
           "summary": "任务第一个动作前必须判定 Windows/Linux（$env:OS 或 uname -s），判错即 BLOCKED_WRONG_PLATFORM；两套路径严格分离（tasks/repos/assets/同步门禁），判定结果与实际绝对路径写入 plan.md 与 EXECUTION_CHECK。同时强调严格照 lstest 五项结果目录执行，禁止自创 snapshot/summary/analysis/manifest/monitor 等结构。"
         }
       ]

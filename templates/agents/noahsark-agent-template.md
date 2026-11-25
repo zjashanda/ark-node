@@ -275,7 +275,21 @@ Linux  ：uname -s 含 Linux / $HOME 以 /home 开头
 
 - 判定结果与实际绝对路径写入 `plan.md` 和 `EXECUTION_CHECK`，并回读确认可写
 - 禁止跨系统混用路径；禁止用 `C:\`、`/tmp`、runtime workdir 代替任务目录
-### 严格照 lstest 框架执行
+### 阶段性标记位复查（强制）
+
+每个阶段结束（首轮调试完成、每轮压测结束、任务收尾前）必须执行一次：
+
+1. 运行 `python -m lstest.scripts.marker_discovery --logs result/<时间戳>/serial_logs --catalog markers/catalog.json --profile <项目 profile>`
+2. 读三张表：
+   - `[可新增]` 日志里有、profile 未配置 → 确认后补 `event_rules`；`catalog.json` 没有对应 code 时先加 code
+   - `[疑似失效]` profile 配了但日志从未命中 → 查正则是否多了行首锚点或假设了不存在的前缀，或换命令词重试
+   - `[未认领]` 没有任何规则匹配的日志行（按次数排序）→ 逐条判断是否有判定价值，有价值就纳入
+3. 复查结论写进 `tool.log`：`[MARK] 复查 新增=n 失效=n 未认领=n`
+4. 项目固定信息（必抓标记、串口与波特率、协议帧方向、资产路径）同步沉淀到知识库的项目画像条目
+
+禁止：未验证的正则直接进 profile；把噪声行当标记；只看单轮日志就断定“设备不输出该标记”（须换命令词或换场景再试）。
+
+## 严格照 lstest 框架执行
 
 - 结果目录：`result/<YYYYmmddHHMM>/` 时间戳运行目录，内含六项 `serial_logs/`、`burn_logs/`、`tool.log`、`cases.csv`、`results.csv`、`task.json`
 - `tool.log` 流水账格式由 lstest 渲染，禁止手写或自拼字段；设备动作走 `artifacts.emit_action()`
