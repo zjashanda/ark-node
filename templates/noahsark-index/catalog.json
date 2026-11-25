@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.5.21",
+  "version": "2.5.22",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1540,13 +1540,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@092b32e869e6",
+          "version": "main@6bb3825d08f5",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "092b32e869e69542a1a0d6aaa555a9be34fe15e0",
+          "commit": "6bb3825d08f550e40faab79cce667c09a2423413",
           "summary": "唯一的测试与语音验证实现，已吸收 Polaris；派发中的 polaris 槽位改指向本仓库加 device-io。"
         },
         {
@@ -1682,13 +1682,13 @@
           "kind": "git",
           "title": "ark-kb · 知识库",
           "status": "available",
-          "version": "main@3083923eeb43",
+          "version": "main@be9a228fa292",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-kb",
-          "commit": "3083923eeb43e5784abf524ce2ff7e3616ac0517",
+          "commit": "be9a228fa292310a9c6910c5d10fd87c2ff41386",
           "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
         },
         {

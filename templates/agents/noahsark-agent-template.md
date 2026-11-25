@@ -221,6 +221,19 @@ result/
 - 禁止在 `result/` 根下直接放六项；禁止自建 `prev_result_*`、`runs/`、`archive_*` 等归档目录（时间戳目录本身即归档）
 - `tool.log` 只写脚本事件与标记行；设备原始行只在 `serial_logs/`，烧录 stdout 只在 `burn_logs/`
 
+**`tool.log` = 流水账（固定格式，由 lstest 渲染，禁止手写）**
+
+```text
+YYYY-MM-DD HH:MM:SS,mmm - LEVEL - [TAG] 正文 [k=v ...]
+```
+
+- `LEVEL`：`DEBUG/INFO/WARN/ERROR`；`TAG`：`TASK ENV ASSET CASES CASE SERIAL CONTROL POWER BURN BOOT MARK WAKE ASR PLAY OTA RESULT ANOMALY GATE ACTION`
+- 设备信息只在行首：`[SERIAL] COM6(CSK6_A): 串口 COM6 已打开`；**禁止行尾再挂 `channel=`、`port=`、`role=`**
+- 正文里已出现的键不再重复追加
+- 脚本/工具的设备动作（上下电、烧录、播报、唤醒、增益）必须用 `artifacts.emit_action(action, detail=..., **fields)` 记一条 `[ACTION]`
+- 串口原始行不进 `tool.log`；v4 下不允许旧格式行 `YYYY-MM-DD HH:MM:SS [TAG] ...`
+- 项目只适配正则（`profile.event_rules`、`markers/catalog.json`）；日志结构由 lstest 公共库负责，项目不得自己拼格式，也不需要从串口日志反推动作
+
 ### 代码与资产获取
 
 **代码仓库（唯一位置，禁止在任务目录复制）**
@@ -259,11 +272,12 @@ Linux  ：uname -s 含 Linux / $HOME 以 /home 开头
 - 禁止跨系统混用路径；禁止用 `C:\`、`/tmp`、runtime workdir 代替任务目录
 ### 严格照 lstest 框架执行
 
-- 结果目录只允许五项：`serial_logs/`、`tool.log`、`cases.csv`、`results.csv`、`task.json`
+- 结果目录：`result/<YYYYmmddHHMM>/` 时间戳运行目录，内含六项 `serial_logs/`、`burn_logs/`、`tool.log`、`cases.csv`、`results.csv`、`task.json`
+- `tool.log` 流水账格式由 lstest 渲染，禁止手写或自拼字段；设备动作走 `artifacts.emit_action()`
 - 串口日志名固定：`YYYYmmddHHMM_<被测设备名>_<COM口>_<csk|hisi|other>_<a|b|c|d>.log`
 - 时间口径：记录字段与文件名秒级，仅日志流允许毫秒
 - 串口生命周期：默认不断开，只有 `TASK_DONE` / `INTERRUPT`
-- 禁止自创 `snapshot_*`、`summary_latest.md`、`analysis.*`、`manifest.json`、`monitor/` 等结构
+- 禁止自创 `snapshot_*`、`summary_latest.md`、`analysis.*`、`manifest.json`、`monitor/`、`prev_result_*`、`runs/`、`archive_*` 等结构
 - 框架缺能力时报 `NEEDS_REVIEW`，不得现场发明新结构
 ### 门禁适用范围
 
