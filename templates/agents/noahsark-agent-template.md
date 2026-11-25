@@ -205,23 +205,22 @@
 - 目录名只由 `<tasks-id>` 决定，不带时区、不带时间戳后缀、不带毫秒。
 
 
-**`result/` 固定五项（长监控与普通任务一律相同，多一个都不行）：**
+**`result/` 结构（每次运行一个时间戳目录，六项在内）：**
 
-| 项 | 内容 |
-|---|---|
-| `serial_logs/` | 原始串口日志，文件名 `YYYYmmddHHMM_<被测设备名>_<COM口>_<csk\|hisi\|other>_<a\|b\|c\|d>.log` |
-| `tool.log` | 事件流，固定字段、行首 `年-月-日 时:分:秒.毫秒` |
-| `cases.csv` | 设备动作之前冻结的用例与顺序 |
-| `results.csv` | 每个用例一行终态 |
-| `task.json` | 本次运行身份+结论+产物 sha256（`schema=lstest.task.v1`，不登记自身） |
+```text
+result/
+└─ <YYYYmmddHHMM>/            一次运行一个目录，重跑不会覆盖
+   ├─ serial_logs/            原始串口日志 serial_<被测设备>_<COM>_<csk|hisi|other>_<a-d>.log
+   ├─ burn_logs/              烧录等单工具原始输出 <YYYYmmddHHMM>_<工具>_<次数>.log
+   ├─ tool.log                脚本流程 + 标记位（asctime - LEVEL - [TAG] msg，轮次间空行）
+   ├─ cases.csv               动作前冻结的用例
+   ├─ results.csv             每用例一行终态
+   └─ task.json               lstest.task.v1，artifacts 登记本目录产物 sha256
+```
 
-- 禁止在 `result/` 下再建子目录（不得有 `monitor/`、时间戳目录、run_name 目录）
-- 禁止生成 `snapshot_*`、`summary_latest.md`、`analysis.*`、`manifest.json`、`progress.md` 等额外文件
-- 跨 run 运行态（`serial_session.json`、`monitor_progress.jsonl`、`STOP`）写任务级 `logs/`
-- 时间口径：记录字段与文件名为秒级 `年-月-日 时:分:秒`（文件名紧凑 `YYYYmmddHHMM`）；仅日志流（`tool.log`、串口行）允许毫秒
-- 判断日志增长只能用行数或字节偏移，禁止用文件大小
+- 禁止在 `result/` 根下直接放六项；禁止自建 `prev_result_*`、`runs/`、`archive_*` 等归档目录（时间戳目录本身即归档）
+- `tool.log` 只写脚本事件与标记行；设备原始行只在 `serial_logs/`，烧录 stdout 只在 `burn_logs/`
 
----
 ### 代码与资产获取
 
 **代码仓库（唯一位置，禁止在任务目录复制）**
