@@ -275,7 +275,15 @@ Linux  ：uname -s 含 Linux / $HOME 以 /home 开头
 
 - 判定结果与实际绝对路径写入 `plan.md` 和 `EXECUTION_CHECK`，并回读确认可写
 - 禁止跨系统混用路径；禁止用 `C:\`、`/tmp`、runtime workdir 代替任务目录
-### 阶段性标记位复查（强制）
+### 标记位写入规范（强制）
+
+- 标记位必须经 `artifacts.emit_markers(hits)` 写入；禁止自己拼 `  DEV(COM): code: value` 裸行（无时间戳，校验会直接报错）
+- 窗口结束或任务收尾调 `artifacts.flush_markers()`，输出 summary 类标记的汇总行
+- 码表 `markers/catalog.json` 的 `log_policy` 决定频率：`always` 每条都写、`change` 值变化才写、`summary` 只在收尾汇总一行
+- 单个 code 在单窗口出现超过 50 次即视为刷屏，必须改成 `change` 或 `summary`
+- 关键行（reset / version / bootReason / 结果判定）保持 `always`，不得降级
+
+## 阶段性标记位复查（强制）
 
 每个阶段结束（首轮调试完成、每轮压测结束、任务收尾前）必须执行一次：
 
