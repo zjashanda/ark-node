@@ -1,4 +1,4 @@
-# NoahsArk 智能体模板 v1.7.0
+# NoahsArk 智能体模板 v1.8.1
 
 **这份文件是给「新建一个 NoahsArk 智能体」的人（或智能体自己）读的执行草案。**
 读完之后你应该能独立完成：选角色 → 填 profile → 建 Multica Agent → 首次自检 → 交回执。
