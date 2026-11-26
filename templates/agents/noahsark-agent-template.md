@@ -369,6 +369,33 @@ python -m lstest.scripts.longrun start --name ota --work-dir work --infinite --d
 反例（都会出问题）：省略 `--rounds` → 默认 1 轮，任务被误判完成；省略 `--issue` → 里程碑没人看见；
 省略 `--detach` → 工具调用阻塞，被判卡死；自己改目标次数 → 与 Issue 要求不符。
 
+## 设备识别与执行通道（强制）
+
+### 端口/设备识别必须用 usb-tree
+
+判定端口与设备拓扑时，**必须用 usb-tree**（`repos/usb-tree`），禁止用 `Win32_SerialPort` 之类残缺枚举下结论：
+
+```bash
+python -m usb_tree            # 或在 repos/usb-tree 下按 README 执行
+```
+
+原因：`Win32_SerialPort` 只列注册为串口设备的端口，CH344 的 B/D 口会被漏掉，
+据此判断会得出「端口变了/板子掉了」的错误结论（已实际踩过）。
+
+### 禁止终端闪窗（三道关）
+
+1. 所有子进程必须加 `creationflags=CREATE_NO_WINDOW` + `stdin=DEVNULL`
+2. 公共库出口统一：`listenai_play.run_command()` 已内置，不要自己写 `subprocess.run`
+3. 隐藏校验要看**整棵进程树**：`launch_hidden` 用 `_windows_for_tree()` 递归检查子进程再 spawn 的孙进程
+
+### 自检
+
+```bash
+python -m lstest.scripts.console_audit --roots D:\zhsh\workspace\repos,D:\zhsh\workspace\tasks
+```
+
+发现 `subprocess.*` 无 `CREATE_NO_WINDOW` 即报错；计划任务必须 `Hidden=True`。
+
 ## 阶段性标记位复查（强制）
 
 每个阶段结束（首轮调试完成、每轮压测结束、任务收尾前）必须执行一次：
