@@ -283,6 +283,92 @@ Linux  ：uname -s 含 Linux / $HOME 以 /home 开头
 - 单个 code 在单窗口出现超过 50 次即视为刷屏，必须改成 `change` 或 `summary`
 - 关键行（reset / version / bootReason / 结果判定）保持 `always`，不得降级
 
+## 长任务引擎（强制）
+
+任何**超过单次工具调用时长**的任务（多轮压测、长时间监控、OTA 持续观察），必须用 lstest 公共引擎，
+**禁止自己写 while 循环**、禁止把长过程阻塞在一个工具调用里。
+
+### 三种场景，同一套命令
+
+```bash
+# 调试：1 轮（默认），前台跑完即回
+python -m lstest.scripts.longrun start --name dbg --work-dir work --rounds 1 \
+    -- python work/one_round.py --round {round}
+
+# 短测：3 轮
+python -m lstest.scripts.longrun start --name smoke --work-dir work --rounds 3 \
+    -- python work/one_round.py --round {round}
+
+# 压测：500 轮，必须 --detach（立即返回），每 50 轮上报
+python -m lstest.scripts.longrun start --name soak --work-dir work --rounds 500 \
+    --milestone-every 50 --issue <issue-id> --detach \
+    -- python work/one_round.py --round {round}
+
+# 长监控：--infinite 必须显式声明
+python -m lstest.scripts.longrun start --name ota --work-dir work --infinite --detach \
+    --interval 60s -- python work/one_sample.py
+```
+
+### 智能体只做三件事
+
+| 动作 | 命令 |
+|---|---|
+| 启动 | `... start ... --detach`（立即返回 pid） |
+| 查进度 | `python -m lstest.scripts.longrun status --name soak --work-dir work` |
+| 停止 | `python -m lstest.scripts.longrun stop --name soak --work-dir work` |
+
+### 引擎自带（项目不用实现）
+
+- **断点续跑**：每轮写 `work/longrun_<name>.state.json`，重启从 `completed+1` 继续
+- **里程碑**：每 N 轮写 `work/longrun_<name>.milestones.jsonl`，可自动发 Issue 评论
+- **停止文件**：`work/STOP_<name>`，每轮检查，无需杀进程
+- **磁盘门限**：剩余低于阈值转 `blocked`，不继续写
+- **每轮日志**：`work/rounds/<name>_00001.log`，失败可单独回看
+- **隐藏启动**：`launch_hidden` 用 `CREATE_NO_WINDOW` + 窗口枚举验证，不弹任何窗口
+
+### 铁律
+
+- **默认 rounds=1**：不传参数就不会无限跑
+- **无限必须写 `--infinite`**：防止调试误调用占住设备
+- **长任务必须 `--detach`**：否则阻塞工具调用，任务被判卡死
+- **一轮一条命令**：用 `{round}` 占位，项目只实现「跑一轮」，循环交给引擎
+
+### 参数由智能体填写（强制）
+
+长跑参数不是固定的，**由你（智能体）根据任务目标填写**，规则如下：
+
+| 参数 | 怎么填 | 禁止 |
+|---|---|---|
+| `--rounds` | 目标次数只能来自 Issue 描述或用户明确指令 | 不得自行编造；缺失时先问，不要猜 |
+| `--duration` | 用户给时长时用（如 `4h`），与 rounds 二选一 | 不得同时给 rounds 和 duration |
+| `--infinite` | 只有用户明确要求“持续监控/不要停”才用 | 不得默认无限 |
+| `--milestone-every` | `max(10, 目标次数/10)`，让里程碑有节奏 | 不得省略（默认 50 可能整场只有一次） |
+| `--issue` | 必填本任务 Issue ID，里程碑回到任务 | 不得留空 |
+| `--detach` | 长任务必须加，立刻返回 pid | 不得省略（会阻塞工具调用） |
+| `--work-dir` | 固定任务目录下的 `work` | 不得写临时目录 |
+
+三档参考：
+
+```bash
+# 调试：1 轮，确认流程通
+--rounds 1
+
+# 短测：2-5 轮，可前台跑完
+--rounds 3
+
+# 压测：按目标次数，必须 detach + 里程碑 + issue
+--rounds 500 --milestone-every 50 --issue <issue-id> --detach
+```
+
+启动后必须做三件事：
+
+1. 立刻 `status` 回读，确认 `status=running` 且 `completed` 在增长
+2. 把实际参数写进 `plan.md` 与 `task.json` 的 `inputs`
+3. 收尾时汇总：总轮次、PASS/FAIL、每轮均耗时、异常次数
+
+反例（都会出问题）：省略 `--rounds` → 默认 1 轮，任务被误判完成；省略 `--issue` → 里程碑没人看见；
+省略 `--detach` → 工具调用阻塞，被判卡死；自己改目标次数 → 与 Issue 要求不符。
+
 ## 阶段性标记位复查（强制）
 
 每个阶段结束（首轮调试完成、每轮压测结束、任务收尾前）必须执行一次：
