@@ -1377,7 +1377,7 @@
           "oss": "noahsark/agent-template/v1.8.4/noahsark-agent-template.md",
           "local": "templates/agents/noahsark-agent-template.md",
           "summary": "十二条硬约束：创建流程、角色、工作目录、代码与知识来源、资产与 1006、任务闭环、时间口径、凭据、监督契约、验收。",
-          "sha256": "12f5e3390317a88227c14ca2591e4e07a0ba39650b481160cfb362f83ef23d51"
+          "sha256": "19e11c9cc5a44b91a2845e96d6b2e28496218b785e4dd04e1f24551bdb2af081"
         },
         {
           "id": "agent-template.profile",
