@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.7.6",
+  "version": "2.8.0",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1540,13 +1540,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@574b8d767f56",
+          "version": "main@204c293195a3",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "574b8d767f568ecbad3cadb4d4cf47789994a895",
+          "commit": "204c293195a3edaff1f699bea7dd3d15283f1dad",
           "summary": "唯一测试与语音验证实现；tool.log 为流水账，播报记音频名，开头登记数据/工具目录，机型能力用 profile.capabilities 声明。"
         },
         {
