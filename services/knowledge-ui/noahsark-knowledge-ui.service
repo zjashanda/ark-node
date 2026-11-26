@@ -1,0 +1,15 @@
+[Unit]
+Description=NoahsArk Knowledge Read-only LAN UI (8092)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/workspace/services/noahsark-knowledge-ui
+ExecStart=/usr/bin/python3 %h/workspace/services/noahsark-knowledge-ui/app.py
+Restart=always
+RestartSec=3
+Environment=NOAHSARK_UI_PORT=8092
+Environment=NOAHSARK_API_BASE=http://127.0.0.1:8091
+
+[Install]
+WantedBy=default.target
