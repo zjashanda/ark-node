@@ -1,7 +1,7 @@
 {
   "schema": "ark.noahsark-index.catalog.v2",
   "name": "noahsark-index",
-  "version": "2.8.2",
+  "version": "2.8.3",
   "title": "NoahsArk 资源总览",
   "oss": {
     "bucket": "listenai-test-internal",
@@ -1201,7 +1201,7 @@
           "kind": "git",
           "title": "ark-node 节点入口",
           "status": "available",
-          "version": "main@fc959f7a0906",
+          "version": "main@c41182cd087d",
           "roles": [
             "external-reader",
             "coordinator",
@@ -1212,7 +1212,7 @@
           "requires": [],
           "git": "zjashanda/ark-node",
           "file": "README.md",
-          "commit": "fc959f7a090645f57f972893965f5ebec3cba5f2",
+          "commit": "c41182cd087df3396024c053f76b90967b312ca3",
           "summary": "identity/probe/init/env/fetch 一套 CLI，Windows 与 Linux 共用；节点身份与目录契约的入口。"
         },
         {
@@ -1499,7 +1499,7 @@
           "kind": "git",
           "title": "节点命令行入口",
           "status": "available",
-          "version": "main@fc959f7a0906",
+          "version": "main@c41182cd087d",
           "roles": [
             "node-executor",
             "hardware-bench",
@@ -1510,7 +1510,7 @@
           ],
           "git": "zjashanda/ark-node",
           "file": "bin/ark-node",
-          "commit": "fc959f7a090645f57f972893965f5ebec3cba5f2",
+          "commit": "c41182cd087df3396024c053f76b90967b312ca3",
           "summary": "节点侧统一入口命令：环境同步、目录初始化、身份与探测、取件；Windows 用 bin/ark-node.ps1。"
         }
       ]
@@ -1540,13 +1540,13 @@
           "kind": "git",
           "title": "lstest · 测试与语音验证",
           "status": "available",
-          "version": "main@5820427b1fe2",
+          "version": "main@4c0ddea8ed2a5",
           "roles": [
             "hardware-bench"
           ],
           "requires": [],
           "git": "zjashanda/lstest",
-          "commit": "5820427b1fe2206fdf9809b9870571c9b9443950",
+          "commit": "4c0ddea8ed2a508e7c2c48a030e13f330768a360",
           "summary": "唯一测试与语音验证实现；tool.log 为流水账，播报记音频名，开头登记数据/工具目录，机型能力用 profile.capabilities 声明。"
         },
         {
@@ -1682,13 +1682,13 @@
           "kind": "git",
           "title": "ark-kb · 知识库",
           "status": "available",
-          "version": "main@68d0a462acab",
+          "version": "main@de6798c1b4d9",
           "roles": [
             "knowledge-curator"
           ],
           "requires": [],
           "git": "zjashanda/ark-kb",
-          "commit": "68d0a462acab609f996a72ad14845bf6fcdf2011",
+          "commit": "de6798c1b4d91515e2f80c6777814ff0c8b0456d",
           "summary": "知识账本与检索；写入前先过时间口径与必填字段校验。"
         },
         {
@@ -1696,7 +1696,7 @@
           "kind": "git",
           "title": "ark-node · 节点运行时",
           "status": "available",
-          "version": "main@fc959f7a0906",
+          "version": "main@c41182cd087d",
           "roles": [
             "coordinator",
             "node-executor",
@@ -1704,7 +1704,7 @@
           ],
           "requires": [],
           "git": "zjashanda/ark-node",
-          "commit": "fc959f7a090645f57f972893965f5ebec3cba5f2",
+          "commit": "c41182cd087df3396024c053f76b90967b312ca3",
           "summary": "节点侧能力：环境同步、目录初始化、身份与探测、取件；本总览的源文件也在本仓库。"
         },
         {
