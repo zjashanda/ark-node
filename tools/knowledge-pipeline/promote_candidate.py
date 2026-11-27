@@ -72,7 +72,7 @@ def plan(candidate: dict[str, Any], repo: str) -> dict[str, Any]:
     if fmt not in ("full", "unified_diff"):
         raise ValueError(f"payload_format 非法：{fmt}")
     proposal_id = str(candidate.get("proposal_id") or candidate.get("id") or "")
-    branch = "candidate/" + re.sub(r"[^A-Za-z0-9._-]", "-", proposal_id)
+    branch = "promo/" + re.sub(r"[^A-Za-z0-9._-]", "-", proposal_id)
     return {
         "proposal_id": proposal_id,
         "branch": branch,

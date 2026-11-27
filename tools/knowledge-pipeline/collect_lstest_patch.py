@@ -12,10 +12,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 STORAGE = "http://10.11.63.24:8090"
@@ -28,6 +30,10 @@ KIND_BY_PATH = (
     ("adapters/", "framework_fix"),
 )
 TRUSTED_NODES = ("bszT14", "linux003")
+MULTICA = "/usr/local/bin/multica"
+WORKSPACE = "66f56c0f-69cd-43ef-b7c6-c582889dd600"
+REVIEW_PROJECT = "4fc47d41-dade-429d-b55a-c7b4798d56f4"
+VALUE_SCORE = {"framework_fix": 10, "marker_code": 8, "profile_rule": 5}
 
 
 def _get(url: str, node: str, timeout: int = 30) -> tuple[int, bytes]:
@@ -151,6 +157,73 @@ def create_proposal(api: str, body: dict[str, Any]) -> dict[str, Any]:
         return {"status": 0, "body": str(error)}
 
 
+def review_issue_body(manifest: dict[str, Any], kind: str, proposal_id: str,
+                      manifest_key: str, target: str) -> str:
+    checks = manifest.get("checks") or {}
+    sample = manifest.get("log_sample") or []
+    lines = [
+        f"## 候选 {proposal_id}",
+        "",
+        f"- kind：`{kind}`",
+        f"- publish_target：`lstest`",
+        f"- target_path：`{target}`",
+        f"- base_commit：`{manifest.get('base_commit')}`（{manifest.get('base_version') or '未标版本'}）",
+        f"- 来源节点：`{manifest.get('node')}`  任务：`{manifest.get('task')}`  运行：`{manifest.get('run')}`",
+        "",
+        "## 适配校验",
+        "",
+        "```json",
+        json.dumps(checks, ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## 最小复现样本",
+        "",
+    ]
+    if manifest.get("log_sample_note"):
+        lines.append(manifest["log_sample_note"])
+        lines.append("")
+    lines.append("```text")
+    lines.extend(sample)
+    lines.append("```")
+    lines.extend([
+        "",
+        "## 证据",
+        "",
+        f"`8090://evidence/noahsark/{manifest_key}`",
+        "",
+        "## 批准方式",
+        "",
+        "在本 Issue 评论「合并」或「批准合并」；未出现该字样时不会合入 main。",
+    ])
+    return "\n".join(lines)
+
+
+def create_review_issue(title: str, body: str, assignee: str, multica: str, workspace: str,
+                        project: str) -> dict[str, Any]:
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as handle:
+        handle.write(body)
+        path = handle.name
+    cmd = [multica, "--workspace-id", workspace, "issue", "create",
+           "--project", project, "--title", title, "--description-file", path, "--output", "json"]
+    if assignee:
+        cmd += ["--assignee", assignee]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    finally:
+        Path(path).unlink(missing_ok=True)
+    if result.returncode != 0:
+        return {"ok": False, "error": (result.stderr or result.stdout).strip()[:300]}
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        return {"ok": False, "error": result.stdout[:300]}
+    issue = payload.get("issue", payload)
+    return {"ok": True, "identifier": issue.get("identifier"), "id": issue.get("id")}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="从 8090 收集 lstest 修改并创建候选")
     parser.add_argument("--node", required=True, help="上传方节点名")
@@ -161,6 +234,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api", default=API)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--no-issue", action="store_true", help="只建候选，不建审核 Issue")
+    parser.add_argument("--assignee", default="", help="审核 Issue 指派对象")
+    parser.add_argument("--multica", default=MULTICA)
+    parser.add_argument("--workspace", default=WORKSPACE)
+    parser.add_argument("--project", default=REVIEW_PROJECT)
     args = parser.parse_args(argv)
 
     if ACTOR not in TRUSTED_NODES:
@@ -213,7 +291,26 @@ def main(argv: list[str] | None = None) -> int:
     result = create_proposal(args.api, body)
     ok = result.get("status") in (200, 201)
     print(f"  [{'ok' if ok else 'fail'}] {kind} {body['draft']['target_path']} -> {result.get('status')} {result.get('body')}")
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    response = result.get("body") or {}
+    proposal_id = str(response.get("proposal_id") or body["idempotency_key"])
+
+    if args.no_issue:
+        print("  跳过建审核 Issue（--no-issue）", file=sys.stderr)
+        return 0
+
+    short = re.sub(r"[^0-9a-zA-Z]", "", proposal_id)[-8:]
+    score = VALUE_SCORE.get(kind, 5)
+    title = f"[待审] {short} · {body['draft']['title'].replace('[待审] ', '')} · 价值分 {score}"
+    issue_body = review_issue_body(manifest, kind, proposal_id, manifest_key, body["draft"]["target_path"])
+    created = create_review_issue(title, issue_body, args.assignee, args.multica, args.workspace, args.project)
+    if created.get("ok"):
+        print(f"  审核 Issue：{created.get('identifier')}（{created.get('id')}）")
+        return 0
+    print(f"  建审核 Issue 失败：{created.get('error')}", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
